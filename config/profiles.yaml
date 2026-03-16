@@ -1,0 +1,65 @@
+models:
+  - id: "gemini-3.1-flash-lite"
+    provider: "google"
+    cost_per_1k_tokens: 0.00001
+    context_window: 1000000
+    reasoning_capability: "low"
+    speed: "ultra_fast"
+  - id: "gemini-3.1-flash"
+    provider: "google"
+    cost_per_1k_tokens: 0.0001
+    context_window: 1000000
+    reasoning_capability: "medium"
+    speed: "very_fast"
+  - id: "gpt-5.4-thinking"
+    provider: "openai"
+    cost_per_1k_tokens: 0.02
+    context_window: 1000000
+    reasoning_capability: "extreme"
+    speed: "medium"
+  - id: "claude-4.6-sonnet"
+    provider: "anthropic"
+    cost_per_1k_tokens: 0.005
+    context_window: 1000000
+    reasoning_capability: "high"
+    speed: "fast"
+  - id: "llama-3.1-8b-local"
+    provider: "local"
+    cost_per_1k_tokens: 0.0
+    context_window: 128000
+    reasoning_capability: "low"
+    speed: "fast"
+
+infrastructure:
+  - id: "gcp_cloud_run_function"
+    provider: "gcp"
+    cost_per_minute: 0.00002
+    max_duration_minutes: 60
+    max_memory_mb: 32768
+    startup_time_sec: 1
+    type: "serverless_container"
+    best_for: "high_concurrency"
+  - id: "aws_lambda_durable"
+    provider: "aws"
+    cost_per_minute: 0.000016
+    max_duration_minutes: 525600 # 1 year suspend
+    max_memory_mb: 10240
+    startup_time_sec: 0.2
+    type: "serverless_function"
+    best_for: "stateful_burst"
+  - id: "aws_ec2_spot_t4g"
+    provider: "aws"
+    cost_per_minute: 0.00007
+    max_duration_minutes: 43200 # basically unbounded but ephemeral
+    max_memory_mb: 65536
+    startup_time_sec: 45
+    type: "vm"
+    best_for: "heavy_compute"
+  - id: "local_server_docker"
+    provider: "local_network"
+    cost_per_minute: 0.0
+    max_duration_minutes: 10080 # 1 week
+    max_memory_mb: 131072 # 128GB (assuming a beefy local server)
+    startup_time_sec: 5
+    type: "container"
+    best_for: "heavy_local_tasks"
