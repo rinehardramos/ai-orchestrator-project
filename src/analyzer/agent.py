@@ -68,7 +68,7 @@ class AnalyzerAgent:
         """
         
         response = self.client.models.generate_content(
-            model='gemini-1.5-flash-latest',
+            model='gemini-3.1-flash-lite-preview',
             contents=prompt,
             config={'response_mime_type': 'application/json'}
         )
@@ -119,7 +119,12 @@ class AnalyzerAgent:
         if not valid_infra:
             raise ValueError("No infrastructure profile meets the task requirements.")
 
-        # Specific Overrides
+        # Priority: Prefer local server if it meets all criteria
+        local = next((i for i in valid_infra if i['id'] == 'local_server_docker'), None)
+        if local:
+            return local
+
+        # Specific Overrides for Cloud (only if local is not valid)
         if task.requires_concurrency:
             gcp_run = next((i for i in valid_infra if i['id'] == 'gcp_cloud_run_function'), None)
             if gcp_run: return gcp_run

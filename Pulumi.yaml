@@ -1,0 +1,4 @@
+name: ai-orchestration-project
+runtime: python
+description: A hybrid AI orchestration stack for Raspberry Pi and Cloud.
+main: src/iac/infra_stack.py
