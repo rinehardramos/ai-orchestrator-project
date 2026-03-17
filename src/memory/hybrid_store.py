@@ -1,5 +1,7 @@
-import sqlite3
 import os
+import json
+import redis
+import boto3
 from qdrant_client import QdrantClient
 from pydantic import BaseModel
 
@@ -9,44 +11,89 @@ class MemoryEntry(BaseModel):
     metadata: dict
 
 class HybridMemoryStore:
-    def __init__(self, local_db_path="data/memory.db", cloud_url=None, cloud_api_key=None):
-        # 1. Local SQLite (Fast/Metadata)
-        os.makedirs(os.path.dirname(local_db_path), exist_ok=True)
-        self.conn = sqlite3.connect(local_db_path)
-        self._init_local_db()
+    def __init__(self, redis_url=None, qdrant_url=None, qdrant_api_key=None, s3_bucket=None, aws_region="us-east-1"):
+        # L1: Redis (Fast, Ephemeral State, Langgraph Checkpointing)
+        redis_url = redis_url or os.environ.get("REDIS_URL", "redis://localhost:6379")
+        self.redis = redis.from_url(redis_url)
         
-        # 2. Cloud Qdrant (LTM/Vector)
-        if cloud_url:
-            self.qdrant = QdrantClient(url=cloud_url, api_key=cloud_api_key)
+        # L2: Qdrant (Persistent, Semantic Vector Search)
+        qdrant_url = qdrant_url or os.environ.get("QDRANT_URL")
+        if qdrant_url:
+            self.qdrant = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         else:
             self.qdrant = None
 
-    def _init_local_db(self):
-        cursor = self.conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS memory_cache (
-                id TEXT PRIMARY KEY,
-                content TEXT,
-                metadata TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        self.conn.commit()
+        # L3: AWS S3 (Cold, Archival, Audit Trails)
+        self.s3_bucket = s3_bucket or os.environ.get("S3_ARCHIVE_BUCKET")
+        if self.s3_bucket:
+            self.s3 = boto3.client('s3', region_name=aws_region)
+        else:
+            self.s3 = None
 
-    def store(self, entry: MemoryEntry):
-        # Fast Local Write
-        cursor = self.conn.cursor()
-        import json
-        cursor.execute("INSERT OR REPLACE INTO memory_cache (id, content, metadata) VALUES (?, ?, ?)",
-                       (entry.id, entry.content, json.dumps(entry.metadata)))
-        self.conn.commit()
+    def store_l1(self, key: str, value: dict, ttl_seconds: int = 3600):
+        """Store transient state in Redis."""
+        try:
+            self.redis.setex(key, ttl_seconds, json.dumps(value))
+        except redis.exceptions.ConnectionError:
+            print(f"[L1 Cache] Redis not available, skipping store for {key}")
+
+    def get_l1(self, key: str) -> dict:
+        """Retrieve transient state from Redis."""
+        try:
+            data = self.redis.get(key)
+            return json.loads(data) if data else None
+        except redis.exceptions.ConnectionError:
+            print(f"[L1 Cache] Redis not available, skipping get for {key}")
+            return None
+
+    def store_l2(self, collection_name: str, entry: MemoryEntry, vector: list):
+        """Store persistent semantic memory in Qdrant."""
+        if not self.qdrant:
+            return
         
-        # Async Cloud LTM Write (This would typically be a Temporal Activity)
-        if self.qdrant:
-            pass # Temporal workflow handles actual embedding/storing
+        # Ensure collection exists (basic check)
+        try:
+            self.qdrant.get_collection(collection_name)
+        except Exception:
+            from qdrant_client.http.models import Distance, VectorParams
+            self.qdrant.create_collection(
+                collection_name=collection_name,
+                vectors_config=VectorParams(size=len(vector), distance=Distance.COSINE),
+            )
+            
+        self.qdrant.upsert(
+            collection_name=collection_name,
+            points=[
+                {
+                    "id": entry.id,
+                    "vector": vector,
+                    "payload": {
+                        "content": entry.content,
+                        **entry.metadata
+                    }
+                }
+            ]
+        )
 
-    def query_local(self, query_text):
-        # Heuristic search for recent context
-        cursor = self.conn.cursor()
-        cursor.execute("SELECT content FROM memory_cache WHERE content LIKE ? LIMIT 5", (f"%{query_text}%",))
-        return cursor.fetchall()
+    def query_l2(self, collection_name: str, query_vector: list, limit: int = 5):
+        """Semantic search in Qdrant."""
+        if not self.qdrant:
+            return []
+        return self.qdrant.search(
+            collection_name=collection_name,
+            query_vector=query_vector,
+            limit=limit
+        )
+
+    def archive_l3(self, task_id: str, full_state: dict):
+        """Archive complete task state/audit trail to S3."""
+        if not self.s3 or not self.s3_bucket:
+            print(f"L3 Archival skipped (no S3 configured) for task {task_id}")
+            return
+            
+        self.s3.put_object(
+            Bucket=self.s3_bucket,
+            Key=f"tasks/{task_id}/audit_trail.json",
+            Body=json.dumps(full_state),
+            ContentType="application/json"
+        )

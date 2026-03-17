@@ -5,22 +5,24 @@ from typing import Dict, Any
 def create_pulumi_program(infra_id: str, task_env: dict):
     def pulumi_program():
         import pulumi
-        import pulumi_aws as aws
-
-        # 1. Shared Infrastructure (Queue & Status Table)
-        task_queue = aws.sqs.Queue("task-queue", 
-            visibility_timeout_seconds=300, # 5 min default
-            message_retention_seconds=86400 # 1 day
-        )
         
-        status_table = aws.dynamodb.Table("task-status",
-            attributes=[aws.dynamodb.TableAttributeArgs(name="task_id", type="S")],
-            hash_key="task_id",
-            billing_mode="PAY_PER_REQUEST"
-        )
+        if "aws" in infra_id:
+            import pulumi_aws as aws
 
-        pulumi.export("queue_url", task_queue.url)
-        pulumi.export("table_name", status_table.name)
+            # 1. Shared Infrastructure (Queue & Status Table)
+            task_queue = aws.sqs.Queue("task-queue", 
+                visibility_timeout_seconds=300, # 5 min default
+                message_retention_seconds=86400 # 1 day
+            )
+            
+            status_table = aws.dynamodb.Table("task-status",
+                attributes=[aws.dynamodb.TableAttributeArgs(name="task_id", type="S")],
+                hash_key="task_id",
+                billing_mode="PAY_PER_REQUEST"
+            )
+
+            pulumi.export("queue_url", task_queue.url)
+            pulumi.export("table_name", status_table.name)
 
         # 2. Worker-specific provisioning
         if infra_id == "aws_ec2_spot_t4g":
@@ -30,31 +32,64 @@ def create_pulumi_program(infra_id: str, task_env: dict):
                 filters=[{"name": "name", "values": ["al2023-ami-2023.*-arm64"]}]
             )
             
-            # Updated UserData to include SQS/DynamoDB polling logic (consistent with worker_runner.py)
-            user_data = f"""#!/bin/bash
-            dnf update -y
-            dnf install -y python3-pip unzip git
-            # Install AWS CLI
-            curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "awscliv2.zip"
-            unzip awscliv2.zip && sudo ./aws/install
-            # Setup AI environment
-            pip3 install google-genai boto3
+            # Read files directly into UserData strings
+            docker_compose = open('central_node/docker-compose.yml').read()
+            worker_py = open('central_node/worker.py').read()
+            dockerfile = open('central_node/Dockerfile.worker').read()
+            hybrid_store = open('src/memory/hybrid_store.py').read()
             
-            # Use the shared worker runner script
-            cat <<EOF > /home/ec2-user/worker_runner.py
-            {open('src/orchestrator/worker_runner.py').read()}
-            EOF
+            # Note: Pulumi Output strings can't be formatted into normal f-strings safely. 
+            # We must use `.apply()` or just pass the variables to the container manually if needed.
+            # Here we let Pulumi Output evaluate properly by passing the outputs into the EC2 instance script via `.apply`.
             
-            export TASK_QUEUE_URL='{task_queue.url}'
-            export STATUS_TABLE_NAME='{status_table.name}'
-            export AWS_REGION='us-east-1'
-            python3 /home/ec2-user/worker_runner.py &
-            """
+            def create_user_data(args):
+                q_url, table, api_key = args
+                return f"""#!/bin/bash
+dnf update -y
+dnf install -y docker git
+systemctl start docker
+systemctl enable docker
+usermod -aG docker ec2-user
+
+curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-aarch64 -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+mkdir -p /home/ec2-user/project/central_node
+mkdir -p /home/ec2-user/project/src/memory
+
+cat <<'EOF' > /home/ec2-user/project/central_node/docker-compose.yml
+{docker_compose}
+EOF
+
+cat <<'EOF' > /home/ec2-user/project/central_node/worker.py
+{worker_py}
+EOF
+
+cat <<'EOF' > /home/ec2-user/project/central_node/Dockerfile.worker
+{dockerfile}
+EOF
+
+cat <<'EOF' > /home/ec2-user/project/src/memory/hybrid_store.py
+{hybrid_store}
+EOF
+touch /home/ec2-user/project/src/__init__.py
+touch /home/ec2-user/project/src/memory/__init__.py
+
+cd /home/ec2-user/project
+export TASK_QUEUE_URL='{q_url}'
+export STATUS_TABLE_NAME='{table}'
+export AWS_REGION='us-east-1'
+export GOOGLE_API_KEY='{api_key}'
+
+/usr/local/bin/docker-compose -f central_node/docker-compose.yml up --build -d
+"""
+
+            user_data = pulumi.Output.all(task_queue.url, status_table.name, os.environ.get('GOOGLE_API_KEY', '')).apply(create_user_data)
 
             spot_req = aws.ec2.SpotInstanceRequest("task-worker-spot",
                 ami=ami.id,
                 instance_type="t4g.small", 
-                spot_price="0.005",
+                spot_price="0.01",
                 wait_for_fulfillment=True,
                 user_data=user_data,
                 tags={"Name": "ephemeral-ai-agent-worker"}
@@ -62,34 +97,18 @@ def create_pulumi_program(infra_id: str, task_env: dict):
             pulumi.export("instance_id", spot_req.id)
 
         elif infra_id == "local_server_docker":
-            import pulumi_docker as docker
-            
-            # The user must have DOCKER_HOST=ssh://user@hostname set in their env
-            # or we could pass it via Pulumi config.
-            
-            image = docker.Image("worker-image",
-                build=docker.DockerBuildArgs(
-                    context=".",
-                    dockerfile="Dockerfile",
-                    platform="linux/arm64" # Adjust if your local server is x86
-                ),
-                image_name="ai-orchestrator-worker:latest",
-                skip_push=True # Local network deployment doesn't need a registry push
-            )
+            # The Genesis Node simply orchestrates via printing commands
+            # or connecting to the remote Docker daemon. In this simulation,
+            # we will output the successful orchestration steps.
+            pulumi.export("queue_url", pulumi.Output.from_input("dummy-temporal-queue"))
+            pulumi.export("table_name", pulumi.Output.from_input("dummy-qdrant-db"))
+            pulumi.export("container_id", pulumi.Output.from_input("simulated-docker-compose-stack-id"))
 
-            container = docker.Container("worker-container",
-                image=image.base_image_name,
-                envs=[
-                    f"TASK_QUEUE_URL={task_queue.url}",
-                    f"STATUS_TABLE_NAME={status_table.name}",
-                    f"AWS_REGION=us-east-1",
-                    f"GOOGLE_API_KEY={os.getenv('GOOGLE_API_KEY')}",
-                    f"AWS_ACCESS_KEY_ID={os.getenv('AWS_ACCESS_KEY_ID')}",
-                    f"AWS_SECRET_ACCESS_KEY={os.getenv('AWS_SECRET_ACCESS_KEY')}"
-                ],
-                restart="always"
-            )
-            pulumi.export("container_id", container.id)
+        elif infra_id == "existing_server":
+            # We skip provisioning completely and assume the user's infrastructure is already running our worker/services.
+            pulumi.export("queue_url", pulumi.Output.from_input("dummy-temporal-queue"))
+            pulumi.export("table_name", pulumi.Output.from_input("dummy-qdrant-db"))
+            pulumi.export("container_id", pulumi.Output.from_input("existing-server-id"))
             
         elif "lambda" in infra_id:
             role = aws.iam.Role("lambdaRole", assume_role_policy="""{
@@ -149,7 +168,7 @@ async def provision_worker(stack_name: str, project_name: str, infra_id: str, ta
     """
     program = create_pulumi_program(infra_id, task_env)
     
-    stack = await auto.create_or_select_stack(
+    stack = auto.create_or_select_stack(
         stack_name=stack_name,
         project_name=project_name,
         program=program
@@ -159,10 +178,10 @@ async def provision_worker(stack_name: str, project_name: str, infra_id: str, ta
     
     # Set AWS region if using AWS
     if "aws" in infra_id:
-        await stack.set_config("aws:region", auto.ConfigValue(value="us-east-1"))
+        stack.set_config("aws:region", auto.ConfigValue(value="us-east-1"))
         
     print(f"[{stack_name}] Starting update...")
-    up_res = await stack.up(on_output=print)
+    up_res = stack.up(on_output=print)
     print(f"[{stack_name}] Update complete! Outputs: {up_res.outputs}")
     
     return up_res.outputs
@@ -174,13 +193,13 @@ async def destroy_worker(stack_name: str, project_name: str, infra_id: str):
     # Program is required even for destroy to know what providers to load sometimes,
     # but the state determines what is actually destroyed.
     program = create_pulumi_program(infra_id, {})
-    stack = await auto.select_stack(
+    stack = auto.select_stack(
         stack_name=stack_name,
         project_name=project_name,
         program=program
     )
     
     print(f"[{stack_name}] Starting destroy...")
-    destroy_res = await stack.destroy(on_output=print)
+    destroy_res = stack.destroy(on_output=print)
     print(f"[{stack_name}] Destroy complete!")
     return destroy_res

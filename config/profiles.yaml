@@ -63,3 +63,11 @@ infrastructure:
     startup_time_sec: 5
     type: "container"
     best_for: "heavy_local_tasks"
+  - id: "existing_server"
+    provider: "existing_infra"
+    cost_per_minute: 0.0
+    max_duration_minutes: 525600
+    max_memory_mb: 131072
+    startup_time_sec: 1
+    type: "container"
+    best_for: "heavy_compute"

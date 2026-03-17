@@ -50,6 +50,7 @@ async def main():
     parser = argparse.ArgumentParser(description="AI Task Orchestrator - Analyzer Agent")
     parser.add_argument("statement", nargs="?", help="Natural language description of the task")
     parser.add_argument("--plan", action="store_true", help="Review the execution plan before proceeding")
+    parser.add_argument("--use-existing", action="store_true", help="Use existing infrastructure instead of provisioning dynamically")
     parser.add_argument("--config", default="config/profiles.yaml", help="Path to profiles configuration")
     
     args = parser.parse_args()
@@ -68,6 +69,12 @@ async def main():
         
         # 2. Analyze requirements for optimal infra and model
         result = agent.analyze(task_req)
+        
+        # Override infrastructure if using existing
+        if args.use_existing:
+            result.infrastructure_id = "existing_server"
+            result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
+            result.reason = "User requested to use existing infrastructure."
         
         if args.plan:
             # INTERACTIVE MODE

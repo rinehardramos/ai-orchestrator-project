@@ -14,3 +14,4 @@ pulumi-docker==4.11.1
 
 # Memory Client (No heavy local vector db)
 qdrant-client==1.12.2
+redis==5.2.1

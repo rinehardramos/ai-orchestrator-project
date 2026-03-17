@@ -106,8 +106,8 @@ class AnalyzerAgent:
             
             # Capability matching
             if task.requires_state_suspension and infra['best_for'] != 'stateful_burst':
-                # AWS lambda durable is best for state suspension, others fail or get penalized
-                if infra['provider'] != 'aws' or 'durable' not in infra['id']:
+                # AWS lambda durable is best for state suspension, but local server with Temporal works too
+                if infra['id'] != 'local_server_docker' and (infra['provider'] != 'aws' or 'durable' not in infra['id']):
                     continue
             
             if task.requires_concurrency and infra['best_for'] == 'high_concurrency':
@@ -124,7 +124,7 @@ class AnalyzerAgent:
         if local:
             return local
 
-        # Specific Overrides for Cloud (only if local is not valid)
+        # Specific Overrides for Cloud
         if task.requires_concurrency:
             gcp_run = next((i for i in valid_infra if i['id'] == 'gcp_cloud_run_function'), None)
             if gcp_run: return gcp_run
