@@ -1,41 +1,48 @@
-# AI Orchestration Project: Intelligent Task Worker
+# AI Orchestration Project: Genesis CNC & Intelligent Worker Nodes
 
-An autonomous orchestrator designed to run on low-power hardware (like a Raspberry Pi) that dynamically provisions ephemeral, cost-optimized cloud infrastructure and LLM models to execute tasks.
+An autonomous, multi-tier orchestrator designed to run as a **Genesis Node (L0 CNC)** on low-power hardware (like a Raspberry Pi 3) that delegates complex reasoning tasks to **Remote Worker Nodes** via Temporal and Pulumi.
 
 ## 🚀 Key Features
 
-- **Infrastructure & Model Analyzer Agent**: Uses Gemini 1.5 to parse natural language task descriptions and determine the most economical and efficient setup.
-- **2026-Era Profiles**: Pre-configured with the latest serverless and frontier models (Gemini 3.1, GPT-5.4, Claude 4.6).
-- **Ephemeral Infrastructure (IaC)**: Programmatically provisions and destroys resources using the Pulumi Automation API to ensure zero idle costs.
-- **RAG-Ready**: Designed to connect to serverless vector databases for task memory and long-term state.
+- **Genesis Node (Thin CNC)**: Optimized for Raspberry Pi 3 (1GB RAM). Handles intent parsing and delegation without local heavy lifting.
+- **Durable Orchestration (Temporal)**: Uses Temporal.io to ensure task execution is resilient, retryable, and stateful across ephemeral workers.
+- **Infrastructure & Model Analyzer Agent**: Uses Gemini 3 Flash to determine the most economical and efficient execution environment.
+- **Automated Remote Provisioning**: Dynamically syncs code and provisions Dockerized environments on remote servers (via SSH/Pulumi) or cloud (AWS/GCP).
+- **Tiered Memory System**:
+  - **L1 (Redis)**: Fast ephemeral cache.
+  - **L2 (Qdrant)**: Persistent semantic vector memory.
+  - **L3 (S3/Local)**: Cold archival audit trails.
 - **Dual Modes**: 
   - **Automatic**: High-speed, one-step "Analyze & Execute" flow.
-  - **Plan (Dry Run)**: Interactive mode to review reasoning, costs, and adjust parameters before deployment.
+  - **Plan (Dry Run)**: Interactive mode to review reasoning, costs, and connectivity status.
 
 ## 🛠️ Prerequisites
 
 - **Python 3.13+**
-- **Pulumi CLI**: Installed and configured with your cloud provider (AWS/GCP).
-- **Cloud CLIs**: `aws` and `gh` (GitHub) CLI installed and authenticated.
+- **Pulumi CLI**: Installed on the Genesis Node.
+- **Docker & Docker Compose**: Installed on the Remote Worker Node.
+- **Temporal Server**: Running on the worker node (provisioned automatically by Genesis).
 - **API Keys**: 
-  - `GOOGLE_API_KEY`: Required for the Analyzer Agent's natural language parsing.
+  - `GOOGLE_API_KEY`: Required for the Gemini reasoning engine.
 
-## 🔐 Authentication & Secrets
+## 🔐 Configuration
 
-The orchestrator uses standard environment variables and system-level authentication. **Never** commit your `.env` file or cloud credentials to source control.
+The project uses two primary configuration files:
+- `config/profiles.yaml`: Defines available LLM models and infrastructure tiers (costs, limits).
+- `config/settings.yaml`: Defines your local network topology (Remote host IP, SSH keys, Ports).
 
-### **1. LLM API Keys**
-Copy the template and add your keys:
-```bash
-cp .env.template .env
-# Edit .env with your Google, OpenAI, or Anthropic keys
+### **Example `config/settings.yaml`**
+```yaml
+remote_worker:
+  host: "192.168.100.249"
+  user: "your-user"
+  ssh_key_path: "~/.ssh/id_ed25519"
+  project_dir: "ai-orchestration-worker"
+
+temporal:
+  host: "192.168.100.249"
+  port: 7233
 ```
-
-### **2. Cloud Provider Auth**
-The orchestrator uses **Pulumi** and the official CLIs for cloud provisioning.
-
-- **AWS**: Run `aws configure` to set up credentials in `~/.aws/credentials`.
-- **GCP**: Run `gcloud auth application-default login` to set up Application Default Credentials.
 
 ## 📦 Installation
 
@@ -52,80 +59,43 @@ The orchestrator uses **Pulumi** and the official CLIs for cloud provisioning.
    pip install -r requirements.txt
    ```
 
-3. **Configure Profiles**:
-   Review and adjust `config/profiles.yaml` to match your budget and preferred cloud providers.
+3. **Configure Secrets**:
+   ```bash
+   cp .env.template .env
+   # Add your GOOGLE_API_KEY
+   ```
 
 ## 📖 Usage
 
-### **1. Automatic Execution**
-Provide a natural language statement. The agent will analyze requirements (RAM, duration, reasoning complexity) and execute immediately.
+### **1. Execute Task**
+Run the orchestrator from the Genesis Node (Pi):
 ```bash
-export GOOGLE_API_KEY="your-key"
-python3 main.py "summarize this 500-page legal document and check for compliance"
+./main.py "Run a security audit on the current codebase"
 ```
 
-### **2. Plan Mode (Dry Run)**
-Use the `--plan` flag to see the "Dry Run" report. You can review the choice and manually override parameters if the automated choice isn't what you wanted.
+### **2. Plan & Provision**
+Review the plan and check if the remote core services (Temporal, Qdrant) are reachable before committing:
 ```bash
-python3 main.py --plan "process 50GB of raw logs and detect anomalies"
+./main.py --plan "Assess system performance"
 ```
+
+## 🛠️ Troubleshooting: macOS Docker Keychain Issue
+
+If provisioning to a macOS worker fails with `keychain cannot be accessed`, Docker is trying to use the interactive macOS keychain in a non-interactive SSH session.
+
+**Fix:** Run this command on the **remote macOS worker** to disable the credential helper for the automated session:
+```bash
+mkdir -p ~/.docker
+echo '{"credsStore": ""}' > ~/.docker/config.json
+```
+Alternatively, the Genesis node attempts to bypass this by setting environment variables during deployment.
 
 ## 🏗️ Project Structure
 
-- `main.py`: Entry point for the orchestrator.
-- `src/analyzer/`: Core logic for task parsing and infrastructure selection.
-- `src/iac/`: Pulumi Automation API wrappers for cloud provisioning.
-- `src/cli.py`: Interactive CLI components for Plan mode.
-- `config/`: YAML-based profiles for models and infrastructure.
-- `tests/`: Unit tests for the analyzer logic.
-
-## ⚙️ Configuration
-
-The `config/profiles.yaml` file defines the limits and costs for both infrastructure and models. The agent uses these values to calculate the most cost-effective path.
-
-```yaml
-infrastructure:
-  - id: "aws_lambda_durable"
-    cost_per_minute: 0.000016
-    max_memory_mb: 10240
-    best_for: "stateful_burst"
-...
-models:
-  - id: "gemini-3.1-flash-lite"
-    cost_per_1k_tokens: 0.00001
-    reasoning_capability: "low"
-```
-
-## 🧪 Running Tests
-
-```bash
-pytest tests/test_agent.py
-```
-
-## 🧩 Installing as a Gemini CLI Skill
-
-You can integrate the Analyzer Agent directly into your Gemini CLI to get architectural and cost advice in any session.
-
-### **1. Install the Skill**
-The packaged skill is located in `analyzer-agent-skill/dist/`.
-
-**Workspace Scope (Current Project only):**
-```bash
-gemini skills install analyzer-agent-skill/dist/analyzer-agent.skill --scope workspace
-```
-
-**User Scope (Global):**
-```bash
-gemini skills install analyzer-agent-skill/dist/analyzer-agent.skill --scope user
-```
-
-### **2. Activate the Skill**
-In your interactive Gemini CLI session, run the reload command:
-```bash
-/skills reload
-```
-
-### **3. Example Usage**
-Once installed, you can ask Gemini CLI to use the agent for planning:
-> "Use the analyzer-agent to plan a task for processing 10GB of logs."
+- `main.py`: Entry point for the Genesis CNC Node.
+- `central_node/`: Docker Compose and Worker logic for the remote execution environment.
+- `src/analyzer/`: Intent parsing and infrastructure selection (Gemini 3 Flash).
+- `src/iac/`: Pulumi SSH/Command orchestration for remote provisioning.
+- `src/orchestrator/`: Temporal client and task scheduler.
+- `src/memory/`: Tiered L1/L2/L3 memory store clients.
 

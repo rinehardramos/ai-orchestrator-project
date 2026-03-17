@@ -1,10 +1,20 @@
 import os
+import yaml
 from pulumi import automation as auto
 from typing import Dict, Any
+
+def load_settings():
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    settings_path = os.path.join(project_root, "config/settings.yaml")
+    if os.path.exists(settings_path):
+        with open(settings_path, "r") as f:
+            return yaml.safe_load(f)
+    return {}
 
 def create_pulumi_program(infra_id: str, task_env: dict):
     def pulumi_program():
         import pulumi
+        settings = load_settings()
         
         if "aws" in infra_id:
             import pulumi_aws as aws
@@ -37,10 +47,6 @@ def create_pulumi_program(infra_id: str, task_env: dict):
             worker_py = open('central_node/worker.py').read()
             dockerfile = open('central_node/Dockerfile.worker').read()
             hybrid_store = open('src/memory/hybrid_store.py').read()
-            
-            # Note: Pulumi Output strings can't be formatted into normal f-strings safely. 
-            # We must use `.apply()` or just pass the variables to the container manually if needed.
-            # Here we let Pulumi Output evaluate properly by passing the outputs into the EC2 instance script via `.apply`.
             
             def create_user_data(args):
                 q_url, table, api_key = args
@@ -97,12 +103,45 @@ export GOOGLE_API_KEY='{api_key}'
             pulumi.export("instance_id", spot_req.id)
 
         elif infra_id == "local_server_docker":
-            # The Genesis Node simply orchestrates via printing commands
-            # or connecting to the remote Docker daemon. In this simulation,
-            # we will output the successful orchestration steps.
+            import pulumi_command as command
+            
+            worker_cfg = settings.get("remote_worker", {})
+            remote_host = worker_cfg.get("host", "192.168.100.249")
+            remote_user = worker_cfg.get("user", "rinehardramos")
+            ssh_key_path = worker_cfg.get("ssh_key_path", "/home/pi/.ssh/id_ed25519")
+            project_dir = worker_cfg.get("project_dir", "ai-orchestration-worker")
+            
+            with open(ssh_key_path, "r") as f:
+                private_key = f.read()
+
+            connection = command.remote.ConnectionArgs(
+                host=remote_host,
+                user=remote_user,
+                private_key=private_key,
+            )
+
+            # 1. Ensure the project directory exists
+            mkdir_cmd = command.remote.Command("mkdir-project-dir",
+                create=f"mkdir -p {project_dir}",
+                connection=connection
+            )
+
+            # 2. Copy necessary files to the remote host
+            sync_files = command.local.Command("sync-files-to-worker",
+                create=f"scp -r central_node src requirements.txt .dockerignore {remote_user}@{remote_host}:{project_dir}/",
+                opts=pulumi.ResourceOptions(depends_on=[mkdir_cmd])
+            )
+
+            # 3. Run docker-compose on the remote host
+            deploy_cmd = command.remote.Command("deploy-docker-stack",
+                create=f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" docker compose -f central_node/docker-compose.yml up --build -d'",
+                connection=connection,
+                opts=pulumi.ResourceOptions(depends_on=[sync_files])
+            )
+
             pulumi.export("queue_url", pulumi.Output.from_input("dummy-temporal-queue"))
             pulumi.export("table_name", pulumi.Output.from_input("dummy-qdrant-db"))
-            pulumi.export("container_id", pulumi.Output.from_input("simulated-docker-compose-stack-id"))
+            pulumi.export("container_id", deploy_cmd.id)
 
         elif infra_id == "existing_server":
             # We skip provisioning completely and assume the user's infrastructure is already running our worker/services.

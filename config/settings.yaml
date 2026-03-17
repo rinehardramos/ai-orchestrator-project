@@ -1,0 +1,18 @@
+remote_worker:
+  host: "192.168.100.249"
+  user: "rinehardramos"
+  ssh_key_path: "/home/pi/.ssh/id_ed25519"
+  project_dir: "ai-orchestration-worker"
+
+temporal:
+  host: "192.168.100.249"
+  port: 7233
+  web_port: 8233
+
+qdrant:
+  host: "192.168.100.249"
+  port: 6333
+
+redis:
+  host: "192.168.100.249"
+  port: 6379

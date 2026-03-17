@@ -2,6 +2,8 @@
 google-genai==1.67.0
 python-dotenv==1.2.2
 PyYAML==6.0.3
+typer[all]==0.12.3
+pydantic>=2.9.0
 
 # Durable Orchestration (Logic)
 langgraph==0.2.60
@@ -11,6 +13,7 @@ temporalio==1.7.1
 pulumi==3.226.0
 pulumi-aws==7.23.0
 pulumi-docker==4.11.1
+pulumi-command==1.0.1
 
 # Memory Client (No heavy local vector db)
 qdrant-client==1.12.2

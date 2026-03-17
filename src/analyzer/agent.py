@@ -40,7 +40,7 @@ class AnalyzerAgent:
         else:
             self.client = None
 
-    def parse_statement(self, statement: str) -> TaskRequirement:
+    async def parse_statement(self, statement: str) -> TaskRequirement:
         """
         Uses an LLM to extract structured TaskRequirements from a natural language statement.
         """
@@ -67,8 +67,9 @@ class AnalyzerAgent:
         Be conservative but realistic. If not specified, use defaults: duration=60, memory=512, complexity=low, context=1000.
         """
         
-        response = self.client.models.generate_content(
-            model='gemini-3.1-flash-lite-preview',
+        # Using aio for non-blocking network call
+        response = await self.client.aio.models.generate_content(
+            model='gemini-3-flash-preview',
             contents=prompt,
             config={'response_mime_type': 'application/json'}
         )

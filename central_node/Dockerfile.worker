@@ -4,9 +4,10 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
 
-COPY central_node/worker.py .
-COPY src/ /app/src/
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-RUN pip install google-genai langgraph temporalio pydantic redis boto3 qdrant-client
+# Replicate the entire codebase to the local worker node
+COPY . .
 
-CMD ["python", "worker.py"]
+CMD ["python", "central_node/worker.py"]

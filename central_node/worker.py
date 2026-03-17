@@ -41,9 +41,27 @@ def analyze_current_system(state: AgentState) -> AgentState:
         print(f"[L1 Cache Hit] Found assessment for task")
         return {"assessment": cached_assessment, "status": "assessed"}
         
-    print(f"[L1 Cache Miss] Analyzing via LLM...")
-    client = genai.Client(api_key=os.environ.get("GOOGLE_API_KEY", "dummy-key"))
-    assessment_text = "Raspberry Pi should act strictly as a gateway (L0 CNC). Do not run heavy tasks locally."
+    print(f"[L1 Cache Miss] Analyzing via LLM using gemini-3-flash...")
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    client = genai.Client(api_key=api_key) if api_key else genai.Client()
+    
+    # Read some core files for the audit context if available
+    context_code = ""
+    try:
+        for file in ["src/orchestrator/scheduler.py", "central_node/worker.py"]:
+            if os.path.exists(file):
+                with open(file, "r") as f:
+                    context_code += f"\n--- {file} ---\n" + f.read()
+    except Exception:
+        pass
+
+    prompt = f"Task: {state['input_task']}\n\nPerform a security and performance audit of the following code:\n{context_code}"
+    
+    response = client.models.generate_content(
+        model='gemini-3-flash-preview',
+        contents=prompt
+    )
+    assessment_text = response.text
     
     # Store in L1 for future fast retrieval
     memory_store.store_l1(f"cache:{task_hash}", assessment_text, ttl_seconds=3600)
@@ -51,11 +69,15 @@ def analyze_current_system(state: AgentState) -> AgentState:
     return {"assessment": assessment_text, "status": "assessed"}
 
 def generate_recommendations(state: AgentState) -> AgentState:
-    recommendations = (
-        "1. Offload Docker and Temporal to a remote Dev Central Node.\n"
-        "2. Implement Tiered Memory: L1 (Redis), L2 (Qdrant), L3 (S3).\n"
-        "3. Wrap Langgraph cyclic reasoning inside Temporal Activities."
+    api_key = os.environ.get("GOOGLE_API_KEY")
+    client = genai.Client(api_key=api_key) if api_key else genai.Client()
+    
+    prompt = f"Based on this security and performance assessment:\n{state['assessment']}\n\nProvide actionable refactoring recommendations."
+    response = client.models.generate_content(
+        model='gemini-3-flash-preview',
+        contents=prompt
     )
+    recommendations = response.text
     
     # L2: Store semantic memory of this recommendation
     if memory_store.qdrant:
@@ -64,8 +86,11 @@ def generate_recommendations(state: AgentState) -> AgentState:
             content=recommendations,
             metadata={"task": state['input_task']}
         )
-        memory_store.store_l2("agent_insights", entry, vector=[0.1, 0.2, 0.3]) # Dummy vector for simulation
-        print(f"[L2 Stored] Insight saved to Qdrant")
+        try:
+            memory_store.store_l2("agent_insights", entry, vector=[0.1, 0.2, 0.3]) # Dummy vector for simulation
+            print(f"[L2 Stored] Insight saved to Qdrant")
+        except Exception as e:
+            print(f"Failed to store in Qdrant: {e}")
         
     return {"recommendations": recommendations, "status": "completed"}
 
@@ -114,8 +139,21 @@ async def main():
     temporal_host = os.environ.get("TEMPORAL_HOST_URL", "localhost:7233")
     print(f"Connecting to Temporal at {temporal_host}...")
     
+    client = None
+    retries = 10
+    for i in range(retries):
+        try:
+            client = await Client.connect(temporal_host)
+            break
+        except Exception as e:
+            print(f"Attempt {i+1}/{retries} - Failed to connect to Temporal: {e}")
+            await asyncio.sleep(5)
+            
+    if not client:
+        print("Could not connect to Temporal. Exiting.")
+        return
+
     try:
-        client = await Client.connect(temporal_host)
         worker = Worker(
             client,
             task_queue="ai-orchestration-queue",

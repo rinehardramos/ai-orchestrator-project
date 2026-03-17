@@ -50,8 +50,8 @@ services:
   # The AI Worker Node (Langgraph + Temporal Worker)
   ai-worker:
     build: 
-      context: .
-      dockerfile: Dockerfile.worker
+      context: ..
+      dockerfile: central_node/Dockerfile.worker
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
       - QDRANT_URL=http://qdrant:6333
