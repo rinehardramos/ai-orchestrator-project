@@ -26,6 +26,8 @@
   serial: 1                   # Rolling update — one node at a time
   any_errors_fatal: false     # Continue to other nodes even if one fails
 
+  environment: "{{ ansible_env | default({}) }}"
+
   vars:
     full_build: false
     plane: "all"
@@ -86,31 +88,48 @@
 
     # ── Rebuild & Restart Services based on Plane ──────────────────────────
 
-    - name: Define services for each plane
+    - name: Define services and compose files for each plane
       set_fact:
-        services_to_restart: >-
+        plane_config: >-
           {% if plane == 'all' %}
-          ['ai-worker', 'collector', 'web', 'dispatcher', 'selector', 'cnc']
+          {
+            "services": "ai-worker collector web dispatcher selector cnc",
+            "files": ["src/execution/worker/docker-compose.yml", "src/observability/docker-compose.observability.yml", "src/control/docker-compose.control.yml", "docker-compose.cnc.yml"]
+          }
           {% elif plane == 'execution' %}
-          ['ai-worker']
+          {
+            "services": "ai-worker",
+            "files": ["src/execution/worker/docker-compose.yml"]
+          }
           {% elif plane == 'observability' %}
-          ['collector', 'web', 'prometheus', 'grafana', 'cadvisor']
+          {
+            "services": "collector web prometheus grafana cadvisor",
+            "files": ["src/observability/docker-compose.observability.yml"]
+          }
           {% elif plane == 'control' %}
-          ['dispatcher', 'selector']
+          {
+            "services": "dispatcher selector",
+            "files": ["src/control/docker-compose.control.yml"]
+          }
           {% elif plane == 'cnc' %}
-          ['cnc']
+          {
+            "services": "cnc",
+            "files": ["docker-compose.cnc.yml"]
+          }
           {% else %}
-          []
+          {"services": "", "files": []}
           {% endif %}
 
     - name: Build and restart with Docker Compose
       command:
         cmd: >-
           docker compose 
-          {% for f in compose_files %} -f {{ f }} {% endfor %}
-          up -d --build --no-deps {{ services_to_restart | join(' ') }}
+          {% for f in (plane_config | from_json).files %} -f {{ f }} {% endfor %}
+          up -d --build --no-deps {{ (plane_config | from_json).services }}
         chdir: "{{ project_dir }}"
-      when: services_to_restart | length > 0
+      environment:
+        PROJECT_ROOT: "{{ project_dir }}"
+      when: (plane_config | from_json).services | length > 0
       tags: [build, reload]
 
     # ── Verify ───────────────────────────────────────────────────────────────

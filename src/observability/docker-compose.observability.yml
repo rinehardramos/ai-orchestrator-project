@@ -11,7 +11,7 @@ services:
   # ── Metrics Collector ──────────────────────────────────────────────────────
   collector:
     build:
-      context: ..
+      context: ${PROJECT_ROOT:-../..}
       dockerfile: src/observability/Dockerfile.observability
     container_name: obs-collector
     environment:
@@ -23,7 +23,7 @@ services:
       - POLL_INTERVAL=10
       - PYTHONUNBUFFERED=1
     volumes:
-      - ../../config:/app/config:ro
+      - ${PROJECT_ROOT:-../..}/config:/app/config:ro
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "9091:9091"     # Prometheus metrics scrape port
@@ -36,14 +36,14 @@ services:
   # ── Web Dashboard ──────────────────────────────────────────────────────────
   web:
     build:
-      context: ..
+      context: ${PROJECT_ROOT:-../..}
       dockerfile: src/observability/Dockerfile.observability
     container_name: obs-web
     command: uvicorn src.observability.web.server:app --host 0.0.0.0 --port 9090
     environment:
       - REDIS_URL=redis://redis:6379
     volumes:
-      - ../../src:/app/src
+      - ${PROJECT_ROOT:-../..}:/app
     ports:
       - "9090:9090"     # Web dashboard
     networks:
@@ -68,7 +68,7 @@ services:
     image: prom/prometheus:v2.51.0
     container_name: obs-prometheus
     volumes:
-      - ../../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ${PROJECT_ROOT:-../..}/config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
     ports:
       - "9000:9090"     # Prometheus UI (9000 to avoid conflict)
@@ -93,7 +93,7 @@ services:
       - GF_SERVER_ROOT_URL=http://192.168.100.249:3000
     volumes:
       - grafana_data:/var/lib/grafana
-      - ../../config/grafana/provisioning:/etc/grafana/provisioning
+      - ${PROJECT_ROOT:-../..}/config/grafana/provisioning:/etc/grafana/provisioning
     networks:
       - ai-network
     depends_on:
