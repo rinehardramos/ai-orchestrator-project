@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Orchestrator — Cluster Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css"/>
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">⬡</div>
+        <div>
+          <h1>AI Orchestrator</h1>
+          <span class="subtitle">Cluster Monitor</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="status-dot" id="ws-indicator" title="Live connection"></div>
+        <span id="ws-label" class="muted">connecting…</span>
+        <span class="muted" id="last-update"></span>
+      </div>
+    </header>
+
+    <!-- Main grid -->
+    <main class="grid">
+
+      <!-- Nodes panel -->
+      <section class="card card--nodes">
+        <h2 class="card-title">🌐 Cluster Nodes</h2>
+        <div id="nodes-grid" class="nodes-grid">
+          <div class="node-tile node-tile--loading">Loading…</div>
+        </div>
+      </section>
+
+      <!-- Temporal workflows -->
+      <section class="card card--workflows">
+        <h2 class="card-title">⚙️ Temporal Workflows</h2>
+        <div class="stat-row">
+          <div class="stat">
+            <span class="stat-value" id="wf-active">—</span>
+            <span class="stat-label">Active</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="wf-failed">—</span>
+            <span class="stat-label">Failed (session)</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- LLM providers -->
+      <section class="card card--llm">
+        <h2 class="card-title">🤖 LLM Providers</h2>
+        <div id="llm-providers" class="provider-list">
+          <span class="muted">Polling…</span>
+        </div>
+      </section>
+
+      <!-- Containers -->
+      <section class="card card--containers">
+        <h2 class="card-title">🐳 Containers (this node)</h2>
+        <div id="containers-table" class="table-wrap">
+          <p class="muted">Polling…</p>
+        </div>
+      </section>
+
+      <!-- CPU chart -->
+      <section class="card card--chart">
+        <h2 class="card-title">📈 Container CPU %</h2>
+        <canvas id="cpu-chart" height="140"></canvas>
+      </section>
+
+      <!-- Live log stream -->
+      <section class="card card--logs">
+        <h2 class="card-title">📋 Live Event Stream</h2>
+        <div id="log-feed" class="log-feed"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+version: '3.8'
+
+# ── Observability Plane
+# Access:
+#   Web Dashboard  → http://192.168.100.249:9090
+#   Prometheus     → http://192.168.100.249:9000
+#   Grafana        → http://192.168.100.249:3000  (admin / admin)
+
+services:
+
+  # ── Metrics Collector ──────────────────────────────────────────────────────
+  collector:
+    build:
+      context: ../..
+      dockerfile: src/observability/Dockerfile.observability
+    container_name: obs-collector
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-localhost:7233}
+      - COORDINATOR_URL=${COORDINATOR_URL:-http://host.docker.internal:8000}
+      - MODEL_SELECTOR_URL=${MODEL_SELECTOR_URL:-http://host.docker.internal:8003}
+      - PROMETHEUS_PORT=9091
+      - POLL_INTERVAL=10
+    volumes:
+      - ../../config:/app/config:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "9091:9091"     # Prometheus metrics scrape port
+    networks:
+      - obs-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ── Web Dashboard ──────────────────────────────────────────────────────────
+  web:
+    build:
+      context: ../..
+      dockerfile: src/observability/Dockerfile.observability
+    container_name: obs-web
+    command: uvicorn src.observability.web.server:app --host 0.0.0.0 --port 9090 --reload
+    environment:
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ../../src:/app/src
+    ports:
+      - "9090:9090"     # Web dashboard
+    networks:
+      - obs-network
+    depends_on:
+      - redis
+      - collector
+    restart: unless-stopped
+
+  # ── Redis (shared with main stack if using same host) ─────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: obs-redis
+    ports:
+      - "6380:6379"     # 6380 to avoid conflict with main stack
+    networks:
+      - obs-network
+    restart: unless-stopped
+
+  # ── Prometheus ─────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: obs-prometheus
+    volumes:
+      - ../../config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9000:9090"     # Prometheus UI (9000 to avoid conflict)
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - obs-network
+    restart: unless-stopped
+
+  # ── Grafana ────────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: obs-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://192.168.100.249:3000
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ../../config/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - obs-network
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ── cAdvisor (per-container metrics for Prometheus) ───────────────────────
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: obs-cadvisor
+    privileged: true
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    ports:
+      - "8181:8080"
+    networks:
+      - obs-network
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  obs-network:
+    driver: bridge
