@@ -8,16 +8,15 @@
 #
 #   # Full rebuild on execution workers only:
 #   ansible-playbook -i scripts/inventory.py scripts/deploy.yml \
-#     --limit execution_nodes -e "full_build=true"
+#     --limit execution_nodes -e "plane=execution"
 #
 #   # Reload a single node:
 #   ansible-playbook -i scripts/inventory.py scripts/deploy.yml \
-#     --limit 192.168.100.100
+#     --limit worker-main
 #
 # Variables:
-#   full_build   (bool, default: false)  — rebuild Docker image vs hot-reload
-#   plane        (str,  default: all)    — cnc | control | execution | all
-#   compose_file (str)                   — path to docker-compose.yml
+#   plane        (str,  default: all)    — cnc | control | execution | all | observability
+#   target_hosts (str)                   — manual host limit override
 # ─────────────────────────────────────────────────────────────────────────────
 
 - name: Deploy / Reload AI Orchestrator Nodes
@@ -29,14 +28,8 @@
   environment: "{{ ansible_env | default({}) }}"
 
   vars:
-    full_build: false
     plane: "all"
-    compose_files:
-      - "src/execution/worker/docker-compose.yml"
-      - "src/observability/docker-compose.observability.yml"
-      - "src/control/docker-compose.control.yml"
-      - "docker-compose.cnc.yml"
-    worker_container: "central_node-ai-worker-1"
+    worker_container: "worker-ai-worker-1"
 
   tasks:
 
@@ -138,11 +131,13 @@
       command: docker logs {{ worker_container }} --tail 15
       register: worker_logs
       changed_when: false
+      when: plane in ['all', 'execution']
       tags: [verify]
 
     - name: Print worker logs
       debug:
         msg: "{{ worker_logs.stderr_lines + worker_logs.stdout_lines }}"
+      when: plane in ['all', 'execution']
       tags: [verify]
 
     - name: Check worker is listening on Temporal queue
@@ -150,6 +145,18 @@
       register: queue_check
       failed_when: "'Listening' not in queue_check.stderr and 'Listening' not in queue_check.stdout"
       changed_when: false
+      when: plane in ['all', 'execution']
+      tags: [verify]
+
+    - name: Verify Observability Web Server is UP
+      uri:
+        url: "http://localhost:9090"
+        status_code: 200
+      register: obs_check
+      until: obs_check.status == 200
+      retries: 10
+      delay: 5
+      when: plane in ['all', 'observability']
       tags: [verify]
 
     - name: ✅ Node reload complete
