@@ -12,10 +12,11 @@ pyyaml
 # --- Orchestration ---
 temporalio
 
-# --- IaC (if used from CNC) ---
-# Pulumi, Terraform, etc. would go here.
-# For this project, IaC is handled by the CNC node's Docker image,
-# which has these tools pre-installed.
+# --- IaC (Genesis-specific tools) ---
+pulumi
+pulumi-aws
+pulumi-command
+pulumi-docker
 
 # --- Utilities ---
 requests
