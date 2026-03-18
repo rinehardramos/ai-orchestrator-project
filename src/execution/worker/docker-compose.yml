@@ -50,7 +50,7 @@ services:
   # For a clean production build, run: ./scripts/deploy.sh execution
   ai-worker:
     build:
-      context: ../..
+      context: ../../../
       dockerfile: src/execution/worker/Dockerfile.worker
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
@@ -62,8 +62,8 @@ services:
       - PYTHONUNBUFFERED=1
     volumes:
       # Live code mount — changes on host are reflected without image rebuild
-      - ../../src:/app/src
-      - ../../config:/app/config
+      - ../../../src:/app/src
+      - ../../../config:/app/config
     depends_on:
       - temporal
       - qdrant
