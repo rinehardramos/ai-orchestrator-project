@@ -29,18 +29,27 @@ def to_ansible_json(nodes):
     hostvars = {}
 
     for n in nodes:
+        name = n.get("name", n["host"])
         host = n["host"]
         role = n.get("role", "execution")
+        
+        # Add to role-specific group
         group = f"{role}_nodes"
-
         groups.setdefault(group, {"hosts": [], "vars": {}})
-        groups[group]["hosts"].append(host)
+        groups[group]["hosts"].append(name)
+        
+        # Add to convenience plane groups if role matches
+        # Observability usually runs on control or execution nodes in small setups
+        if role in ['control', 'execution']:
+            groups.setdefault("observability_nodes", {"hosts": [], "vars": {}})
+            if name not in groups["observability_nodes"]["hosts"]:
+                groups["observability_nodes"]["hosts"].append(name)
 
         # Per-host variables
         hv = {
             "ansible_host": host,
             "plane_role": role,
-            "node_name": n.get("name", host),
+            "node_name": name,
             "project_dir": n.get("project_dir", "~/ai-orchestrator-project"),
         }
         if "user" in n:
@@ -50,10 +59,10 @@ def to_ansible_json(nodes):
         if host == "localhost":
             hv["ansible_connection"] = "local"
 
-        hostvars[host] = hv
+        hostvars[name] = hv
 
     # Add an "all_nodes" group for convenience
-    all_hosts = [n["host"] for n in nodes]
+    all_hosts = [n.get("name", n["host"]) for n in nodes]
     groups["all_nodes"] = {"hosts": all_hosts}
 
     return {
@@ -70,16 +79,24 @@ def to_ini(nodes):
         role = n.get("role", "execution")
         groups.setdefault(role, [])
         host = n["host"]
-        parts = [host]
+        name = n.get("name", host)
+        
+        parts = [name]
+        parts.append(f"ansible_host={host}")
         if host != "localhost" and "user" in n:
             parts.append(f"ansible_user={n['user']}")
         if "key" in n:
             parts.append(f"ansible_ssh_private_key_file={os.path.expanduser(n['key'])}")
         if host == "localhost":
             parts.append("ansible_connection=local")
-        parts.append(f"node_name={n.get('name', host)}")
+        parts.append(f"node_name={name}")
         parts.append(f"project_dir={n.get('project_dir', '~/ai-orchestrator-project')}")
         groups[role].append(" ".join(parts))
+        
+        # Add to observability group if it's a remote node
+        if role in ['control', 'execution']:
+            groups.setdefault("observability", [])
+            groups["observability"].append(" ".join(parts))
 
     for group, hosts in groups.items():
         lines.append(f"\n[{group}_nodes]")

@@ -41,3 +41,42 @@ This knowledge base documents repeated operations, common pitfalls, and their re
   - **Usage:** Use the `--env [name]` flag in `main.py` to switch environments at runtime.
   - **Pitfall:** If a new environment is added but not selected via `--env` or `active_environment`, the system may fallback to legacy top-level settings if they still exist.
   - **Resolution:** Always verify the loaded environment in the logs (e.g., `🔧 [CONFIG] Loading environment: ...`).
+
+## 7. Deployment and Command Triggering (Ansible)
+
+The recommended way to deploy or reload services across your cluster is using the Ansible playbook. This ensures consistency, uses the correct SSH credentials (from `config/cluster_nodes.yaml`), and provides robust state management.
+
+### Ansible Playbook (`scripts/deploy.yml`)
+
+This playbook handles full rebuilds and restarts of specific planes or individual nodes.
+
+**Variables:**
+- `plane`: (str, default: `all`) — Specifies which logical plane to deploy (`cnc`, `control`, `execution`, `observability`, `infra`, `all`).
+- `full_build`: (bool, default: `false`) — Set to `true` to force a Docker image rebuild for the targeted services.
+
+**Examples:**
+
+1.  **Full rebuild of the `observability` plane on the `worker-main` node:**
+    ```bash
+    ansible-playbook -i scripts/inventory.py scripts/deploy.yml -e "plane=observability full_build=true" --limit worker-main
+    ```
+
+2.  **Reload all services on all `execution_nodes` (fast, no image rebuild):**
+    ```bash
+    ansible-playbook -i scripts/inventory.py scripts/deploy.yml -e "plane=execution" --limit execution_nodes
+    ```
+
+3.  **Deploy all services on a specific node (e.g., `192.168.100.249`):**
+    ```bash
+    ansible-playbook -i scripts/inventory.py scripts/deploy.yml --limit worker-main
+    ```
+    (Note: `plane` defaults to `all` if not specified)
+
+4.  **Reload a specific plane (e.g., `control`) on all relevant nodes without rebuilding images:**
+    ```bash
+    ansible-playbook -i scripts/inventory.py scripts/deploy.yml -e "plane=control"
+    ```
+
+**Important:**
+-   Always use `-i scripts/inventory.py` to ensure Ansible fetches the correct host details (user, IP, SSH key) from `config/cluster_nodes.yaml`.
+-   Use `--limit <hostname>` or `--limit <group_name>` to target specific hosts or groups defined in your inventory.

@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
     --user)   SSH_USER="$2";    shift 2 ;;
     --key)    SSH_KEY="$2";     shift 2 ;;
     --dir)    REMOTE_PROJECT_DIR="$2"; shift 2 ;;
-    cnc|control|execution|infra|all) PLANE="$1"; shift ;;
+    cnc|control|execution|infra|all|observability) PLANE="$1"; shift ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
@@ -90,6 +90,10 @@ remote_deploy() {
   local services=()
 
   case "$PLANE" in
+    infra)
+      log "REMOTE" "Restarting infrastructure on $host..."
+      ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && docker compose ${compose_files[*]} restart temporal postgres qdrant redis"
+      ;;
     execution) services=(ai-worker) ;;
     observability) services=(collector web) ;;
     control) services=(dispatcher selector) ;;

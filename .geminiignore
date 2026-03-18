@@ -1,0 +1,12 @@
+venv/
+__pycache__/
+logs/
+data/
+.git/
+.pytest_cache/
+*.db
+*.log
+*.txt
+backups/
+analyzer-agent-skill/dist/
+node_modules/

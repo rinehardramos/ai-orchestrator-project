@@ -1,28 +1,21 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Base Dependencies
-# Packages required by MOST or ALL nodes (Worker, CNC, Observability).
+# CNC (Genesis) Node Dependencies
+# Core libraries for orchestration, cloud interaction, and task scheduling.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # --- Core & Cloud ---
+ansible-core
 boto3
-botocore
-psutil
-pyyaml
 python-dotenv
+pyyaml
 
-# --- Orchestration & AI ---
+# --- Orchestration ---
 temporalio
-litellm
+
+# --- IaC (if used from CNC) ---
+# Pulumi, Terraform, etc. would go here.
+# For this project, IaC is handled by the CNC node's Docker image,
+# which has these tools pre-installed.
 
 # --- Utilities ---
-httpx
-redis
 requests
-beautifulsoup4
-
-# --- Development & Linting (can be moved to a dev-requirements.txt) ---
-flake8
-pytest
-pytest-asyncio
-bandit
-ansible-lint
