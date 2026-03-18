@@ -9,7 +9,7 @@ services:
 
   # ── Dispatcher (Dynamic Orchestration) ─────────────────────────────────────
   dispatcher:
-    image: ghcr.io/rinehardramos/ai-orchestrator-control:latest
+    image: ghcr.io/rinehardramos/ai-orchestrator-project/control:latest
     container_name: control-dispatcher
     command: ["python", "-m", "src.control.dispatcher.dispatcher"]
     environment:
