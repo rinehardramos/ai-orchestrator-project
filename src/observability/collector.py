@@ -23,20 +23,36 @@ from typing import Any
 
 import httpx
 import yaml
-from prometheus_client import Counter, Gauge, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server, REGISTRY
 
-# ── Prometheus metrics ────────────────────────────────────────────────────────
+def _gauge(name, doc, labels=()):
+    try:
+        return Gauge(name, doc, labels)
+    except ValueError:   # already registered (hot-reload)
+        return REGISTRY._names_to_collectors.get(name)
 
-NODE_UP          = Gauge("node_up",               "Node reachability (1=up)",  ["node", "role"])
-WORKFLOW_ACTIVE  = Gauge("workflow_active_total",  "Running Temporal workflows")
-WORKFLOW_FAILED  = Counter("workflow_failed_total","Failed Temporal workflows")
-WORKER_TASKS     = Gauge("worker_task_count",      "Tasks handled by worker",   ["worker_id"])
-LLM_TOKENS       = Counter("model_tokens_used_total","LLM tokens used",         ["provider", "model"])
-LLM_LATENCY      = Histogram("model_latency_seconds","LLM call latency",        ["provider", "model"])
-REPLICAS         = Gauge("worker_replicas",        "Container replicas",        ["pool"])
-CONTAINER_CPU    = Gauge("container_cpu_percent",  "Container CPU %",           ["name", "node"])
-CONTAINER_MEM    = Gauge("container_mem_mb",       "Container memory MB",       ["name", "node"])
-COLLECTOR_ERRORS = Counter("collector_errors_total","Collector probe errors",   ["source"])
+def _counter(name, doc, labels=()):
+    try:
+        return Counter(name, doc, labels)
+    except ValueError:
+        return REGISTRY._names_to_collectors.get(name)
+
+def _histogram(name, doc, labels=()):
+    try:
+        return Histogram(name, doc, labels)
+    except ValueError:
+        return REGISTRY._names_to_collectors.get(name)
+
+NODE_UP          = _gauge("node_up",                "Node reachability (1=up)",  ["node", "role"])
+WORKFLOW_ACTIVE  = _gauge("workflow_active_total",  "Running Temporal workflows")
+WORKFLOW_FAILED  = _counter("workflow_failed_total","Failed Temporal workflows")
+WORKER_TASKS     = _gauge("worker_task_count",      "Tasks handled by worker",   ["worker_id"])
+LLM_TOKENS       = _counter("model_tokens_used_total","LLM tokens used",         ["provider", "model"])
+LLM_LATENCY      = _histogram("model_latency_seconds","LLM call latency",        ["provider", "model"])
+REPLICAS         = _gauge("worker_replicas",        "Container replicas",        ["pool"])
+CONTAINER_CPU    = _gauge("container_cpu_percent",  "Container CPU %",           ["name", "node"])
+CONTAINER_MEM    = _gauge("container_mem_mb",       "Container memory MB",       ["name", "node"])
+COLLECTOR_ERRORS = _counter("collector_errors_total","Collector probe errors",   ["source"])
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
