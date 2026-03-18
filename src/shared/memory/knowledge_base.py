@@ -7,7 +7,7 @@ import re
 # Ensure we can import from src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
-from src.memory.hybrid_store import HybridMemoryStore, MemoryEntry
+from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
 from google import genai
 from dotenv import load_dotenv
 

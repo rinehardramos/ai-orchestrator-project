@@ -6,7 +6,7 @@ from pydantic import ValidationError
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from src.analyzer.agent import AnalyzerAgent, TaskRequirement, AnalyzerResult
+from src.cnc.analyzer.agent import AnalyzerAgent, TaskRequirement, AnalyzerResult
 
 def get_input_with_default(prompt, default):
     val = input(f"{prompt} [{default}]: ").strip()
@@ -48,7 +48,7 @@ def show_plan(result: AnalyzerResult):
 
 def main():
     try:
-        from src.orchestrator.notifier import TelegramNotifier
+        from src.cnc.orchestrator.notifier import TelegramNotifier
         notifier = TelegramNotifier()
         if notifier.enabled:
             notifier.send_message("🤖 *Gemini CLI Initialized*\nGenesis Node is now online and ready to accept tasks.")

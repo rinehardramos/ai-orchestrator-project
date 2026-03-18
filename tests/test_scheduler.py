@@ -3,7 +3,7 @@ import sqlite3
 import os
 import json
 from unittest.mock import patch, MagicMock, AsyncMock
-from src.orchestrator.scheduler import TaskScheduler
+from src.cnc.orchestrator.scheduler import TaskScheduler
 
 @pytest.fixture
 def mock_scheduler(tmpdir):

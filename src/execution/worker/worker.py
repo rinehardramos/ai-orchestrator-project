@@ -17,8 +17,8 @@ from langgraph.graph import StateGraph, START, END
 
 # Memory (Tiered)
 import sys
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
-from src.memory.hybrid_store import HybridMemoryStore, MemoryEntry
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
 
 # AI Provider SDKs
 from google import genai as google_genai

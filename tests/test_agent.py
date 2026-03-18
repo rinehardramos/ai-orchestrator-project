@@ -5,7 +5,7 @@ import pytest
 # Add src to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from src.analyzer.agent import AnalyzerAgent, TaskRequirement
+from src.cnc.analyzer.agent import AnalyzerAgent, TaskRequirement
 
 @pytest.fixture
 def agent():

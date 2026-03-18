@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from src.coordinator.coordinator import app as coordinator_app
+from src.control.coordinator.coordinator import app as coordinator_app
 
 client = TestClient(coordinator_app)
 

@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.orchestrator.notifier import TelegramNotifier
+from src.cnc.orchestrator.notifier import TelegramNotifier
 
 @patch("src.orchestrator.notifier.load_settings")
 @patch("src.orchestrator.notifier.requests.post")

@@ -7,11 +7,12 @@ This document describes the three-plane architecture of the AI Orchestration sys
 ```mermaid
 graph TD
     subgraph "Genesis Node (CNC)"
-        CLI[src/cli.py] --> Scheduler[src/orchestrator/scheduler.py]
-        Scheduler --> KB_Client_CNC[src/memory/knowledge_base.py]
+        Main[src/cnc/main.py]
+        CLI[src/cnc/cli.py] --> Scheduler[src/cnc/orchestrator/scheduler.py]
+        Scheduler --> KB_Client_CNC[src/shared/memory/knowledge_base.py]
         Scheduler --> OfflineDB[(Offline SQLite DB)]
         Scheduler --> Notifier[Telegram Notifier]
-        Backup[src/orchestrator/backup_manager.py] --> SystemBackups[(Local Backups)]
+        Backup[src/cnc/orchestrator/backup_manager.py] --> SystemBackups[(Local Backups)]
     end
 
     subgraph "Control Plane (Remote Central Node)"
@@ -19,11 +20,17 @@ graph TD
         Qdrant[Qdrant Vector DB]
         Redis[Redis Cache]
         Postgres[Postgres - Temporal DB]
+        Dispatcher[src/control/dispatcher/dispatcher.py]
+        Catalog[src/control/catalog/catalog.py]
+        DAG_Service[src/control/dag/dag_service.py]
+        Model_Selector[src/control/model_selector/selector.py]
+        Scaler[src/control/scaler/scaler.py]
+        Coordinator[src/control/coordinator/coordinator.py]
     end
 
     subgraph "Execution Plane (Remote Worker Container)"
-        Worker[central_node/worker.py]
-        KB_Client_Worker[src/memory/knowledge_base.py]
+        Worker[src/execution/worker/worker.py]
+        KB_Client_Worker[src/shared/memory/knowledge_base.py]
         Jobs_Config[config/jobs.yaml]
     end
 

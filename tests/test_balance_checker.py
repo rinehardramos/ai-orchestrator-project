@@ -7,8 +7,8 @@ os.environ['GOOGLE_API_KEY'] = 'test_google_key'
 os.environ['OPENAI_API_KEY'] = 'test_openai_key'
 os.environ['ANTHROPIC_API_KEY'] = 'test_anthropic_key'
 
-from src.utils.balance_checker import BalanceChecker
-from src.analyzer.agent import AnalyzerAgent, TaskRequirement
+from src.shared.utils.balance_checker import BalanceChecker
+from src.cnc.analyzer.agent import AnalyzerAgent, TaskRequirement
 
 @pytest.fixture
 def mock_profiles():

@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from src.dispatcher.dispatcher import app as dispatcher_app
+from src.control.dispatcher.dispatcher import app as dispatcher_app
 
 client = TestClient(dispatcher_app)
 

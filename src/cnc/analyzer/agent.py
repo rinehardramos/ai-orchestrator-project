@@ -4,7 +4,7 @@ import json
 from google import genai
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from src.utils.balance_checker import get_provider_balance
+from src.shared.utils.balance_checker import get_provider_balance
 
 # Define a minimum balance required to consider a provider's models
 MINIMUM_BALANCE_THRESHOLD = 1.00 # $1.00

@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from src.catalog.catalog import app as catalog_app
+from src.control.catalog.catalog import app as catalog_app
 
 client = TestClient(catalog_app)
 

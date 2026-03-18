@@ -11,7 +11,7 @@ from temporalio.client import Client
 
 # Local imports
 try:
-    from src.orchestrator.notifier import TelegramNotifier
+    from src.cnc.orchestrator.notifier import TelegramNotifier
 except ImportError:
     TelegramNotifier = None
 
@@ -105,7 +105,7 @@ class TaskScheduler:
             warnings = self.preflight_cache[cache_key]
         else:
             try:
-                from src.memory.knowledge_base import KnowledgeBaseClient
+                from src.shared.memory.knowledge_base import KnowledgeBaseClient
                 kb = KnowledgeBaseClient()
                 warnings = kb.query_similar_issues(task_description, limit=2)
                 self.preflight_cache[cache_key] = warnings

@@ -1,7 +1,7 @@
 import pytest
 import os
 from unittest.mock import patch, MagicMock
-from src.orchestrator.backup_manager import BackupManager
+from src.cnc.orchestrator.backup_manager import BackupManager
 
 @pytest.fixture
 def mock_backup_manager(tmpdir):

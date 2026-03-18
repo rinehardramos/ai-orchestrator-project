@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from src.dag.dag_service import app as dag_app
+from src.control.dag.dag_service import app as dag_app
 
 client = TestClient(dag_app)
 

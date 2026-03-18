@@ -6,7 +6,7 @@ import yaml
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.iac.pulumi_wrapper import provision_worker, destroy_worker
+from src.cnc.iac.pulumi_wrapper import provision_worker, destroy_worker
 from temporalio.client import Client
 
 def get_temporal_host():

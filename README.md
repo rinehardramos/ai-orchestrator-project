@@ -92,13 +92,21 @@ Alternatively, the Genesis node attempts to bypass this by setting environment v
 
 ## 🏗️ Project Structure
 
-- `main.py`: Entry point for the Genesis CNC Node.
-- `central_node/`: Docker Compose and Worker logic for the remote execution environment.
-- `src/analyzer/`: Intent parsing and infrastructure selection (Gemini 3 Flash).
-- `src/iac/`: Pulumi SSH/Command orchestration for remote provisioning.
-- `src/orchestrator/`: Temporal client and task scheduler.
-- `src/memory/`: Tiered L1/L2/L3 memory store clients.
+The project is organized into three "planes" to clearly separate responsibilities:
 
+- **Genesis Plane (`src/cnc/`)**: 
+  - `main.py`: Entry point for the Genesis CNC Node.
+  - `analyzer/`: Intent parsing and infrastructure selection (Gemini 3 Flash).
+  - `iac/`: Pulumi SSH/Command orchestration for remote provisioning.
+  - `orchestrator/`: Temporal client and task scheduler.
+- **Control Plane (`src/control/`)**:
+  - `catalog/`, `dispatcher/`, `model_selector/`, `scaler/`: Modular services for task lifecycle management.
+  - `workflows/`: Temporal durable workflow definitions.
+- **Execution Plane (`src/execution/`)**:
+  - `worker/`: Logic for the remote execution environment.
+- **Shared Plane (`src/shared/`)**:
+  - `memory/`: Tiered L1/L2/L3 memory store clients.
+  - `utils/`: Common helpers used across all planes.
 
 ## 🌐 Cluster Expansion: Adding Remote Workers
 
@@ -108,7 +116,6 @@ To add more machines to your AI Orchestration cluster as workers:
    - Ensure the new machine can reach the **Control Plane (Central Node)** on ports:
      - `7233` (Temporal Server)
      - `6333` (Qdrant Vector DB)
-     - `6379` (Redis Cache)
 
 2. **Setup on New Machine**:
    - Clone this repository.
@@ -119,13 +126,11 @@ To add more machines to your AI Orchestration cluster as workers:
      ```env
      TEMPORAL_HOST_URL=192.168.x.x:7233
      QDRANT_URL=http://192.168.x.x:6333
-     REDIS_HOST=192.168.x.x
      ```
-   - Alternatively, update `config/settings.yaml` under the `temporal` section.
 
 4. **Launch Worker**:
    ```bash
-   python central_node/worker.py
+   python src/execution/worker/worker.py
    ```
    The new worker will immediately start polling the `ai-orchestration-queue` and executing delegated tasks.
 
