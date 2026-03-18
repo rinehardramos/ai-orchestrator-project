@@ -92,7 +92,7 @@ class TaskScheduler:
         except (socket.timeout, ConnectionRefusedError, OSError):
             return False
 
-    async def submit_task(self, task_description: str, metadata: Dict[str, Any] = None) -> str:
+    async def submit_task(self, task_description: str, analysis_result: Dict[str, Any]) -> str:
         task_id = str(uuid.uuid4())
         
         # [NEW] Pre-flight Knowledge Base Check with Cache
@@ -139,10 +139,13 @@ class TaskScheduler:
                 print(f"Connecting to Temporal at {temporal_host}...")
                 client = await asyncio.wait_for(Client.connect(temporal_host), timeout=5.0)
                 print(f"📥 Pushing task '{task_description}' to Temporal workflow...")
+
+                model_id = analysis_result['llm_model_id']
+                provider = analysis_result['model_details']['provider']
                 
                 await client.start_workflow(
                     "AIOrchestrationWorkflow",
-                    task_description,
+                    args=[task_description, model_id, provider],
                     id=task_id,
                     task_queue="ai-orchestration-queue"
                 )
@@ -150,7 +153,7 @@ class TaskScheduler:
             except (Exception, asyncio.TimeoutError) as e:
                 print(f"❌ Error connecting to Temporal: {e}")
                 print("Falling back to local offline queue...")
-                self._save_task_offline(task_id, task_description, metadata)
+                self._save_task_offline(task_id, task_description, analysis_result)
                 return f"QUEUED_OFFLINE_{task_id}"
             
         # 1. Register in DynamoDB
@@ -159,13 +162,18 @@ class TaskScheduler:
             'description': task_description,
             'status': 'PENDING',
             'created_at': int(time.time()),
-            'metadata': metadata or {}
+            'metadata': analysis_result or {}
         })
         
         # 2. Push to SQS
         self.sqs.send_message(
             QueueUrl=self.queue_url,
-            MessageBody=task_id
+            MessageBody=json.dumps({
+                "task_id": task_id,
+                "task_description": task_description,
+                "llm_model_id": analysis_result['llm_model_id'],
+                "provider": analysis_result['model_details']['provider']
+            })
         )
         
         return task_id

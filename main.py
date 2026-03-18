@@ -51,10 +51,7 @@ async def execute_task_async(result: AnalyzerResult, statement: str):
 
     print(f"\n🚀 [ORCHESTRATOR] Delegating task to {result.infrastructure_id}...")
     print(f"📥 Pushing task to queue: \"{statement}\"")
-    task_id = await scheduler.submit_task(statement, {
-        "model": result.llm_model_id,
-        "infra": result.infrastructure_id
-    })
+    task_id = await scheduler.submit_task(statement, result.dict())
     
     print(f"✅ Task registered: {task_id}")
     
