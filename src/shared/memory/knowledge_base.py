@@ -74,7 +74,7 @@ class KnowledgeBaseClient:
             entry = MemoryEntry(
                 id=str(uuid.uuid4()),
                 content=full_text,
-                metadata={"title": title, "source": "KNOWLEDGE_BASE.md"}
+                metadata={"title": title, "source": "KNOWLEDGE_BASE.md", "score": 1.0}
             )
             
             self.store.store_l2(self.collection_name, entry, vector)
@@ -87,11 +87,26 @@ class KnowledgeBaseClient:
         relevant_issues = []
         for res in results:
             if res.score > 0.7: # Threshold for relevance
-                payload = res.payload
+                payload = res.payload or {}
+                
+                # ── Boost Score On Retrieval ──
+                # If this knowledge is useful, reset its belief score so it outlives decay.
+                try:
+                    if "score" in payload:
+                        new_score = min(1.0, payload.get("score", 1.0) + 0.1) # Boost
+                        self.store.qdrant.set_payload(
+                            collection_name=self.collection_name,
+                            payload={"score": new_score},
+                            points=[res.id]
+                        )
+                except Exception as e:
+                    print(f"Failed to boost score for {res.id}: {e}")
+
                 relevant_issues.append({
                     "title": payload.get("title", ""),
                     "content": payload.get("content", ""),
-                    "score": res.score
+                    "belief_score": payload.get("score", 1.0),
+                    "similarity": res.score
                 })
         return relevant_issues
 

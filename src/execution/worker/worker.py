@@ -19,12 +19,22 @@ from langgraph.graph import StateGraph, START, END
 import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
 from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
+from src.shared.memory.knowledge_base import KnowledgeBaseClient
+from src.shared.memory.decay_workflow import BeliefDecayWorkflow, apply_belief_decay
+from prometheus_client import start_http_server, Counter, Histogram
+import time
 
 # AI Provider SDKs
 import litellm
 
 # --- Tiered Memory Setup ---
 memory_store = HybridMemoryStore()
+
+# --- Prometheus Metrics ---
+CACHE_HITS = Counter('worker_cache_hits_total', 'Total L1 cache hits')
+CACHE_MISSES = Counter('worker_cache_misses_total', 'Total L1 cache misses')
+TASK_DURATION = Histogram('worker_task_duration_seconds', 'Task execution duration')
+QDRANT_LATENCY = Histogram('worker_qdrant_latency_seconds', 'Qdrant Q/W latency')
 
 # --- Dynamic LLM Call via LiteLLM ---
 
@@ -68,9 +78,11 @@ def analyze_current_system(state: AgentState) -> AgentState:
     cached_assessment = memory_store.get_l1(f"cache:{task_hash}")
     
     if cached_assessment:
+        CACHE_HITS.inc()
         print(f"[L1 Cache Hit] Found assessment for task")
         return {"assessment": cached_assessment, "status": "assessed"}
         
+    CACHE_MISSES.inc()
     print(f"[L1 Cache Miss] Analyzing via LLM using {state['model_id']}...")
     
     context_code = ""
@@ -134,7 +146,8 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
         "recommendations": "",
         "status": "started",
         "model_id": model_id,
-        "provider": provider
+        "provider": provider,
+        "_start_time": time.time()
     }
     
     final_state = initial_state
@@ -155,6 +168,30 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
     memory_store.archive_l3(task_id, final_state)
     print(f"[L3 Archived] Full state archived to S3")
     
+    # ── OODA Feedback Loop: Write observation back to Knowledge Base ──
+    try:
+        q_start = time.time()
+        kb = KnowledgeBaseClient()
+        observation_text = f"Task: {input_task}\nOutcome Assessment: {final_state.get('assessment', '')}\nRecommendations: {final_state.get('recommendations', '')}"
+        vector = kb.embed_text(observation_text)
+        
+        entry = MemoryEntry(
+            id=str(uuid.uuid4()), 
+            content=observation_text, 
+            metadata={
+                "task": input_task,
+                "type": "observation",
+                "model_used": model_id,
+                "score": 1.0 # Initial belief score before decay
+            }
+        )
+        kb.store.store_l2("agent_insights", entry, vector=vector)
+        QDRANT_LATENCY.observe(time.time() - q_start)
+        print(f"[Feedback Loop] OODA Observation written to Qdrant")
+    except Exception as e:
+        print(f"Failed to write OODA observation: {e}")
+
+    TASK_DURATION.observe(time.time() - float(final_state.get('_start_time', time.time())))
     return final_state
 
 # --- Temporal Workflow ---
@@ -174,6 +211,12 @@ class AIOrchestrationWorkflow:
 # --- Worker Runtime ---
 
 async def main():
+    print("Starting Prometheus metrics server on port 8000...")
+    try:
+        start_http_server(8000)
+    except Exception as e:
+        print(f"Failed to start prometheus server: {e}")
+
     temporal_host = os.environ.get("TEMPORAL_HOST_URL", "localhost:7233")
     print(f"Connecting to Temporal at {temporal_host}...")
     
@@ -193,8 +236,8 @@ async def main():
     worker = Worker(
         client,
         task_queue="ai-orchestration-queue",
-        workflows=[AIOrchestrationWorkflow],
-        activities=[execute_langgraph_agent],
+        workflows=[AIOrchestrationWorkflow, BeliefDecayWorkflow],
+        activities=[execute_langgraph_agent, apply_belief_decay],
         workflow_runner=UnsandboxedWorkflowRunner()
     )
     print("Worker started. Listening on 'ai-orchestration-queue'...")

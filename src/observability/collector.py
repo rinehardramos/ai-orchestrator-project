@@ -49,6 +49,7 @@ WORKFLOW_FAILED  = _counter("workflow_failed_total","Failed Temporal workflows")
 WORKER_TASKS     = _gauge("worker_task_count",      "Tasks handled by worker",   ["worker_id"])
 LLM_TOKENS       = _counter("model_tokens_used_total","LLM tokens used",         ["provider", "model"])
 LLM_LATENCY      = _histogram("model_latency_seconds","LLM call latency",        ["provider", "model"])
+TEMPORAL_LATENCY = _histogram("temporal_api_latency_seconds", "Temporal API call latency")
 REPLICAS         = _gauge("worker_replicas",        "Container replicas",        ["pool"])
 CONTAINER_CPU    = _gauge("container_cpu_percent",  "Container CPU %",           ["name", "node"])
 CONTAINER_MEM    = _gauge("container_mem_mb",       "Container memory MB",       ["name", "node"])
@@ -130,14 +131,16 @@ async def collect_docker_stats(node_name: str = "local") -> list[dict]:
 async def collect_temporal() -> dict[str, Any]:
     data = {"active": 0, "failed": 0}
     try:
+        start_t = time.time()
         from temporalio.client import Client, WorkflowExecutionStatus
         client = await asyncio.wait_for(Client.connect(TEMPORAL_HOST), timeout=3.0)
         active = 0
         async for wf in client.list_workflows("ExecutionStatus='Running'"):
             active += 1
         WORKFLOW_ACTIVE.set(active)
+        TEMPORAL_LATENCY.observe(time.time() - start_t)
         data["active"] = active
-    except Exception:
+    except Exception as e:
         COLLECTOR_ERRORS.labels(source="temporal").inc()
     return data
 

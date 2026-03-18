@@ -79,11 +79,11 @@ class HybridMemoryStore:
         """Semantic search in Qdrant."""
         if not self.qdrant:
             return []
-        return self.qdrant.search(
+        return self.qdrant.query_points(
             collection_name=collection_name,
-            query_vector=query_vector,
+            query=query_vector,
             limit=limit
-        )
+        ).points
 
     def archive_l3(self, task_id: str, full_state: dict):
         """Archive complete task state/audit trail to S3."""

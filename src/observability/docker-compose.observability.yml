@@ -1,4 +1,4 @@
-version: '3.8'
+#
 
 # ── Observability Plane
 # Access:
@@ -10,7 +10,9 @@ services:
 
   # ── Metrics Collector ──────────────────────────────────────────────────────
   collector:
-    image: ghcr.io/rinehardramos/ai-orchestrator-project/observability:latest
+    build:
+      context: ..
+      dockerfile: src/observability/Dockerfile.observability
     container_name: obs-collector
     environment:
       - REDIS_URL=redis://redis:6379
@@ -33,7 +35,9 @@ services:
 
   # ── Web Dashboard ──────────────────────────────────────────────────────────
   web:
-    image: ghcr.io/rinehardramos/ai-orchestrator-project/observability:latest
+    build:
+      context: ..
+      dockerfile: src/observability/Dockerfile.observability
     container_name: obs-web
     command: uvicorn src.observability.web.server:app --host 0.0.0.0 --port 9090 --reload
     environment:
