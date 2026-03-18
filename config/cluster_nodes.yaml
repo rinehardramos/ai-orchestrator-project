@@ -14,11 +14,13 @@ nodes:
   - name: genesis
     host: localhost
     role: cnc
+    project_dir: /Users/rinehardramos/Projects/ai-orchestrator-project
 
   - name: worker-192-168-100-100
     host: 192.168.100.100
     role: execution
     user: pi               # change to the SSH user on that machine
+    project_dir: ~/ai-orchestrator-project
     # key: ~/.ssh/id_rsa   # uncomment if using a specific key
 
   # Add more nodes as you expand:
