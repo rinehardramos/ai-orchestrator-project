@@ -96,11 +96,14 @@ async def redis_subscriber():
             pubsub = r.pubsub()
             await pubsub.subscribe("obs:events")
             print("[Web] Subscribed to Redis obs:events")
-            async for message in pubsub.listen():
-                if message["type"] == "message":
+            
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True)
+                if message:
                     raw = message["data"].decode("utf-8")
                     COLLECTOR_STATE = json.loads(raw)
                     await manager.broadcast(raw)
+                await asyncio.sleep(0.1)  # avoid CPU spin
         except Exception as e:
             print(f"[Web] Redis subscriber error: {e} — retrying in 5s")
             await asyncio.sleep(5)

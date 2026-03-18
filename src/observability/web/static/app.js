@@ -1,6 +1,7 @@
 /* ── WebSocket + live rendering ───────────────────────────────────────── */
 
-const WS_URL   = `ws://${location.host}/ws/events`;
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL   = `${protocol}//${location.host}/ws/events`;
 const MAX_LOGS = 60;
 
 let ws;
