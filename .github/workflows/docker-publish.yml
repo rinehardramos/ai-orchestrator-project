@@ -1,0 +1,67 @@
+name: Build and Publish Docker Images
+
+on:
+  push:
+    branches: [ "main" ]
+  release:
+    types: [ "published" ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        component:
+          - name: cnc
+            file: Dockerfile.cnc
+            image_suffix: cnc
+          - name: control
+            file: src/control/Dockerfile.control
+            image_suffix: control
+          - name: worker
+            file: src/execution/worker/Dockerfile.worker
+            image_suffix: worker
+          - name: observability
+            file: src/observability/Dockerfile.observability
+            image_suffix: observability
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component.image_suffix }}
+          tags: |
+            type=ref,event=branch
+            type=sha,format=short
+            type=semver,pattern={{version}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.component.file }}
+          push: true
+          tags: ${{ id.meta.outputs.tags }}
+          labels: ${{ id.meta.outputs.labels }}
+          # Use GHA cache to speed up repeated builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

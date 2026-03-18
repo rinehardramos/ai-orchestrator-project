@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────
-# Execution Plane: Worker Node
-# Responsibility: Pull tasks from Temporal queue and execute them.
+# Control Plane: Dynamic Orchestration Services
+# Responsibility: Dispatcher, Model Selector, Scaler, DAG Service
 # ─────────────────────────────────────────────
 FROM python:3.11-slim
 
@@ -11,15 +11,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Install dependencies (from root)
-COPY requirements.worker.txt .
-RUN pip install --no-cache-dir -r requirements.worker.txt
+# Install dependencies (shared across control plane)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code (from root)
+# Copy source code
 COPY . .
 
-# Ensure Python output is unbuffered
-ENV PYTHONUNBUFFERED=1
-
-# Default command
-CMD ["python", "-m", "src.execution.worker.worker"]
+# Default command (can be overridden in docker-compose)
+CMD ["python", "-m", "src.control.dispatcher.dispatcher"]
