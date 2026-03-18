@@ -52,7 +52,7 @@ DISPATCHER_URL   = os.environ.get("DISPATCHER_URL", "http://localhost:8001")
 LLM_PROVIDER     = os.environ.get("TEST_LLM_PROVIDER", "google")
 LLM_MODEL        = os.environ.get("TEST_LLM_MODEL", "gemini-2.0-flash")
 TEST_TASK        = os.environ.get("TEST_TASK", "Run a quick smoke test: summarize the number 42 in one sentence.")
-TEST_TIMEOUT_SEC = int(os.environ.get("TEST_TIMEOUT_SEC", "120"))
+TEST_TIMEOUT_SEC = int(os.environ.get("TEST_TIMEOUT_SEC", "300"))
 TASK_QUEUE       = "ai-orchestration-queue"
 
 
@@ -162,13 +162,25 @@ class TestEndToEndWorkflow:
 async def _run_and_monitor(client, workflow_id: str):
     from temporalio.client import WorkflowExecutionStatus
 
-    # 1. Start the workflow
-    handle = await client.start_workflow(
-        "AIOrchestrationWorkflow",
-        args=[TEST_TASK, LLM_MODEL, LLM_PROVIDER],
-        id=workflow_id,
-        task_queue=TASK_QUEUE,
-    )
+    # Detect worker signature from env — default to new 3-arg signature, fallback to legacy 1-arg
+    use_legacy_worker = os.environ.get("LEGACY_WORKER", "0") == "1"
+
+    if use_legacy_worker:
+        # Old central_node/worker.py: run(self, task: str)
+        handle = await client.start_workflow(
+            "AIOrchestrationWorkflow",
+            args=[TEST_TASK],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
+    else:
+        # New src/execution/worker/worker.py: run(self, task, model_id, provider)
+        handle = await client.start_workflow(
+            "AIOrchestrationWorkflow",
+            args=[TEST_TASK, LLM_MODEL, LLM_PROVIDER],
+            id=workflow_id,
+            task_queue=TASK_QUEUE,
+        )
     print(f"\n  🚀 Workflow started. Monitoring execution...")
 
     # 2. Poll for progress

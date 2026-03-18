@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Temporal Server for Reliable Workflow Orchestration
   temporal:
     image: temporalio/auto-setup:1.22.2
     ports:
@@ -28,7 +27,6 @@ services:
     networks:
       - ai-network
 
-  # Qdrant for RAG & Long-Term Memory (L2)
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -39,7 +37,6 @@ services:
     networks:
       - ai-network
 
-  # Redis for Ephemeral State & Fast Context (L1)
   redis:
     image: redis:7-alpine
     ports:
@@ -47,23 +44,33 @@ services:
     networks:
       - ai-network
 
-  # The AI Worker Node (Langgraph + Temporal Worker)
+  # ── Execution Plane Worker ───────────────────────────────────────────────
+  # Source code is mounted as a live volume so that `./scripts/reload.sh`
+  # can pick up code changes by restarting the container (no image rebuild).
+  # For a clean production build, run: ./scripts/deploy.sh execution
   ai-worker:
-    build: 
-      context: ..
-      dockerfile: central_node/Dockerfile.worker
+    build:
+      context: ../..
+      dockerfile: src/execution/worker/Dockerfile.worker
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - PYTHONUNBUFFERED=1
+    volumes:
+      # Live code mount — changes on host are reflected without image rebuild
+      - ../../src:/app/src
+      - ../../config:/app/config
     depends_on:
       - temporal
       - qdrant
       - redis
     networks:
       - ai-network
+    restart: unless-stopped
 
 volumes:
   qdrant_storage:
