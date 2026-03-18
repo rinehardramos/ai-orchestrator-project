@@ -43,6 +43,15 @@ jobs:
           # -r: recursive, -ll: report only medium/high severity, -ii: report only medium/high confidence
           bandit -r src/ -ll -ii
 
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+
       - name: Run unit and integration tests
         run: |
           pytest tests/
@@ -92,7 +101,29 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
 
-      - name: Build and push Docker image
+      - name: Build Docker image (Load local)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.component.file }}
+          load: true
+          tags: local-image:test
+          labels: ${{ steps.meta.outputs.labels }}
+          # Use GHA cache to speed up repeated builds
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'local-image:test'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -100,6 +131,5 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Use GHA cache to speed up repeated builds
           cache-from: type=gha
           cache-to: type=gha,mode=max
