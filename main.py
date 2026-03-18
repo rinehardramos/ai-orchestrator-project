@@ -63,6 +63,14 @@ async def execute_task_async(result: AnalyzerResult, statement: str):
     print(f"\n🏁 Task {task_id} finished with status: {final_status}")
 
 async def main_async():
+    try:
+        from src.orchestrator.notifier import TelegramNotifier
+        notifier = TelegramNotifier()
+        if notifier.enabled:
+            notifier.send_message("🤖 *Gemini CLI Initialized*\nGenesis Node is now online and ready to accept tasks.")
+    except Exception as e:
+        print(f"Failed to send initialization notification: {e}")
+
     parser = argparse.ArgumentParser(description="AI Task Orchestrator - Genesis/CNC Node")
     parser.add_argument("statement", help="Natural language description of the task")
     parser.add_argument("--plan", action="store_true", help="Review the execution plan before proceeding")

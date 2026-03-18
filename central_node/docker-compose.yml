@@ -57,6 +57,7 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - PYTHONUNBUFFERED=1
     depends_on:
       - temporal
       - qdrant

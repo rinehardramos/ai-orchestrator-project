@@ -1,0 +1,9 @@
+ai-worker-1  | Connecting to Temporal at temporal:7233...
+ai-worker-1  | Worker started. Listening on 'ai-orchestration-queue'...
+ai-worker-1  | Worker progress: 0% (verify_iac_demo started)
+ai-worker-1  | ⚠️ RELEVANT PAST ISSUES (KNOWLEDGE BASE):
+ai-worker-1  |   - 4. Container Dependencies and Paths (Score: 0.73)
+ai-worker-1  | Worker progress: 30% (Verified terraform)
+ai-worker-1  | Worker progress: 60% (Verified pulumi)
+ai-worker-1  | Worker progress: 90% (Verified aws-cdk)
+ai-worker-1  | Worker progress: 100% (verify_iac_demo complete)

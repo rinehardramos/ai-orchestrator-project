@@ -47,6 +47,14 @@ def show_plan(result: AnalyzerResult):
     print("=" * 40)
 
 def main():
+    try:
+        from src.orchestrator.notifier import TelegramNotifier
+        notifier = TelegramNotifier()
+        if notifier.enabled:
+            notifier.send_message("🤖 *Gemini CLI Initialized*\nGenesis Node is now online and ready to accept tasks.")
+    except Exception as e:
+        pass
+
     agent = AnalyzerAgent()
     task = build_task()
     

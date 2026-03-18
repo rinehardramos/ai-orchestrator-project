@@ -1,0 +1,19 @@
+jobs:
+  - id: verify_iac_demo
+    match_string: "Verify IaC Demo:"
+    type: shell_commands
+    base_dir: "iac-demo/infrastructure"
+    tasks:
+      terraform:
+        dir: "terraform"
+        cmd: "terraform init -backend=false && terraform validate"
+      pulumi:
+        dir: "pulumi"
+        cmd: "pulumi preview"
+      aws-cdk:
+        dir: "aws-cdk"
+        cmd: "npm install && npx cdk synth"
+
+  - id: diagnostic_self_test
+    match_string: "Run diagnostic self-test:"
+    type: diagnostic

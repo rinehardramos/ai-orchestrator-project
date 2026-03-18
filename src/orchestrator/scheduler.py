@@ -3,16 +3,37 @@ import uuid
 import time
 import asyncio
 import os
-import yaml
 import socket
+import sqlite3
+import json
 from typing import Dict, Any
 from temporalio.client import Client
+
+# Local imports
+try:
+    from src.orchestrator.notifier import TelegramNotifier
+except ImportError:
+    TelegramNotifier = None
+
+from src.config import load_settings
 
 class TaskScheduler:
     def __init__(self, queue_url: str, table_name: str, region: str = "us-east-1"):
         self.queue_url = queue_url
-        self.config = self._load_settings()
+        self.config = load_settings()
         
+        # Caching for pre-flight
+        self.preflight_cache = {}
+        
+        # Offline Queue DB Initialization
+        data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data")
+        os.makedirs(data_dir, exist_ok=True)
+        self.offline_db_path = os.path.join(data_dir, "offline_queue.db")
+        self._init_offline_db()
+        
+        # Notifier setup
+        self.notifier = TelegramNotifier() if TelegramNotifier else None
+
         if self.queue_url != "dummy-temporal-queue":
             self.sqs = boto3.client('sqs', region_name=region)
             self.dynamodb = boto3.resource('dynamodb', region_name=region)
@@ -22,13 +43,25 @@ class TaskScheduler:
             self.dynamodb = None
             self.table = None
 
-    def _load_settings(self):
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        settings_path = os.path.join(project_root, "config/settings.yaml")
-        if os.path.exists(settings_path):
-            with open(settings_path, "r") as f:
-                return yaml.safe_load(f)
-        return {}
+    def _init_offline_db(self):
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS offline_tasks
+                     (task_id TEXT PRIMARY KEY, description TEXT, metadata TEXT, status TEXT)''')
+        conn.commit()
+        conn.close()
+
+    def _save_task_offline(self, task_id: str, description: str, metadata: Dict[str, Any]):
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        meta_str = json.dumps(metadata) if metadata else "{}"
+        c.execute("INSERT INTO offline_tasks (task_id, description, metadata, status) VALUES (?, ?, ?, ?)",
+                  (task_id, description, meta_str, 'QUEUED'))
+        conn.commit()
+        conn.close()
+        print(f"📴 [OFFLINE] Task {task_id} queued locally. It will be flushed when network is restored.")
+        if self.notifier:
+            self.notifier.send_message(f"📴 *Offline Mode*: Task {task_id} queued locally.")
 
     async def check_connectivity(self) -> Dict[str, bool]:
         """
@@ -62,6 +95,41 @@ class TaskScheduler:
     async def submit_task(self, task_description: str, metadata: Dict[str, Any] = None) -> str:
         task_id = str(uuid.uuid4())
         
+        # [NEW] Pre-flight Knowledge Base Check with Cache
+        print(f"\n🧠 [CNC NODE] Querying Knowledge Base for relevant past issues...")
+        cache_key = task_description.lower().strip()
+        
+        warnings = []
+        if cache_key in self.preflight_cache:
+            print("⚡ Using cached Knowledge Base lookup.")
+            warnings = self.preflight_cache[cache_key]
+        else:
+            try:
+                from src.memory.knowledge_base import KnowledgeBaseClient
+                kb = KnowledgeBaseClient()
+                warnings = kb.query_similar_issues(task_description, limit=2)
+                self.preflight_cache[cache_key] = warnings
+            except Exception as e:
+                print(f"⚠️  Knowledge Base lookup failed or is unconfigured: {e}")
+
+        if warnings:
+            print("⚠️  WARNING: Found similar past issues that you should be aware of:")
+            for w in warnings:
+                print(f"  - {w['title']} (Relevance: {w['score']:.2f})")
+            
+            # Interactive pre-flight resolution
+            proceed = input("\nProceed anyway? (Y/n): ").strip().lower()
+            if proceed == 'n':
+                print("❌ Task cancelled by user due to pre-flight warnings.")
+                return "CANCELLED"
+        else:
+            print("✅ No highly relevant past issues found.")
+            
+        print("-" * 50)
+        
+        if self.notifier:
+            self.notifier.send_message(f"🚀 *New Task Submitted*\nID: `{task_id}`\nDescription: {task_description}")
+
         if self.queue_url == "dummy-temporal-queue":
             print("🚀 [GENESIS CNC] Delegating task to Temporal cluster on Central Node...")
             try:
@@ -69,7 +137,7 @@ class TaskScheduler:
                 temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
                 
                 print(f"Connecting to Temporal at {temporal_host}...")
-                client = await Client.connect(temporal_host)
+                client = await asyncio.wait_for(Client.connect(temporal_host), timeout=5.0)
                 print(f"📥 Pushing task '{task_description}' to Temporal workflow...")
                 
                 await client.start_workflow(
@@ -79,9 +147,11 @@ class TaskScheduler:
                     task_queue="ai-orchestration-queue"
                 )
                 return task_id
-            except Exception as e:
+            except (Exception, asyncio.TimeoutError) as e:
                 print(f"❌ Error connecting to Temporal: {e}")
-                return task_id
+                print("Falling back to local offline queue...")
+                self._save_task_offline(task_id, task_description, metadata)
+                return f"QUEUED_OFFLINE_{task_id}"
             
         # 1. Register in DynamoDB
         self.table.put_item(Item={
@@ -101,25 +171,63 @@ class TaskScheduler:
         return task_id
 
     def get_task_status(self, task_id: str) -> str:
+        if task_id.startswith("QUEUED_OFFLINE"):
+            return "QUEUED_OFFLINE"
+            
         if self.queue_url == "dummy-temporal-queue":
             return "RUNNING" 
+            
         response = self.table.get_item(Key={'task_id': task_id})
         item = response.get('Item')
         return item.get('status', 'NOT_FOUND') if item else 'NOT_FOUND'
 
     async def wait_for_completion(self, task_id: str, timeout: int = 600) -> str:
+        if task_id.startswith("QUEUED_OFFLINE") or task_id == "CANCELLED":
+            return task_id
+
         if self.queue_url == "dummy-temporal-queue":
             try:
                 temp_cfg = self.config.get("temporal", {})
                 temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
                 client = await Client.connect(temporal_host)
                 handle = client.get_workflow_handle(task_id)
+                
+                print(f"\n⏳ [CENTRAL NODE] Polling for worker progress on task {task_id}...")
+                last_progress = None
+                from temporalio.client import WorkflowExecutionStatus
+                
+                while True:
+                    desc = await handle.describe()
+                    if desc.status != WorkflowExecutionStatus.RUNNING:
+                        break
+                        
+                    if desc.raw_description.pending_activities:
+                        act = desc.raw_description.pending_activities[0]
+                        if act.heartbeat_details:
+                            from temporalio.converter import default
+                            try:
+                                payloads = act.heartbeat_details.payloads
+                                current_progress = default().payload_converter.from_payloads(payloads)[0]
+                                if current_progress != last_progress:
+                                    print(f"📈 Worker Progress: {current_progress}")
+                                    last_progress = current_progress
+                            except Exception:
+                                pass
+                                
+                    await asyncio.sleep(1.0)
+                    
                 result = await handle.result()
                 print(f"\n✅ [CENTRAL NODE] Worker Execution Complete.")
                 print(f"Result: {result}")
+                
+                if self.notifier:
+                    self.notifier.send_message(f"✅ *Task Completed*\nID: `{task_id}`\nResult: {result}")
+                    
                 return "COMPLETED"
             except Exception as e:
                 print(f"❌ Error waiting for Temporal workflow: {e}")
+                if self.notifier:
+                    self.notifier.send_message(f"❌ *Task Failed*\nID: `{task_id}`\nError: {e}")
                 return "FAILED"
             
         start_time = time.time()
