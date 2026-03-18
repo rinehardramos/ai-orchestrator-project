@@ -17,6 +17,9 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
+      - name: Force Node 24 for Actions
+        run: echo "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true" >> $GITHUB_ENV
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -85,6 +88,9 @@ jobs:
             image_suffix: observability
 
     steps:
+      - name: Force Node 24 for Actions
+        run: echo "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true" >> $GITHUB_ENV
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
