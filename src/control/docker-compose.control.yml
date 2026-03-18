@@ -1,0 +1,39 @@
+version: '3.8'
+
+# ── Control Plane ────────────────────────────────────────────────────────────
+# Responsibility: Dynamic Logic (Dispatcher, Meta-Dispatcher, Scaler)
+# All services here pull from the 'control' image on GHCR.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Dispatcher (Dynamic Orchestration) ─────────────────────────────────────
+  dispatcher:
+    image: ghcr.io/rinehardramos/ai-orchestrator-control:latest
+    container_name: control-dispatcher
+    command: ["python", "-m", "src.control.dispatcher.dispatcher"]
+    environment:
+      - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-temporal:7233}
+      - REDIS_URL=redis://redis:6379
+      - MONITOR_ENABLED=true
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  # ── Model Selector (Constraint-based Scaling) ──────────────────────────────
+  selector:
+    image: ghcr.io/rinehardramos/ai-orchestrator-control:latest
+    container_name: control-selector
+    command: ["python", "-m", "src.control.model_selector.selector"]
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+networks:
+  ai-network:
+    external: true
+    name: worker_ai-network

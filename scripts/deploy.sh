@@ -50,20 +50,27 @@ local_deploy() {
   log "GIT" "Pulling latest code from origin/main..."
   git pull --rebase origin main
 
+  local compose_files=("-f" "$COMPOSE_FILE" "-f" "src/observability/docker-compose.observability.yml" "-f" "src/control/docker-compose.control.yml" "-f" "docker-compose.cnc.yml")
   local services=()
+
   case "$PLANE" in
     infra)
       log "INFRA" "Restarting infrastructure (no rebuild)..."
-      docker compose -f "$COMPOSE_FILE" restart temporal postgres qdrant redis
+      docker compose "${compose_files[@]}" restart temporal postgres qdrant redis
       return
       ;;
-    *) services=(ai-worker) ;;
+    execution) services=(ai-worker) ;;
+    observability) services=(collector web) ;;
+    control) services=(dispatcher selector) ;;
+    cnc) services=(cnc) ;;
+    all) services=(ai-worker collector web dispatcher selector cnc) ;;
   esac
 
-  log "$PLANE" "Rebuilding Docker image and restarting $PLANE plane..."
-  docker compose -f "$COMPOSE_FILE" up -d --build --no-deps "${services[@]}"
+  log "$PLANE" "Pulling latest images from GHCR and restarting..."
+  docker compose "${compose_files[@]}" pull "${services[@]}"
+  docker compose "${compose_files[@]}" up -d --no-deps "${services[@]}"
   log "✅" "Local deploy of $PLANE complete."
-  docker compose -f "$COMPOSE_FILE" ps "${services[@]}"
+  docker compose "${compose_files[@]}" ps "${services[@]}"
 }
 
 # ── Remote deploy (SSH) ───────────────────────────────────────────────────────
@@ -79,12 +86,22 @@ remote_deploy() {
   log "REMOTE" "Pulling latest code on $host..."
   ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && git pull --rebase origin main"
 
-  log "REMOTE" "Rebuilding + restarting on $host..."
-  ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && \
-    docker compose -f src/execution/worker/docker-compose.yml up -d --build --no-deps ai-worker"
+  local compose_files=("-f" "$COMPOSE_FILE" "-f" "src/observability/docker-compose.observability.yml" "-f" "src/control/docker-compose.control.yml" "-f" "docker-compose.cnc.yml")
+  local services=()
 
-  log "REMOTE" "Last 10 log lines from $host:"
-  ssh_cmd "$host" "docker logs central_node-ai-worker-1 --tail 10 2>/dev/null || echo '(no logs yet)'"
+  case "$PLANE" in
+    execution) services=(ai-worker) ;;
+    observability) services=(collector web) ;;
+    control) services=(dispatcher selector) ;;
+    cnc) services=(cnc) ;;
+    all) services=(ai-worker collector web dispatcher selector cnc) ;;
+  esac
+
+  log "REMOTE" "Pulling latest images from GHCR on $host..."
+  ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && \
+    docker compose ${compose_files[*]} pull ${services[*]} && \
+    docker compose ${compose_files[*]} up -d --no-deps ${services[*]}"
+
   log "✅" "Remote deploy of $PLANE on $host complete."
 }
 

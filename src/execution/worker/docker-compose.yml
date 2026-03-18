@@ -45,13 +45,10 @@ services:
       - ai-network
 
   # ── Execution Plane Worker ───────────────────────────────────────────────
-  # Source code is mounted as a live volume so that `./scripts/reload.sh`
-  # can pick up code changes by restarting the container (no image rebuild).
-  # For a clean production build, run: ./scripts/deploy.sh execution
+  # Automatically pulls newest versions from GHCR via Watchtower.
   ai-worker:
-    build:
-      context: ../../../
-      dockerfile: src/execution/worker/Dockerfile.worker
+    image: ghcr.io/rinehardramos/ai-orchestrator-execution:latest
+    container_name: ai-worker
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
       - QDRANT_URL=http://qdrant:6333
@@ -81,13 +78,14 @@ services:
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ${HOME}/.docker/config.json:/config.json:ro
     environment:
       - WATCHTOWER_POLL_INTERVAL=60
       - WATCHTOWER_CLEANUP=true
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_MONITOR_ONLY=${WATCHTOWER_MONITOR_ONLY:-false}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-      - DOCKER_API_VERSION=1.44   # compatible with Docker Desktop >= 4.x
+      - DOCKER_API_VERSION=1.44
     networks:
       - ai-network
     restart: unless-stopped

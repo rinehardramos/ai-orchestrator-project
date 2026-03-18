@@ -1,0 +1,33 @@
+version: '3.8'
+
+# ── CNC (Command & Control) Plane ─────────────────────────────────────────────
+# Responsibility: Infrastructure provisioning, Task scheduling, Genesis Node.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── CNC Genesis Node ───────────────────────────────────────────────────────
+  # Runs the main orchestrator/CLI inside a persistent container.
+  cnc:
+    image: ghcr.io/rinehardramos/ai-orchestrator-cnc:latest
+    container_name: cnc-genesis
+    environment:
+      - TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    volumes:
+      - ${HOME}/.aws:/root/.aws:ro
+      - ${HOME}/.pulumi:/root/.pulumi:ro
+      - .:/app  # Optional: mount local code for development override
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+networks:
+  ai-network:
+    external: true
+    name: worker_ai-network
