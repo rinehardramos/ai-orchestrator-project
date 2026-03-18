@@ -20,6 +20,7 @@ graph TD
         Qdrant[Qdrant Vector DB]
         Redis[Redis Cache]
         Postgres[Postgres - Temporal DB]
+        LiteLLM[LiteLLM Proxy]
         Dispatcher[src/control/dispatcher/dispatcher.py]
         Catalog[src/control/catalog/catalog.py]
         DAG_Service[src/control/dag/dag_service.py]
@@ -46,8 +47,11 @@ graph TD
     Temporal -- 6. Poll Task --> Worker
     Worker -- 7. Semantic Search --> Qdrant
     Worker -- 8. Load Dynamic Logic --> Jobs_Config
-    Worker -- 9. Execute Shell/Langgraph --> Result[Subprocess / LLM]
+    Worker -- 9. Execute Shell --> Result[Subprocess]
+    Worker -- 9a. Unified AI Call --> LiteLLM
+    LiteLLM -- 9b. Model Response --> Worker
     Result -- 10. Complete Workflow --> Temporal
+    Worker -- 10. Complete Workflow --> Temporal
     Temporal -- 11. Return Final Result --> Scheduler
     Scheduler -- 12. Display to User & Notify --> CLI
     
