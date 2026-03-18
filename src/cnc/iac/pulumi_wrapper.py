@@ -138,10 +138,11 @@ export GOOGLE_API_KEY='{api_key}'
             redis_url = f"redis://{settings.get('redis', {}).get('host', 'localhost')}:{settings.get('redis', {}).get('port', 6379)}"
             
             deploy_cmd = command.remote.Command("deploy-docker-stack",
-                create=f"bash -l -c 'mkdir -p /tmp/docker-cfg/cli-plugins && ln -sf ~/.docker/cli-plugins/* /tmp/docker-cfg/cli-plugins/ && echo \"{{}}\" > /tmp/docker-cfg/config.json && cd {project_dir} && DOCKER_CONFIG=/tmp/docker-cfg GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'",
+                create=f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'",
                 connection=connection,
                 opts=pulumi.ResourceOptions(depends_on=[sync_files])
             )
+
 
             pulumi.export("queue_url", pulumi.Output.from_input("dummy-temporal-queue"))
             pulumi.export("table_name", pulumi.Output.from_input("dummy-qdrant-db"))

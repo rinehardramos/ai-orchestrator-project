@@ -53,6 +53,13 @@
       failed_when: not proj_dir.stat.exists
       tags: [preflight]
 
+    - name: Fix macOS Docker Keychain Error (non-interactive session)
+      shell: |
+        mkdir -p ~/.docker
+        echo '{"credsStore": ""}' > ~/.docker/config.json
+      when: ansible_host != 'localhost' and ('/Users/' in project_dir)
+      tags: [preflight, fix-mac]
+
     # ── Pull latest code ─────────────────────────────────────────────────────
 
     - name: Pull latest code from origin/main
