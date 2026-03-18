@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 pytest pytest-asyncio
+          pip install flake8 pytest pytest-asyncio bandit
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements.worker.txt ]; then pip install -r requirements.worker.txt; fi
           if [ -f requirements.observability.txt ]; then pip install -r requirements.observability.txt; fi
@@ -36,6 +36,12 @@ jobs:
           flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
           # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run security tests with Bandit
+        run: |
+          # Scan for common security issues in Python code
+          # -r: recursive, -ll: report only medium/high severity, -ii: report only medium/high confidence
+          bandit -r src/ -ll -ii
 
       - name: Run unit and integration tests
         run: |
