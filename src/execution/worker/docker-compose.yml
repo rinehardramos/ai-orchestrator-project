@@ -77,7 +77,7 @@ services:
   # updated (via CI/CD or `docker push`), Watchtower pulls and restarts it
   # automatically — no manual SSH or redeploy needed.
   watchtower:
-    image: containrrr/watchtower:latest
+    image: containrrr/watchtower:1.7.1
     container_name: watchtower
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -87,6 +87,7 @@ services:
       - WATCHTOWER_INCLUDE_STOPPED=false
       - WATCHTOWER_MONITOR_ONLY=${WATCHTOWER_MONITOR_ONLY:-false}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+      - DOCKER_API_VERSION=1.44   # compatible with Docker Desktop >= 4.x
     networks:
       - ai-network
     restart: unless-stopped
