@@ -7,7 +7,7 @@ from src.cnc.orchestrator.scheduler import TaskScheduler
 
 @pytest.fixture
 def mock_scheduler(tmpdir):
-    with patch("src.orchestrator.scheduler.load_settings") as mock_settings:
+    with patch("src.cnc.orchestrator.scheduler.load_settings") as mock_settings:
         mock_settings.return_value = {}
         # We patch sqlite3 connect to use a temporary DB for tests
         scheduler = TaskScheduler("dummy-temporal-queue", "dummy-table")
@@ -48,26 +48,26 @@ def test_save_task_offline(mock_scheduler):
     assert json.loads(row[2]) == test_meta
     assert row[3] == "QUEUED"
 
-@patch("src.orchestrator.scheduler.TaskScheduler.check_connectivity")
+@patch("src.cnc.orchestrator.scheduler.TaskScheduler.check_connectivity")
 def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
     # Setup mock KB
     mock_scheduler.preflight_cache = {}
     test_desc = "deploy aws instance"
     cache_key = test_desc.lower().strip()
     
-    with patch("src.memory.knowledge_base.KnowledgeBaseClient") as MockKB:
+    with patch("src.shared.memory.knowledge_base.KnowledgeBaseClient") as MockKB:
         mock_kb_instance = MockKB.return_value
         mock_kb_instance.query_similar_issues.return_value = [{"title": "Warning", "score": 0.9}]
         
         # We need to patch input to automatically reply 'y' to proceed anyway
         with patch("builtins.input", return_value="y"):
             # We also need to patch Temporal Client to avoid actual connection
-            with patch("src.orchestrator.scheduler.Client.connect", new_callable=AsyncMock) as mock_connect:
+            with patch("src.cnc.orchestrator.scheduler.Client.connect", new_callable=AsyncMock) as mock_connect:
                 mock_client = AsyncMock()
                 mock_connect.return_value = mock_client
                 
                 import asyncio
-                asyncio.run(mock_scheduler.submit_task(test_desc))
+                asyncio.run(mock_scheduler.submit_task(test_desc, analysis_result={"llm_model_id": "test_model", "model_details": {"provider": "test_provider"}}))
                 
                 # Verify KB was queried
                 mock_kb_instance.query_similar_issues.assert_called_once()
@@ -78,5 +78,5 @@ def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
 
                 # Run again with same description, ensure KB is not queried again
                 mock_kb_instance.reset_mock()
-                asyncio.run(mock_scheduler.submit_task(test_desc))
+                asyncio.run(mock_scheduler.submit_task(test_desc, analysis_result={"llm_model_id": "test_model", "model_details": {"provider": "test_provider"}}))
                 mock_kb_instance.query_similar_issues.assert_not_called()

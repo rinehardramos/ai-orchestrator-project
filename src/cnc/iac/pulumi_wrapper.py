@@ -3,18 +3,13 @@ import yaml
 from pulumi import automation as auto
 from typing import Dict, Any
 
-def load_settings():
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    settings_path = os.path.join(project_root, "config/settings.yaml")
-    if os.path.exists(settings_path):
-        with open(settings_path, "r") as f:
-            return yaml.safe_load(f)
-    return {}
+# Use the centralized config loader
+from src.config import load_settings
 
-def create_pulumi_program(infra_id: str, task_env: dict):
+def create_pulumi_program(infra_id: str, task_env: dict, env_name: str = None):
     def pulumi_program():
         import pulumi
-        settings = load_settings()
+        settings = load_settings(env_name)
         
         if "aws" in infra_id:
             import pulumi_aws as aws
@@ -107,6 +102,7 @@ export GOOGLE_API_KEY='{api_key}'
             
             worker_cfg = settings.get("remote_worker", {})
             remote_host = worker_cfg.get("host", "192.168.100.249")
+            remote_port = worker_cfg.get("port", 22)
             remote_user = worker_cfg.get("user", "rinehardramos")
             ssh_key_path = worker_cfg.get("ssh_key_path", "/home/pi/.ssh/id_ed25519")
             project_dir = worker_cfg.get("project_dir", "ai-orchestration-worker")
@@ -116,6 +112,7 @@ export GOOGLE_API_KEY='{api_key}'
 
             connection = command.remote.ConnectionArgs(
                 host=remote_host,
+                port=remote_port,
                 user=remote_user,
                 private_key=private_key,
             )
@@ -127,14 +124,21 @@ export GOOGLE_API_KEY='{api_key}'
             )
 
             # 2. Copy necessary files to the remote host
+            # We use a trigger to force re-sync when files or environment change
             sync_files = command.local.Command("sync-files-to-worker",
-                create=f"scp -r central_node src requirements.txt .dockerignore {remote_user}@{remote_host}:{project_dir}/",
+                create=f"scp -P {remote_port} -r central_node src requirements.txt .dockerignore {remote_user}@{remote_host}:{project_dir}/",
+                triggers=[str(os.path.getmtime("central_node/docker-compose.worker.yml")), env_name, str(remote_port)],
                 opts=pulumi.ResourceOptions(depends_on=[mkdir_cmd])
             )
 
             # 3. Run docker-compose on the remote host
+            # Prepare environment variables for the worker
+            temporal_host = f"{settings.get('temporal', {}).get('host', 'localhost')}:{settings.get('temporal', {}).get('port', 7233)}"
+            qdrant_url = f"http://{settings.get('qdrant', {}).get('host', 'localhost')}:{settings.get('qdrant', {}).get('port', 6333)}"
+            redis_url = f"redis://{settings.get('redis', {}).get('host', 'localhost')}:{settings.get('redis', {}).get('port', 6379)}"
+            
             deploy_cmd = command.remote.Command("deploy-docker-stack",
-                create=f"bash -l -c 'mkdir -p /tmp/docker-cfg/cli-plugins && ln -sf ~/.docker/cli-plugins/* /tmp/docker-cfg/cli-plugins/ && echo \"{{}}\" > /tmp/docker-cfg/config.json && cd {project_dir} && DOCKER_CONFIG=/tmp/docker-cfg GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" docker compose -f central_node/docker-compose.yml up --build -d'",
+                create=f"bash -l -c 'mkdir -p /tmp/docker-cfg/cli-plugins && ln -sf ~/.docker/cli-plugins/* /tmp/docker-cfg/cli-plugins/ && echo \"{{}}\" > /tmp/docker-cfg/config.json && cd {project_dir} && DOCKER_CONFIG=/tmp/docker-cfg GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'",
                 connection=connection,
                 opts=pulumi.ResourceOptions(depends_on=[sync_files])
             )
@@ -205,7 +209,8 @@ async def provision_worker(stack_name: str, project_name: str, infra_id: str, ta
     """
     Provisions the infrastructure using Pulumi Automation API.
     """
-    program = create_pulumi_program(infra_id, task_env)
+    env_name = os.environ.get("SELECTED_ENV")
+    program = create_pulumi_program(infra_id, task_env, env_name)
     
     stack = auto.create_or_select_stack(
         stack_name=stack_name,
@@ -229,9 +234,8 @@ async def destroy_worker(stack_name: str, project_name: str, infra_id: str):
     """
     Destroys the ephemeral infrastructure.
     """
-    # Program is required even for destroy to know what providers to load sometimes,
-    # but the state determines what is actually destroyed.
-    program = create_pulumi_program(infra_id, {})
+    env_name = os.environ.get("SELECTED_ENV")
+    program = create_pulumi_program(infra_id, {}, env_name)
     stack = auto.select_stack(
         stack_name=stack_name,
         project_name=project_name,

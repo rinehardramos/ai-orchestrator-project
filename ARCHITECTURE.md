@@ -68,6 +68,7 @@ graph TD
 ### 2. Control Plane (Central Node)
 *   **Role:** State Management & Networking.
 *   **Temporal:** Manages the lifecycle of long-running workflows, ensuring reliability and retries.
+*   **LiteLLM:** Acts as the unified proxy/gateway for all LLM calls across the control and execution planes, abstracting provider APIs (OpenAI, Anthropic, Gemini).
 *   **Qdrant:** Stores the semantic knowledge base as high-dimensional vectors (gemini-embedding-001).
 *   **Redis:** Provides L1 ephemeral caching for fast context retrieval.
 

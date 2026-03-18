@@ -72,23 +72,33 @@ Run the orchestrator from the Genesis Node (Pi):
 ```bash
 ./main.py "Run a security audit on the current codebase"
 ```
-
 ### **2. Plan & Provision**
 Review the plan and check if the remote core services (Temporal, Qdrant) are reachable before committing:
 ```bash
 ./main.py --plan "Assess system performance"
 ```
 
-## 🛠️ Troubleshooting: macOS Docker Keychain Issue
+## 🔄 Development & Reloading
 
-If provisioning to a macOS worker fails with `keychain cannot be accessed`, Docker is trying to use the interactive macOS keychain in a non-interactive SSH session.
+To apply changes made to the codebase, follow these steps based on the component modified:
 
-**Fix:** Run this command on the **remote macOS worker** to disable the credential helper for the automated session:
-```bash
-mkdir -p ~/.docker
-echo '{"credsStore": ""}' > ~/.docker/config.json
-```
-Alternatively, the Genesis node attempts to bypass this by setting environment variables during deployment.
+### **1. Gemini CLI Interface**
+If you are using the Gemini CLI interactive mode and change instruction files (`GEMINI.md`), skills, or core settings:
+- **Restart Application**: Press **`R`** (Capital R) to perform a full reload.
+- **Refresh Memory**: Run **`/memory refresh`** to reload architectural mandates.
+- **Reload Skills**: Run **`/skills reload`** if you modified the `analyzer-agent` skill definition.
+
+### **2. Genesis Node Logic (Python)**
+If you modify files in `src/` (like `analyzer/`, `iac/`, or `orchestrator/`):
+- No explicit reload is needed for the logic itself. Simply run `./main.py` or `python3 src/cli.py` again, and the new Python code will be executed.
+
+### **3. Remote Worker Node**
+If you modify `central_node/worker.py` or the worker's environment:
+- **Restart Worker**: Access the remote machine and restart the Docker container:
+  ```bash
+  docker compose restart worker
+  ```
+- **Update Infrastructure**: If you changed Pulumi logic or `jobs.yaml`, run `./main.py --plan` to trigger a re-provisioning cycle.
 
 ## 🏗️ Project Structure
 

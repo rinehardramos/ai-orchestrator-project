@@ -2,8 +2,8 @@ import pytest
 from unittest.mock import patch, MagicMock
 from src.cnc.orchestrator.notifier import TelegramNotifier
 
-@patch("src.orchestrator.notifier.load_settings")
-@patch("src.orchestrator.notifier.requests.post")
+@patch("src.cnc.orchestrator.notifier.load_settings")
+@patch("src.cnc.orchestrator.notifier.requests.post")
 def test_telegram_notifier_success(mock_post, mock_load_settings):
     # Setup mock configuration
     mock_load_settings.return_value = {
@@ -30,7 +30,7 @@ def test_telegram_notifier_success(mock_post, mock_load_settings):
     assert kwargs["json"]["chat_id"] == "12345"
     assert kwargs["json"]["text"] == "Test message"
 
-@patch("src.orchestrator.notifier.load_settings")
+@patch("src.cnc.orchestrator.notifier.load_settings")
 def test_telegram_notifier_disabled(mock_load_settings):
     # Setup mock configuration with missing telegram
     mock_load_settings.return_value = {}

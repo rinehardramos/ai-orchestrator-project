@@ -22,12 +22,12 @@ def mock_profiles():
         'infrastructure': []
     }
 
-@patch('src.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
+@patch('src.shared.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
 def test_balance_checker_all_sufficient(mock_providers, mock_profiles):
     """
     Tests that the analyzer selects the cheapest valid model when all providers have sufficient balance.
     """
-    with patch('src.analyzer.agent.get_provider_balance', side_effect=[10.0, 20.0, 30.0]) as mock_get_balance:
+    with patch('src.cnc.analyzer.agent.get_provider_balance', side_effect=[10.0, 20.0, 30.0]) as mock_get_balance:
         with patch('builtins.open', new_callable=MagicMock), \
              patch('yaml.safe_load', return_value=mock_profiles):
             agent = AnalyzerAgent(config_path="dummy_path")
@@ -39,14 +39,14 @@ def test_balance_checker_all_sufficient(mock_providers, mock_profiles):
             assert selected_model['id'] == 'gemini-flash'
             assert mock_get_balance.call_count == 3
 
-@patch('src.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
+@patch('src.shared.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
 def test_balance_checker_google_insufficient(mock_providers, mock_profiles):
     """
     Tests that the analyzer skips Google and selects the next cheapest model (Claude)
     when the Google provider has an insufficient balance.
     """
     # Google balance is low (0.5), OpenAI is high (20.0), Anthropic is high (30.0)
-    with patch('src.analyzer.agent.get_provider_balance', side_effect=[0.5, 20.0, 30.0]) as mock_get_balance:
+    with patch('src.cnc.analyzer.agent.get_provider_balance', side_effect=[0.5, 20.0, 30.0]) as mock_get_balance:
         with patch('builtins.open', new_callable=MagicMock), \
              patch('yaml.safe_load', return_value=mock_profiles):
             agent = AnalyzerAgent(config_path="dummy_path")
@@ -60,14 +60,14 @@ def test_balance_checker_google_insufficient(mock_providers, mock_profiles):
             # The balance check should have occurred for all models
             assert mock_get_balance.call_count == 3
 
-@patch('src.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
+@patch('src.shared.utils.balance_checker.BalanceChecker._get_supported_providers', return_value=["google", "openai", "anthropic"])
 def test_fallback_when_all_balances_low(mock_providers, mock_profiles):
     """
     Tests that the system falls back to the most capable model if all financially viable
     models do not meet the task requirements.
     """
     # All balances are critically low
-    with patch('src.analyzer.agent.get_provider_balance', side_effect=[0.1, 0.2, 0.3]) as mock_get_balance:
+    with patch('src.cnc.analyzer.agent.get_provider_balance', side_effect=[0.1, 0.2, 0.3]) as mock_get_balance:
         with patch('builtins.open', new_callable=MagicMock), \
              patch('yaml.safe_load', return_value=mock_profiles):
             agent = AnalyzerAgent(config_path="dummy_path")

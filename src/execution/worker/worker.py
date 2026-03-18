@@ -21,42 +21,36 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../.
 from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
 
 # AI Provider SDKs
-from google import genai as google_genai
-from openai import OpenAI as OpenAIClient
-from anthropic import Anthropic as AnthropicClient
+import litellm
 
 # --- Tiered Memory Setup ---
 memory_store = HybridMemoryStore()
 
-# --- Dynamic LLM Client Factory ---
+# --- Dynamic LLM Call via LiteLLM ---
 
-def get_llm_client(provider: str) -> Any:
-    """Initializes and returns the appropriate LLM client based on the provider."""
-    if provider.lower() == "google":
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        return google_genai.Client(api_key=api_key) if api_key else google_genai.Client()
-    elif provider.lower() == "openai":
-        api_key = os.environ.get("OPENAI_API_KEY")
-        return OpenAIClient(api_key=api_key)
-    elif provider.lower() == "anthropic":
-        api_key = os.environ.get("ANTHROPIC_API_KEY")
-        return AnthropicClient(api_key=api_key)
-    else:
-        raise ValueError(f"Unsupported LLM provider: {provider}")
+def generate_content(provider: str, model: str, prompt: str) -> str:
+    """A wrapper to call the correct content generation method using LiteLLM."""
+    provider = provider.lower()
+    # Map google to gemini for litellm prefix
+    if provider == "google":
+        provider = "gemini"
+        
+    litellm_model = f"{provider}/{model}" if provider not in model else model
 
-def generate_content(client: Any, provider: str, model: str, prompt: str) -> str:
-    """A wrapper to call the correct content generation method for a given provider."""
-    if provider.lower() == "google":
-        response = client.models.generate_content(model=model, contents=prompt)
-        return response.text
-    elif provider.lower() == "openai":
-        response = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}])
+    try:
+        # For anthropic models litellm might require max_tokens
+        kwargs = {}
+        if provider == "anthropic":
+            kwargs["max_tokens"] = 2048
+            
+        response = litellm.completion(
+            model=litellm_model,
+            messages=[{"role": "user", "content": prompt}],
+            **kwargs
+        )
         return response.choices[0].message.content
-    elif provider.lower() == "anthropic":
-        response = client.messages.create(model=model, max_tokens=2048, messages=[{"role": "user", "content": prompt}])
-        return response.content[0].text
-    else:
-        raise ValueError(f"Content generation not implemented for provider: {provider}")
+    except Exception as e:
+        raise ValueError(f"LiteLLM generation failed for {litellm_model}: {str(e)}")
 
 
 # --- Langgraph State & Logic ---
@@ -78,7 +72,6 @@ def analyze_current_system(state: AgentState) -> AgentState:
         return {"assessment": cached_assessment, "status": "assessed"}
         
     print(f"[L1 Cache Miss] Analyzing via LLM using {state['model_id']}...")
-    client = get_llm_client(state['provider'])
     
     context_code = ""
     try:
@@ -91,16 +84,15 @@ def analyze_current_system(state: AgentState) -> AgentState:
 
     prompt = f"Task: {state['input_task']}\n\nPerform a security and performance audit of the following code:\n{context_code}"
     
-    assessment_text = generate_content(client, state['provider'], state['model_id'], prompt)
+    assessment_text = generate_content(state['provider'], state['model_id'], prompt)
     memory_store.store_l1(f"cache:{task_hash}", assessment_text, ttl_seconds=3600)
     
     return {"assessment": assessment_text, "status": "assessed"}
 
 def generate_recommendations(state: AgentState) -> AgentState:
-    client = get_llm_client(state['provider'])
     prompt = f"Based on this security and performance assessment:\n{state['assessment']}\n\nProvide actionable refactoring recommendations."
     
-    recommendations = generate_content(client, state['provider'], state['model_id'], prompt)
+    recommendations = generate_content(state['provider'], state['model_id'], prompt)
     
     if memory_store.qdrant:
         entry = MemoryEntry(id=str(uuid.uuid4()), content=recommendations, metadata={"task": state['input_task']})

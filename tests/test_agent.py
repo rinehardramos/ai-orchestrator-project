@@ -15,7 +15,7 @@ def agent():
 
 def test_light_task(agent):
     # With local_pi/local_server_docker removed, it should select the next cheapest (AWS Lambda or GCP Cloud Run)
-    agent.infrastructure = [i for i in agent.infrastructure if i['provider'] != 'local_network']
+    agent.infrastructure = [i for i in agent.infrastructure if i['provider'] not in ['local_network', 'existing_infra']]
     task = TaskRequirement(
         estimated_duration_seconds=5,
         memory_mb=128,
@@ -28,7 +28,7 @@ def test_light_task(agent):
     assert result.llm_model_id in ["llama-3.1-8b-local", "gemini-3.1-flash-lite"]
 
 def test_heavy_reasoning_task(agent):
-    agent.infrastructure = [i for i in agent.infrastructure if i['provider'] != 'local_network']
+    agent.infrastructure = [i for i in agent.infrastructure if i['provider'] not in ['local_network', 'existing_infra']]
     task = TaskRequirement(
         estimated_duration_seconds=600,
         memory_mb=4096,

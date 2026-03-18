@@ -6,19 +6,36 @@ from dotenv import load_dotenv
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(project_root, ".env"))
 
-def load_settings():
+def load_settings(env_name: str = None):
     """
     Centralized configuration loader.
     Merges static config from config/settings.yaml with sensitive
     environment variables loaded from .env or os.environ.
+    
+    Supports multi-environment configuration if 'environments' key exists.
     """
     settings_path = os.path.join(project_root, "config/settings.yaml")
-    config = {}
+    raw_config = {}
     
     # Load structural configuration
     if os.path.exists(settings_path):
         with open(settings_path, "r") as f:
-            config = yaml.safe_load(f) or {}
+            raw_config = yaml.safe_load(f) or {}
+
+    # Determine which environment to use
+    selected_env = env_name or os.environ.get("SELECTED_ENV") or raw_config.get("active_environment")
+    
+    config = {}
+    if "environments" in raw_config and selected_env in raw_config["environments"]:
+        print(f"🔧 [CONFIG] Loading environment: {selected_env}")
+        config = raw_config["environments"][selected_env]
+        # Keep global settings that are NOT inside environments (like telegram)
+        for key, value in raw_config.items():
+            if key not in ["environments", "active_environment"] and key not in config:
+                config[key] = value
+    else:
+        # Fallback to top-level settings (backward compatibility)
+        config = raw_config
 
     # Overlay sensitive environment variables (Security Priority)
     # Telegram

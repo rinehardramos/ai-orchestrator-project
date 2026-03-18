@@ -24,3 +24,20 @@ This knowledge base documents repeated operations, common pitfalls, and their re
 - **Resolution:** Install the required tools explicitly in `central_node/Dockerfile.worker` during the build phase. Remember to download architecture-appropriate binaries (e.g., `arm64` vs `amd64`) based on the host system architecture.
 - **Issue:** "Directory not found" errors when looking for IaC tools inside the worker container.
 - **Resolution:** Verify the exact directory structure of the repository on the target node. For example, `iac-demo` contained an `infrastructure` subdirectory which housed the tools, requiring the base execution path to be updated to `iac-demo/infrastructure`.
+
+## 5. macOS Docker Keychain Issue
+- **Issue:** Provisioning to a macOS worker fails with `keychain cannot be accessed`.
+- **Root Cause:** Docker attempts to use the interactive macOS keychain in a non-interactive SSH session.
+- **Resolution:** Run the following command on the remote macOS worker to disable the credential helper for the automated session:
+  ```bash
+  mkdir -p ~/.docker
+  echo '{"credsStore": ""}' > ~/.docker/config.json
+  ```
+  Alternatively, ensure the Genesis node environment variables are set to bypass the credential helper during deployment.
+
+  ## 6. Multi-Environment Support
+  - **Feature:** The CNC node can interface with multiple control planes and remote workers.
+  - **Configuration:** Restructured `config/settings.yaml` to support named environments under the `environments` key. Use `active_environment` to set the default.
+  - **Usage:** Use the `--env [name]` flag in `main.py` to switch environments at runtime.
+  - **Pitfall:** If a new environment is added but not selected via `--env` or `active_environment`, the system may fallback to legacy top-level settings if they still exist.
+  - **Resolution:** Always verify the loaded environment in the logs (e.g., `🔧 [CONFIG] Loading environment: ...`).
