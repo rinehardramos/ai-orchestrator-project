@@ -70,16 +70,35 @@
         </div>
       </section>
 
-      <!-- CPU chart -->
-      <section class="card card--chart">
-        <h2 class="card-title">📈 Container CPU %</h2>
-        <canvas id="cpu-chart" height="140"></canvas>
+      <!-- Performance Metrics -->
+      <section class="card card--performance">
+        <h2 class="card-title">⚡ Storage Performance (Latency)</h2>
+        <div class="perf-grid">
+          <div class="perf-item">
+            <span class="perf-label">L1 (Redis)</span>
+            <span class="perf-value" id="perf-l1">— ms</span>
+          </div>
+          <div class="perf-item">
+            <span class="perf-label">L2 (Qdrant)</span>
+            <span class="perf-value" id="perf-l2">— ms</span>
+          </div>
+          <div class="perf-item">
+            <span class="perf-label">L3 (S3)</span>
+            <span class="perf-value" id="perf-l3">— ms</span>
+          </div>
+        </div>
       </section>
 
       <!-- Live log stream -->
       <section class="card card--logs">
         <h2 class="card-title">📋 Live Event Stream</h2>
         <div id="log-feed" class="log-feed"></div>
+      </section>
+
+      <!-- CPU chart -->
+      <section class="card card--chart">
+        <h2 class="card-title">📈 Container CPU %</h2>
+        <canvas id="cpu-chart" height="100"></canvas>
       </section>
 
     </main>

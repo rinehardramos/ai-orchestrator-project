@@ -55,6 +55,11 @@ CONTAINER_CPU    = _gauge("container_cpu_percent",  "Container CPU %",          
 CONTAINER_MEM    = _gauge("container_mem_mb",       "Container memory MB",       ["name", "node"])
 COLLECTOR_ERRORS = _counter("collector_errors_total","Collector probe errors",   ["source"])
 
+# ── Performance Metrics (L1, L2, L3) ──────────────────────────────────────────
+L1_LATENCY       = _histogram("l1_redis_latency_seconds", "Redis L1 access latency")
+L2_LATENCY       = _histogram("l2_qdrant_latency_seconds", "Qdrant L2 access latency")
+L3_LATENCY       = _histogram("l3_s3_latency_seconds", "S3 L3 access latency")
+
 # ── Config ────────────────────────────────────────────────────────────────────
 
 POLL_INTERVAL    = int(os.getenv("POLL_INTERVAL", "10"))
@@ -63,6 +68,8 @@ REDIS_URL        = os.getenv("REDIS_URL", "redis://localhost:6379")
 TEMPORAL_HOST    = os.getenv("TEMPORAL_HOST_URL", "localhost:7233")
 COORDINATOR_URL  = os.getenv("COORDINATOR_URL", "http://localhost:8000")
 MODEL_SEL_URL    = os.getenv("MODEL_SELECTOR_URL", "http://localhost:8003")
+QDRANT_URL       = os.getenv("QDRANT_URL", "http://localhost:6333")
+S3_BUCKET        = os.getenv("S3_ARCHIVE_BUCKET")
 NODES_FILE       = os.path.join(os.path.dirname(__file__), "../../config/cluster_nodes.yaml")
 
 # ── Node loader ────────────────────────────────────────────────────────────────
@@ -177,6 +184,50 @@ async def collect_model_selector() -> dict[str, Any]:
         COLLECTOR_ERRORS.labels(source="model_selector").inc()
     return data
 
+# ── L1, L2, L3 Performance Probes ─────────────────────────────────────────────
+
+async def collect_l1_redis() -> dict[str, Any]:
+    start = time.time()
+    try:
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(REDIS_URL)
+        await r.ping()
+        latency = time.time() - start
+        L1_LATENCY.observe(latency)
+        await r.aclose()
+        return {"latency_ms": round(latency * 1000, 2), "status": "online"}
+    except Exception:
+        return {"latency_ms": -1, "status": "offline"}
+
+async def collect_l2_qdrant() -> dict[str, Any]:
+    start = time.time()
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            resp = await client.get(f"{QDRANT_URL}/healthz")
+            latency = time.time() - start
+            if resp.status_code == 200:
+                L2_LATENCY.observe(latency)
+                return {"latency_ms": round(latency * 1000, 2), "status": "online"}
+    except Exception:
+        pass
+    return {"latency_ms": -1, "status": "offline"}
+
+async def collect_l3_s3() -> dict[str, Any]:
+    if not S3_BUCKET:
+        return {"latency_ms": 0, "status": "unconfigured"}
+    start = time.time()
+    try:
+        import boto3
+        from botocore.config import Config
+        s3 = boto3.client('s3', config=Config(retries={'max_attempts': 0}, connect_timeout=1, read_timeout=1))
+        # Simple head_bucket to check connectivity/latency
+        s3.head_bucket(Bucket=S3_BUCKET)
+        latency = time.time() - start
+        L3_LATENCY.observe(latency)
+        return {"latency_ms": round(latency * 1000, 2), "status": "online"}
+    except Exception:
+        return {"latency_ms": -1, "status": "offline"}
+
 # ── Redis publisher ───────────────────────────────────────────────────────────
 
 async def publish_to_redis(event: dict):
@@ -198,22 +249,40 @@ async def run_collector():
     while True:
         tick_start = time.time()
         try:
-            node_results, docker_stats, temporal, coordinator, model_sel = await asyncio.gather(
+            results = await asyncio.gather(
                 probe_nodes(nodes),
                 collect_docker_stats("local"),
                 collect_temporal(),
                 collect_coordinator(),
                 collect_model_selector(),
+                collect_l1_redis(),
+                collect_l2_qdrant(),
+                collect_l3_s3(),
                 return_exceptions=True,
             )
+            
+            # Map results safely
+            node_results = results[0] if not isinstance(results[0], Exception) else []
+            docker_stats = results[1] if not isinstance(results[1], Exception) else []
+            temporal     = results[2] if not isinstance(results[2], Exception) else {}
+            coordinator  = results[3] if not isinstance(results[3], Exception) else {}
+            model_sel    = results[4] if not isinstance(results[4], Exception) else {}
+            l1           = results[5] if not isinstance(results[5], Exception) else {"status": "error"}
+            l2           = results[6] if not isinstance(results[6], Exception) else {"status": "error"}
+            l3           = results[7] if not isinstance(results[7], Exception) else {"status": "error"}
 
             event = {
                 "ts": datetime.utcnow().isoformat(),
-                "nodes":      node_results  if isinstance(node_results,  list) else [],
-                "containers": docker_stats  if isinstance(docker_stats,  list) else [],
-                "temporal":   temporal      if isinstance(temporal,       dict) else {},
-                "coordinator":coordinator   if isinstance(coordinator,    dict) else {},
-                "model_sel":  model_sel     if isinstance(model_sel,      dict) else {},
+                "nodes":      node_results,
+                "containers": docker_stats,
+                "temporal":   temporal,
+                "coordinator": coordinator,
+                "model_sel":  model_sel,
+                "performance": {
+                    "l1_redis": l1,
+                    "l2_qdrant": l2,
+                    "l3_s3": l3
+                }
             }
             await publish_to_redis(event)
             elapsed = time.time() - tick_start

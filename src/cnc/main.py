@@ -85,6 +85,7 @@ async def main_async():
     parser = argparse.ArgumentParser(description="AI Task Orchestrator - Genesis/CNC Node")
     parser.add_argument("statement", nargs="?", help="Natural language description of the task")
     parser.add_argument("--plan", action="store_true", help="Review the execution plan before proceeding")
+    parser.add_argument("--yolo", action="store_true", help="Automatically execute the task without prompting (bypass plan review)")
     parser.add_argument("--use-existing", action="store_true", help="Use existing infrastructure instead of provisioning dynamically")
     parser.add_argument("--config", default="config/profiles.yaml", help="Path to profiles configuration")
     parser.add_argument("--memory", action="store_true", help="Show current system memory usage stats and exit")
@@ -126,9 +127,12 @@ async def main_async():
             result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
             result.reason = "User requested to use existing infrastructure."
         
-        if args.plan:
-            # INTERACTIVE MODE
+        if args.plan or not args.yolo:
+            # INTERACTIVE MODE (Default or if --plan is specified)
             show_plan(result)
+            if not args.yolo:
+                print("\n[PROMPT] Running in safe mode. Use --yolo to bypass this check.")
+            
             while True:
                 choice = input("\nOptions: [e]xecute, [r]ecalculate (manual params), [m]emory, [q]uit: ").lower().strip()
                 
@@ -152,7 +156,8 @@ async def main_async():
                 else:
                     print("Invalid choice.")
         else:
-            # AUTOMATIC MODE
+            # AUTOMATIC MODE (Only if --yolo is specified and --plan is NOT specified)
+            print("🚀 [YOLO] Auto-executing task...")
             await execute_task_async(result, args.statement)
             
     except Exception as e:

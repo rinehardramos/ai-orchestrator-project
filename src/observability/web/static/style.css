@@ -98,8 +98,17 @@ h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
 .card--workflows  { grid-column: 2 / 3; }
 .card--llm        { grid-column: 3 / 4; }
 .card--containers { grid-column: 1 / 2; }
-.card--chart      { grid-column: 2 / 4; }
+.card--performance { grid-column: 2 / 4; }
+.card--chart      { grid-column: 1 / 4; }
 .card--logs       { grid-column: 1 / 4; }
+
+/* ── Chart ───────────────────────────────────────────────────────── */
+.card--chart {
+  padding: 12px 20px;
+}
+.card--chart canvas {
+  max-height: 120px !important;
+}
 
 /* ── Node grid ───────────────────────────────────────────────────── */
 .nodes-grid { display: flex; flex-direction: column; gap: 8px; }
@@ -161,6 +170,38 @@ td { padding: 5px 8px; border-top: 1px solid var(--border); font-family: var(--m
 tr:hover td { background: var(--surface-2); }
 
 /* ── Log feed ────────────────────────────────────────────────────── */
+/* ── Performance Grid ── */
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-top: 8px;
+}
+.perf-item {
+  background: rgba(30, 41, 59, 0.5);
+  border: 1px solid #1f2d45;
+  border-radius: 8px;
+  padding: 12px;
+  text-align: center;
+}
+.perf-label {
+  display: block;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 4px;
+}
+.perf-value {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 16px;
+  font-weight: 600;
+  color: #3b82f6;
+}
+.perf-value.up { color: #10b981; }
+.perf-value.down { color: #ef4444; }
+.perf-value.unconfigured { color: #64748b; }
+
 .log-feed {
   height: 180px;
   overflow-y: auto;

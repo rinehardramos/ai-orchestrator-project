@@ -2,10 +2,11 @@ import psutil
 import logging
 import os
 import json
+import gc
 from datetime import datetime
 
 class SystemMonitor:
-    def __init__(self, threshold_percent=90.0, state_file="data/last_state.json"):
+    def __init__(self, threshold_percent=95.0, state_file="data/last_state.json"):
         self.threshold = threshold_percent
         self.state_file = state_file
         self.logger = logging.getLogger("SystemMonitor")
@@ -41,22 +42,23 @@ class SystemMonitor:
 
     def free_memory(self, objects_with_caches=None):
         """
-        Attempts to free memory by clearing known caches in the provided objects.
-        'objects_with_caches' can be a list of objects like TaskScheduler or AnalyzerAgent.
+        Attempts to free memory by clearing known caches and running GC.
         """
         freed_count = 0
-        if not objects_with_caches:
-            return freed_count
+        
+        if objects_with_caches:
+            for obj in objects_with_caches:
+                # Clear TaskScheduler preflight_cache
+                if hasattr(obj, 'preflight_cache') and isinstance(obj.preflight_cache, dict):
+                    freed_count += len(obj.preflight_cache)
+                    obj.preflight_cache.clear()
+                
+                # Clear AnalyzerAgent internal caches
+                if hasattr(obj, 'cache') and isinstance(obj.cache, dict):
+                    freed_count += len(obj.cache)
+                    obj.cache.clear()
 
-        for obj in objects_with_caches:
-            # Clear TaskScheduler preflight_cache
-            if hasattr(obj, 'preflight_cache') and isinstance(obj.preflight_cache, dict):
-                freed_count += len(obj.preflight_cache)
-                obj.preflight_cache.clear()
-            
-            # Clear AnalyzerAgent internal caches if any (placeholder)
-            if hasattr(obj, 'cache') and isinstance(obj.cache, dict):
-                freed_count += len(obj.cache)
-                obj.cache.clear()
-
+        # Force Garbage Collection
+        gc.collect()
+        
         return freed_count

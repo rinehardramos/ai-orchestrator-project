@@ -229,20 +229,41 @@ class TaskScheduler:
                 print(f"Result: {result}")
                 
                 if self.notifier:
-                    self.notifier.send_message(f"✅ *Task Completed*\nID: `{task_id}`\nResult: {result}")
+                    msg = f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}"
+                    self.notifier.send_message(msg)
                     
                 return "COMPLETED"
             except Exception as e:
                 print(f"❌ Error waiting for Temporal workflow: {e}")
                 if self.notifier:
-                    self.notifier.send_message(f"❌ *Task Failed*\nID: `{task_id}`\nError: {e}")
+                    msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Error:*\n{e}"
+                    self.notifier.send_message(msg)
                 return "FAILED"
             
         start_time = time.time()
         while time.time() - start_time < timeout:
-            status = self.get_task_status(task_id)
-            if status in ['COMPLETED', 'FAILED']:
+            response = self.table.get_item(Key={'task_id': task_id})
+            item = response.get('Item', {})
+            status = item.get('status', 'PENDING')
+            
+            if status == 'COMPLETED':
+                result = item.get('result', 'No result detail provided.')
+                print(f"✅ Task {task_id} COMPLETED.")
+                if self.notifier:
+                    msg = f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}"
+                    self.notifier.send_message(msg)
                 return status
+            elif status == 'FAILED':
+                reason = item.get('error', 'Unknown error.')
+                print(f"❌ Task {task_id} FAILED.")
+                if self.notifier:
+                    msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Reason:*\n{reason}"
+                    self.notifier.send_message(msg)
+                return status
+                
             print(f"⌛ Task {task_id} is {status}...")
             await asyncio.sleep(10)
+        
+        if self.notifier:
+            self.notifier.send_message(f"⚠️ *Task Timeout*\nID: `{task_id}`\nTask exceeded {timeout}s.")
         return "TIMEOUT"

@@ -18,7 +18,7 @@ function initChart() {
     type: 'line',
     data: { labels: [], datasets: [] },
     options: {
-      animation: false,
+      animation: { duration: 400 },
       responsive: true,
       maintainAspectRatio: false,
       plugins: { legend: { labels: { color: '#64748b', font: { size: 11 } } } },
@@ -39,10 +39,20 @@ function updateCpuChart(containers) {
   if (cpuLabels.length > 20) cpuLabels.shift();
   cpuChart.data.labels = [...cpuLabels];
 
+  // Update data map
   containers.forEach(c => {
-    if (!cpuData[c.name]) cpuData[c.name] = [];
+    if (!cpuData[c.name]) cpuData[c.name] = new Array(cpuLabels.length - 1).fill(0);
     cpuData[c.name].push(parseFloat(c.cpu_pct?.toFixed(1) ?? 0));
     if (cpuData[c.name].length > 20) cpuData[c.name].shift();
+  });
+
+  // Handle containers that disappeared
+  const currentNames = containers.map(c => c.name);
+  Object.keys(cpuData).forEach(name => {
+    if (!currentNames.includes(name)) {
+        cpuData[name].push(0);
+        if (cpuData[name].length > 20) cpuData[name].shift();
+    }
   });
 
   cpuChart.data.datasets = Object.entries(cpuData).map(([name, vals], i) => ({
@@ -55,7 +65,7 @@ function updateCpuChart(containers) {
     pointRadius: 0,
     borderWidth: 2,
   }));
-  cpuChart.update('none');
+  cpuChart.update();
 }
 
 // ── Render helpers ─────────────────────────────────────────────────────────
@@ -101,6 +111,31 @@ function renderContainers(containers) {
     </tbody></table>`;
 }
 
+function renderPerformance(perf) {
+  if (!perf) return;
+  
+  const l1 = perf.l1_redis;
+  const l2 = perf.l2_qdrant;
+  const l3 = perf.l3_s3;
+
+  const el1 = document.getElementById('perf-l1');
+  const el2 = document.getElementById('perf-l2');
+  const el3 = document.getElementById('perf-l3');
+
+  if (l1) {
+    el1.textContent = l1.latency_ms >= 0 ? `${l1.latency_ms} ms` : 'OFFLINE';
+    el1.className = `perf-value ${l1.status === 'online' ? 'up' : 'down'}`;
+  }
+  if (l2) {
+    el2.textContent = l2.latency_ms >= 0 ? `${l2.latency_ms} ms` : 'OFFLINE';
+    el2.className = `perf-value ${l2.status === 'online' ? 'up' : 'down'}`;
+  }
+  if (l3) {
+    el3.textContent = l3.latency_ms > 0 ? `${l3.latency_ms} ms` : (l3.status === 'unconfigured' ? '—' : 'OFFLINE');
+    el3.className = `perf-value ${l3.status === 'online' ? 'up' : 'unconfigured'}`;
+  }
+}
+
 function appendLog(event) {
   const feed = document.getElementById('log-feed');
   const ts   = new Date(event.ts).toLocaleTimeString();
@@ -122,6 +157,7 @@ function render(data) {
   renderWorkflows(data.temporal);
   renderLLM(data.model_sel);
   renderContainers(data.containers);
+  renderPerformance(data.performance);
   if (data.containers?.length) updateCpuChart(data.containers);
   appendLog(data);
   document.getElementById('last-update').textContent =
