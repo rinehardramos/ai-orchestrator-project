@@ -1,0 +1,132 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# deploy.yml — Ansible Playbook for deploying/reloading the AI Orchestrator
+#
+# Usage:
+#   # Reload all nodes (fast, no image rebuild):
+#   ansible-playbook -i scripts/inventory.py scripts/deploy.yml
+#
+#   # Full rebuild on execution workers only:
+#   ansible-playbook -i scripts/inventory.py scripts/deploy.yml \
+#     --limit execution_nodes -e "full_build=true"
+#
+#   # Reload a single node:
+#   ansible-playbook -i scripts/inventory.py scripts/deploy.yml \
+#     --limit 192.168.100.100
+#
+# Variables:
+#   full_build   (bool, default: false)  — rebuild Docker image vs hot-reload
+#   plane        (str,  default: all)    — cnc | control | execution | all
+#   compose_file (str)                   — path to docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────────────
+
+- name: Deploy / Reload AI Orchestrator Nodes
+  hosts: all_nodes
+  gather_facts: false
+  serial: 1                   # Rolling update — one node at a time
+  any_errors_fatal: false     # Continue to other nodes even if one fails
+
+  vars:
+    full_build: false
+    plane: "all"
+    compose_file: "src/execution/worker/docker-compose.yml"
+    worker_container: "central_node-ai-worker-1"
+
+  tasks:
+
+    # ── Pre-flight ───────────────────────────────────────────────────────────
+
+    - name: Check SSH connectivity
+      ping:
+      tags: [preflight]
+
+    - name: Verify Docker is running
+      command: docker info
+      register: docker_check
+      failed_when: docker_check.rc != 0
+      changed_when: false
+      tags: [preflight]
+
+    - name: Verify project directory exists
+      stat:
+        path: "{{ project_dir }}"
+      register: proj_dir
+      failed_when: not proj_dir.stat.exists
+      tags: [preflight]
+
+    # ── Pull latest code ─────────────────────────────────────────────────────
+
+    - name: Pull latest code from origin/main
+      git:
+        repo: "{{ lookup('env', 'GIT_REPO') | default('') }}"
+        dest: "{{ project_dir }}"
+        version: main
+        update: true
+        force: false
+      when: lookup('env', 'GIT_REPO') | default('') != ''
+      tags: [sync]
+
+    - name: Git pull (fallback when GIT_REPO not set)
+      command:
+        cmd: git pull --rebase origin main
+        chdir: "{{ project_dir }}"
+      when: lookup('env', 'GIT_REPO') | default('') == ''
+      register: git_pull
+      changed_when: "'Already up to date' not in git_pull.stdout"
+      tags: [sync]
+
+    - name: Show git pull result
+      debug:
+        msg: "{{ git_pull.stdout_lines | default(['git module used']) }}"
+      tags: [sync]
+
+    # ── Hot Reload (default: no image rebuild) ───────────────────────────────
+
+    - name: Restart worker container (hot-reload)
+      command: docker restart {{ worker_container }}
+      when: not full_build
+      register: restart_result
+      tags: [reload]
+
+    - name: Wait for worker to be healthy after hot-reload
+      command: docker inspect --format='{{ "{{" }}.State.Status{{ "}}" }}' {{ worker_container }}
+      register: container_state
+      until: container_state.stdout == "running"
+      retries: 10
+      delay: 3
+      when: not full_build
+      tags: [reload]
+
+    # ── Full Build (optional: rebuild Docker image) ──────────────────────────
+
+    - name: Build and restart with Docker Compose (full rebuild)
+      command:
+        cmd: docker compose -f {{ compose_file }} up -d --build --no-deps ai-worker
+        chdir: "{{ project_dir }}"
+      when: full_build
+      tags: [build]
+
+    # ── Verify ───────────────────────────────────────────────────────────────
+
+    - name: Show last 15 log lines from worker
+      command: docker logs {{ worker_container }} --tail 15
+      register: worker_logs
+      changed_when: false
+      tags: [verify]
+
+    - name: Print worker logs
+      debug:
+        msg: "{{ worker_logs.stderr_lines + worker_logs.stdout_lines }}"
+      tags: [verify]
+
+    - name: Check worker is listening on Temporal queue
+      command: docker logs {{ worker_container }} --tail 30
+      register: queue_check
+      failed_when: "'Listening' not in queue_check.stderr and 'Listening' not in queue_check.stdout"
+      changed_when: false
+      tags: [verify]
+
+    - name: ✅ Node reload complete
+      debug:
+        msg: "Node {{ inventory_hostname }} ({{ node_name }}) reloaded successfully."
+      tags: [verify]

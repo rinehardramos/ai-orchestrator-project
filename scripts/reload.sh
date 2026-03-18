@@ -1,83 +1,119 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# reload.sh — Fast hot-reload WITHOUT rebuilding the Docker image.
+# reload.sh — Hot-reload code into a running plane WITHOUT rebuilding images.
 #
-# How it works:
-#   1. Syncs your local code into the running container using `docker cp`
-#   2. Sends a SIGTERM to the Python process inside the container so it
-#      restarts and picks up the new code.
-#   This is ~5x faster than a full `docker-compose up --build`.
+# Works for:
+#   LOCAL  — Docker is running on this machine
+#   REMOTE — Connects via SSH to a remote worker node, pulls latest code, restarts
 #
 # Usage:
-#   ./scripts/reload.sh              # hot-reload all running app containers
-#   ./scripts/reload.sh execution    # hot-reload Execution Plane worker only
-#   ./scripts/reload.sh cnc          # hot-reload CNC node only (same container for now)
-#   ./scripts/reload.sh control      # hot-reload Control Plane services
+#   ./scripts/reload.sh                            # local, all planes
+#   ./scripts/reload.sh execution                  # local, Execution Plane only
+#   ./scripts/reload.sh execution --remote 192.168.100.100         # remote SSH
+#   ./scripts/reload.sh execution --remote 192.168.100.100 --user pi
+#   ./scripts/reload.sh all --remote 192.168.100.100 --key ~/.ssh/id_rsa
 #
-# Requirements:
-#   - The target container must be running.
-#   - The container's CMD must auto-restart on SIGTERM (watchdog or supervisor).
-#     For basic containers, this does a graceful container restart instead.
+# Requirements (remote):
+#   - SSH access to the remote machine
+#   - Docker running on the remote machine
+#   - The project already cloned at REMOTE_PROJECT_DIR on the remote machine
 # ─────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
 
-PLANE="${1:-all}"
+# ── Defaults ─────────────────────────────────────────────────────────────────
+PLANE="all"
+REMOTE_HOST=""
+SSH_USER="${SSH_USER:-$(whoami)}"
+SSH_KEY="${SSH_KEY:-}"
+REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/ai-orchestrator-project}"
 WORKER_CONTAINER="central_node-ai-worker-1"
-COMPOSE_FILE="src/execution/worker/docker-compose.yml"
+
+# ── Argument Parsing ─────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --remote)  REMOTE_HOST="$2"; shift 2 ;;
+    --user)    SSH_USER="$2";    shift 2 ;;
+    --key)     SSH_KEY="$2";     shift 2 ;;
+    --dir)     REMOTE_PROJECT_DIR="$2"; shift 2 ;;
+    cnc|control|execution|infra|all) PLANE="$1"; shift ;;
+    *) echo "Unknown argument: $1"; exit 1 ;;
+  esac
+done
 
 log() { echo "$(date '+%H:%M:%S') [$1] $2"; }
 
-sync_code() {
-  local container="$1"
-  log "SYNC" "Copying updated source code into $container..."
-  docker cp src/. "$container":/app/src/
-  docker cp config/. "$container":/app/config/ 2>/dev/null || true
-  docker cp requirements.txt "$container":/app/requirements.txt 2>/dev/null || true
-  log "SYNC" "Code sync complete."
+# ── SSH helper ────────────────────────────────────────────────────────────────
+ssh_cmd() {
+  local host="$1"; shift
+  local key_opt=()
+  [[ -n "$SSH_KEY" ]] && key_opt=(-i "$SSH_KEY")
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 \
+      "${key_opt[@]}" "${SSH_USER}@${host}" "$@"
 }
 
-restart_container() {
-  local container="$1"
-  local plane="$2"
+# ── Local reload ──────────────────────────────────────────────────────────────
+local_reload() {
+  local container="$WORKER_CONTAINER"
 
   if ! docker inspect "$container" &>/dev/null; then
-    log "WARN" "Container $container not found — skipping $plane reload."
+    log "WARN" "Container $container not running — skipping."
     return
   fi
 
-  log "$plane" "Restarting $container to apply new code..."
+  log "SYNC" "Copying updated source code into $container..."
+  docker cp src/. "$container":/app/src/
+  docker cp config/. "$container":/app/config/ 2>/dev/null || true
+  log "SYNC" "Code sync complete."
+
+  log "$PLANE" "Restarting $container..."
   docker restart "$container"
-  log "✅" "$plane reloaded. New logs:"
   sleep 2
-  docker logs "$container" --tail 10
+  log "✅" "Local reload complete. Tail logs with: docker logs $container -f"
 }
 
-reload_plane() {
-  local plane="$1"
+# ── Remote reload (SSH) ───────────────────────────────────────────────────────
+remote_reload() {
+  local host="$REMOTE_HOST"
+  log "REMOTE" "Connecting to $SSH_USER@$host..."
 
-  case "$plane" in
-    execution|cnc|control|all)
-      sync_code "$WORKER_CONTAINER"
-      restart_container "$WORKER_CONTAINER" "$plane"
-      ;;
-    *)
-      echo "❌ Unknown plane: $plane. Use: execution | cnc | control | all"
-      exit 1
-      ;;
-  esac
-}
-
-main() {
-  log "RELOAD" "Hot-reloading plane: $PLANE"
-
-  if ! docker info &>/dev/null; then
-    echo "❌ Docker is not running."
+  # Verify SSH connectivity first
+  if ! ssh_cmd "$host" "echo ok" &>/dev/null; then
+    echo "❌ Cannot reach $host via SSH. Check IP, user, and key."
     exit 1
   fi
+  log "REMOTE" "SSH connection established."
 
-  reload_plane "$PLANE"
-  log "DONE" "Hot-reload complete. Run 'docker logs $WORKER_CONTAINER -f' to monitor."
+  # 1. Pull latest code on the remote machine
+  log "REMOTE" "Pulling latest code on $host..."
+  ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && git pull --rebase origin main"
+
+  # 2. Restart the container on the remote machine
+  log "REMOTE" "Restarting containers on $host..."
+  ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && docker restart $WORKER_CONTAINER 2>/dev/null || \
+    docker compose -f src/execution/worker/docker-compose.yml restart ai-worker"
+
+  sleep 2
+
+  # 3. Tail the remote logs briefly
+  log "REMOTE" "Last 10 lines from remote worker:"
+  ssh_cmd "$host" "docker logs $WORKER_CONTAINER --tail 10 2>/dev/null || \
+    docker compose -f $REMOTE_PROJECT_DIR/src/execution/worker/docker-compose.yml logs --tail 10 ai-worker"
+
+  log "✅" "Remote reload of $host complete."
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+main() {
+  log "RELOAD" "Plane: $PLANE | Target: ${REMOTE_HOST:-localhost}"
+
+  if [[ -n "$REMOTE_HOST" ]]; then
+    remote_reload
+  else
+    local_reload
+  fi
+
+  log "DONE" "Reload finished."
 }
 
 main
