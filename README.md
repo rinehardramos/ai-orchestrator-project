@@ -99,3 +99,34 @@ Alternatively, the Genesis node attempts to bypass this by setting environment v
 - `src/orchestrator/`: Temporal client and task scheduler.
 - `src/memory/`: Tiered L1/L2/L3 memory store clients.
 
+
+## 🌐 Cluster Expansion: Adding Remote Workers
+
+To add more machines to your AI Orchestration cluster as workers:
+
+1. **Network Connectivity**:
+   - Ensure the new machine can reach the **Control Plane (Central Node)** on ports:
+     - `7233` (Temporal Server)
+     - `6333` (Qdrant Vector DB)
+     - `6379` (Redis Cache)
+
+2. **Setup on New Machine**:
+   - Clone this repository.
+   - Install dependencies: `pip install -r requirements.txt`.
+
+3. **Configure Connection**:
+   - Create or update the `.env` file with the Central Node's IP:
+     ```env
+     TEMPORAL_HOST_URL=192.168.x.x:7233
+     QDRANT_URL=http://192.168.x.x:6333
+     REDIS_HOST=192.168.x.x
+     ```
+   - Alternatively, update `config/settings.yaml` under the `temporal` section.
+
+4. **Launch Worker**:
+   ```bash
+   python central_node/worker.py
+   ```
+   The new worker will immediately start polling the `ai-orchestration-queue` and executing delegated tasks.
+
+---
