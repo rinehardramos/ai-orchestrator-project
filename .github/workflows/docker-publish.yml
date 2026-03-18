@@ -48,7 +48,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/ai-orchestrator-${{ matrix.component.image_suffix }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.component.image_suffix }}
           tags: |
             type=ref,event=branch
             type=sha,format=short

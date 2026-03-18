@@ -22,7 +22,7 @@ services:
 
   # ── Model Selector (Constraint-based Scaling) ──────────────────────────────
   selector:
-    image: ghcr.io/rinehardramos/ai-orchestrator-control:latest
+    image: ghcr.io/rinehardramos/ai-orchestrator-project/control:latest
     container_name: control-selector
     command: ["python", "-m", "src.control.model_selector.selector"]
     environment:

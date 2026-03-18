@@ -9,7 +9,7 @@ services:
   # ── CNC Genesis Node ───────────────────────────────────────────────────────
   # Runs the main orchestrator/CLI inside a persistent container.
   cnc:
-    image: ghcr.io/rinehardramos/ai-orchestrator-cnc:latest
+    image: ghcr.io/rinehardramos/ai-orchestrator-project/cnc:latest
     container_name: cnc-genesis
     environment:
       - TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
