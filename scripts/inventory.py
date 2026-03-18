@@ -51,6 +51,9 @@ def to_ansible_json(nodes):
             "plane_role": role,
             "node_name": name,
             "project_dir": n.get("project_dir", "~/ai-orchestrator-project"),
+            "ansible_env": {
+                "PATH": "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+            }
         }
         if "user" in n:
             hv["ansible_user"] = n["user"]
