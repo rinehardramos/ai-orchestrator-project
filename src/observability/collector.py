@@ -136,7 +136,7 @@ async def collect_docker_stats(node_name: str = "local") -> list[dict]:
 # ── Temporal probe ────────────────────────────────────────────────────────────
 
 async def collect_temporal() -> dict[str, Any]:
-    data = {"active": 0, "failed": 0}
+    data = {"active": 0, "failed": 0, "tasks": []}
     try:
         start_t = time.time()
         from temporalio.client import Client, WorkflowExecutionStatus
@@ -144,9 +144,33 @@ async def collect_temporal() -> dict[str, Any]:
         active = 0
         async for wf in client.list_workflows("ExecutionStatus='Running'"):
             active += 1
+            
+        # Get tasks with ID, status, and fetch description from Redis
+        import redis.asyncio as aioredis
+        r = aioredis.from_url(REDIS_URL, decode_responses=True)
+        tasks = []
+        try:
+            async for wf in client.list_workflows('WorkflowType="AIOrchestrationWorkflow"'):
+                # Extract status as string, e.g., 'COMPLETED', 'RUNNING'
+                status_str = str(wf.status).split('.')[-1]
+                desc = await r.get(f"obs:task_desc:{wf.id}")
+                tasks.append({
+                    "task_id": wf.id,
+                    "status": status_str,
+                    "description": desc or "No description available",
+                    "time": wf.start_time.isoformat() if wf.start_time else None
+                })
+                if len(tasks) >= 15:
+                    break
+        except Exception as query_e:
+            print(f"[Collector] Error querying Temporal task history: {query_e}")
+        finally:
+            await r.aclose()
+            
         WORKFLOW_ACTIVE.set(active)
         TEMPORAL_LATENCY.observe(time.time() - start_t)
         data["active"] = active
+        data["tasks"] = tasks
     except Exception as e:
         COLLECTOR_ERRORS.labels(source="temporal").inc()
     return data

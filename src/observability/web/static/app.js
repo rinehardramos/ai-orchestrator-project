@@ -89,6 +89,26 @@ function renderWorkflows(temporal) {
   document.getElementById('wf-failed').textContent = wfFailed;
 }
 
+function renderTasks(tasks) {
+  const el = document.getElementById('tasks-table');
+  if (!tasks?.length) { el.innerHTML = '<p class="muted">No recent tasks</p>'; return; }
+  el.innerHTML = `<table>
+    <thead><tr><th style="width: 15%">ID</th><th style="width: 15%">Status</th><th>Description</th></tr></thead>
+    <tbody>${tasks.map(t => {
+      const isUp = t.status === 'COMPLETED' || t.status === 'WORKFLOW_EXECUTION_STATUS_COMPLETED';
+      const isFailed = t.status === 'FAILED' || t.status === 'WORKFLOW_EXECUTION_STATUS_FAILED' || t.status === 'WORKFLOW_EXECUTION_STATUS_TIMED_OUT';
+      const cls = isUp ? 'up' : (isFailed ? 'down' : 'pending');
+      const statusText = t.status.replace('WORKFLOW_EXECUTION_STATUS_', '');
+      
+      return `<tr>
+        <td style="font-family: monospace; font-size: 0.85em;">${t.task_id.substring(0,8)}…</td>
+        <td><span class="node-badge node-badge--${cls}">${statusText}</span></td>
+        <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${t.description.replace(/"/g, '&quot;')}">${t.description}</td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>`;
+}
+
 function renderLLM(model_sel) {
   const el   = document.getElementById('llm-providers');
   const list = model_sel?.providers ?? [];
@@ -155,6 +175,7 @@ function appendLog(event) {
 function render(data) {
   renderNodes(data.nodes);
   renderWorkflows(data.temporal);
+  renderTasks(data.temporal?.tasks);
   renderLLM(data.model_sel);
   renderContainers(data.containers);
   renderPerformance(data.performance);

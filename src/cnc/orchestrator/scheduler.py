@@ -130,6 +130,18 @@ class TaskScheduler:
             
         print("-" * 50)
         
+        # [NEW] Save task description to Redis for Observability Web Dashboard
+        try:
+            import redis
+            redis_cfg = self.config.get("redis", {})
+            redis_host = redis_cfg.get("host", "localhost")
+            redis_port = redis_cfg.get("port", 6379)
+            r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+            r.setex(f"obs:task_desc:{task_id}", 604800, task_description)
+        except Exception as e:
+            print(f"⚠️  Could not save task description to Redis: {e}")
+
+        
         if self.notifier:
             self.notifier.send_message(f"🚀 *New Task Submitted*\nID: `{task_id}`\nDescription: {task_description}")
 
