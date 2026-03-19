@@ -18,6 +18,7 @@ All notable changes to this project will be documented in this file.
 - Adjusted Observability UI CSS grid so LLM Providers populate the top right layout slot.
 
 ### Fixed
+- **CI Pipeline / Flake8**: Diagnosed and repaired critical Github Actions automated test failure. Specifically solved an `F821 undefined name` block by correctly instantiating `HybridMemoryStore` and `Prometheus_Client` metric trackers globally within `src/execution/worker/worker.py`, preempting a runtime crash.
 - Corrected Temporal active/failed metric collections in Observability and replaced deprecated model-selector REST API with direct `profiles.yaml` config parsing.
 - Improved task completion notifications and deployment robustness in CNC.
 - Fixed LiteLLM router provider mapping and API key handling in the worker.

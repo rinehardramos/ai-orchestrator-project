@@ -24,6 +24,12 @@ from src.shared.memory.decay_workflow import BeliefDecayWorkflow, apply_belief_d
 from prometheus_client import start_http_server, Counter, Histogram
 import time
 
+memory_store = HybridMemoryStore()
+
+CACHE_HITS = Counter('agent_cache_hits_total', 'Total number of L1 cache hits')
+CACHE_MISSES = Counter('agent_cache_misses_total', 'Total number of L1 cache misses')
+QDRANT_LATENCY = Histogram('qdrant_latency_seconds', 'Latency of Qdrant vector operations')
+TASK_DURATION = Histogram('agent_task_duration_seconds', 'Total duration of Langgraph agent task')
 # AI Provider SDKs
 import litellm
 from litellm import Router

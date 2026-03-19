@@ -10,3 +10,4 @@ _Every time the user corrects a mistake, documents a bug, or provides a new para
 - **Simple Over Complex**: "Senior developer standards. Minimal Impact. Changes should only touch what's necessary."
 - **Self-Sufficiency**: "When given a bug report: just fix it. Don't ask for hand-holding. Go fix failing CI tests without being told how."
 - **Proof Over Promises**: "Never mark a task complete without proving it works. Run tests, check logs, demonstrate correctness."
+- **Variable Instantiation (CI Guards)**: Always locally verify that injected metrics, counters, and utility classes (such as `HybridStore`) are strictly instantiated in the script's global scope before committing. Undefined python namespaces will cause instant `F821` crashes in Github Action `flake8` linters.
