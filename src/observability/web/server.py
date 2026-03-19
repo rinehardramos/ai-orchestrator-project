@@ -44,6 +44,40 @@ async def get_metrics():
 async def get_snapshot():
     return COLLECTOR_STATE
 
+TEMPORAL_HOST = os.getenv("TEMPORAL_HOST_URL", "localhost:7233")
+
+@app.get("/api/tasks/{task_id}")
+async def get_task_details(task_id: str):
+    try:
+        from temporalio.client import Client
+        import asyncio
+        
+        # Connect to Temporal
+        client = await asyncio.wait_for(Client.connect(TEMPORAL_HOST), timeout=3.0)
+        handle = client.get_workflow_handle(task_id)
+        desc = await handle.describe()
+        
+        status_str = desc.status.name if hasattr(desc.status, 'name') else str(desc.status)
+        failure_message = None
+        
+        if status_str == "FAILED" or status_str == "3":
+            try:
+                # Execution failed; await result() throws the raw WorkflowFailureError
+                await handle.result()
+            except Exception as e:
+                failure_message = str(e)
+                
+        return {
+            "task_id": desc.execution.workflow_id,
+            "type": desc.type,
+            "status": status_str,
+            "start_time": desc.start_time.isoformat() if desc.start_time else None,
+            "close_time": desc.close_time.isoformat() if desc.close_time else None,
+            "failure_message": failure_message
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}

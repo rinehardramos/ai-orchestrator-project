@@ -98,7 +98,7 @@ function renderTasks(tasks) {
   };
 
   el.innerHTML = `<table>
-    <thead><tr><th style="width: 15%">ID</th><th style="width: 20%">Status</th><th>Description</th></tr></thead>
+    <thead><tr><th style="width: 15%">ID</th><th style="width: 20%">Status</th><th>Description</th><th style="width: 15%">Details</th></tr></thead>
     <tbody>${tasks.map(t => {
       let rawStatus = t.status.toString().replace('WORKFLOW_EXECUTION_STATUS_', '');
       let statusText = statusMap[rawStatus] || (rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase().replace(/_/g, ' '));
@@ -106,11 +106,15 @@ function renderTasks(tasks) {
       const isUp = rawStatus === 'COMPLETED' || rawStatus === '2';
       const isFailed = rawStatus === 'FAILED' || rawStatus === 'TIMED_OUT' || rawStatus === '3' || rawStatus === '7';
       const cls = isUp ? 'up' : (isFailed ? 'down' : 'pending');
+      const action = isFailed ? `<a class="task-link" onclick="openTaskModal('${t.task_id}')" style="color: var(--red);">Failure Msg</a>` : `<a class="task-link" onclick="openTaskModal('${t.task_id}')">View Details</a>`;
       
       return `<tr>
-        <td style="font-family: monospace; font-size: 0.85em;">${t.task_id.substring(0,8)}…</td>
+        <td style="font-family: monospace; font-size: 0.85em;">
+          <a class="task-link" onclick="openTaskModal('${t.task_id}')" title="${t.task_id}">${t.task_id.substring(0,8)}…</a>
+        </td>
         <td><span class="node-badge node-badge--${cls}">${statusText}</span></td>
         <td style="max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${t.description.replace(/"/g, '&quot;')}">${t.description}</td>
+        <td>${action}</td>
       </tr>`;
     }).join('')}
     </tbody></table>`;
@@ -222,7 +226,46 @@ function connect() {
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 
+// ── Modal Handling ─────────────────────────────────────────────────────────
+
+async function openTaskModal(id) {
+  const modal = document.getElementById('task-modal');
+  const body = document.getElementById('modal-body');
+  document.getElementById('modal-title').innerText = 'Task: ' + id;
+  body.innerHTML = '<p class="muted">Loading details from Temporal...</p>';
+  modal.showModal();
+
+  try {
+    const res = await fetch('/api/tasks/' + id);
+    const data = await res.json();
+    if (data.error) {
+      body.innerHTML = `<div class="error-box">Error fetching details: ${data.error}</div>`;
+      return;
+    }
+    
+    let html = `
+      <p><strong>Status:</strong> <span class="node-badge" style="background: rgba(100,116,139,0.2);">${data.status}</span></p>
+      <p><strong>Type:</strong> <span style="font-family: var(--mono);">${data.type}</span></p>
+      <p><strong>Started:</strong> ${data.start_time || 'N/A'}</p>
+      <p><strong>Closed:</strong> ${data.close_time || 'N/A'}</p>
+    `;
+    
+    if (data.failure_message) {
+      html += `<div class="error-box" style="margin-top: 16px;"><strong>Failure Traceback:</strong>\n<pre style="margin-top:8px; white-space: pre-wrap; font-family: var(--mono); font-size: 11px;">${data.failure_message}</pre></div>`;
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = `<div class="error-box">Network Error: ${e.message}</div>`;
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initChart();
   connect();
+  
+  const modal = document.getElementById('task-modal');
+  const closeBtn = document.getElementById('modal-close');
+  if(closeBtn && modal) {
+    closeBtn.onclick = () => modal.close();
+  }
 });
