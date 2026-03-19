@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 - Improved LiteLLM Router for dynamic tier-based model selection.
 - Switched worker builds to local, updated models, and fixed GenAI cleanup issues.
 - Integrated L1/L2/L3 storage latency metrics to Observability dashboard, plus YOLO mode and Telegram summaries.
+- Adjusted Observability UI CSS grid so LLM Providers populate the top right layout slot.
 
 ### Fixed
 - Corrected Temporal active/failed metric collections in Observability and replaced deprecated model-selector REST API with direct `profiles.yaml` config parsing.
