@@ -83,6 +83,7 @@ graph TD
 - Point at logs, errors, failing tests - then resolve them
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
+- After EVERY git push, you MUST actively monitor the CI/CD pipeline status (e.g., using `gh run list` and `gh run view`). If the pipeline fails, diagnose the trace logs and resolve all issues autonomously until the build is perfectly green.
 
 ### 7. L2 Memory Integration (Qdrant)
 - For every complex issue, architectural roadblock, or bug that is successfully resolved, you MUST embed the context, symptoms, and the applied fix into the L2 Vector Database (Qdrant).
