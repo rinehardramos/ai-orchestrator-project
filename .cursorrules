@@ -1,0 +1,3 @@
+# AI System Instructions
+
+Whenever you successfully implement a feature or fix and commit it to the repository, you MUST update the `CHANGELOG.md` file located at the root of the project. Detail what was added, changed, deprecated, removed, or fixed. Additionally, maintain `TODO.md` by checking off completed tasks and adding new ones for future features or technical debt.
