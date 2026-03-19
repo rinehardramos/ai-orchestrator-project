@@ -11,6 +11,13 @@ def create_pulumi_program(infra_id: str, task_env: dict, env_name: str = None):
         import pulumi
         settings = load_settings(env_name)
         
+        # Initialize Pulumi Config for secrets management
+        config = pulumi.Config()
+        
+        # Securely retrieve API keys (Priority: Pulumi Config Secret > Env Var)
+        # If found in Env, we mark it as a secret to ensure it's masked in logs
+        google_api_key = config.get_secret("google_api_key") or pulumi.Output.secret(os.environ.get("GOOGLE_API_KEY", ""))
+
         if "aws" in infra_id:
             import pulumi_aws as aws
 
@@ -85,7 +92,7 @@ export GOOGLE_API_KEY='{api_key}'
 /usr/local/bin/docker-compose -f central_node/docker-compose.yml up --build -d
 """
 
-            user_data = pulumi.Output.all(task_queue.url, status_table.name, os.environ.get('GOOGLE_API_KEY', '')).apply(create_user_data)
+            user_data = pulumi.Output.all(task_queue.url, status_table.name, google_api_key).apply(create_user_data)
 
             spot_req = aws.ec2.SpotInstanceRequest("task-worker-spot",
                 ami=ami.id,
@@ -137,8 +144,11 @@ export GOOGLE_API_KEY='{api_key}'
             qdrant_url = f"http://{settings.get('qdrant', {}).get('host', 'localhost')}:{settings.get('qdrant', {}).get('port', 6333)}"
             redis_url = f"redis://{settings.get('redis', {}).get('host', 'localhost')}:{settings.get('redis', {}).get('port', 6379)}"
             
+            def build_deploy_cmd(api_key):
+                return f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{api_key}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'"
+
             deploy_cmd = command.remote.Command("deploy-docker-stack",
-                create=f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{os.environ.get('GOOGLE_API_KEY', '')}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'",
+                create=google_api_key.apply(build_deploy_cmd),
                 connection=connection,
                 opts=pulumi.ResourceOptions(depends_on=[sync_files])
             )

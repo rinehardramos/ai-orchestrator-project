@@ -1,0 +1,24 @@
+2026-03-19 09:19:52,329 [WARNING] Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-19 09:19:55,544 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 159174)
+2026-03-19 09:19:55,545 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3
+2026-03-19 09:22:48,077 [WARNING] Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-19 09:22:50,672 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 159650)
+2026-03-19 09:22:50,672 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3
+2026-03-19 09:29:19,544 [WARNING] Both GOOGLE_API_KEY and GEMINI_API_KEY are set. Using GOOGLE_API_KEY.
+2026-03-19 09:29:20,685 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 160690)
+2026-03-19 09:29:20,686 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3
+2026-03-19 09:32:32,272 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 161144)
+2026-03-19 09:32:32,277 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3
+2026-03-19 09:33:48,530 [INFO] 📩 Incoming message from -5290703674: /do test task did not return a success message and was stuck in waiting for completion... status. it should return a success status and a summary of the result
+2026-03-19 09:33:49,541 [INFO] 🛠 Handling command: /do test task did not return a success message and was stuck in waiting for completion... status. it should return a success status and a summary of the result
+2026-03-19 09:33:49,548 [INFO] 🚀 Handling task: test task did not return a success message and was stuck in waiting for completion... status. it should return a success status and a summary of the result
+2026-03-19 09:33:50,674 [INFO] AFC is enabled with max remote calls: 10.
+2026-03-19 09:34:03,621 [INFO] HTTP Request: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent "HTTP/1.1 200 OK"
+2026-03-19 09:34:05,351 [INFO] Task requirements: estimated_duration_seconds=300 memory_mb=512 reasoning_complexity='medium' context_length=1024 requires_concurrency=True requires_state_suspension=True
+2026-03-19 09:34:07,143 [INFO] Analyzer result: infrastructure_id='local_server_docker' llm_model_id='medium' estimated_cost=3.0000000000000004e-05 infra_details={'id': 'local_server_docker', 'provider': 'local_network', 'cost_per_minute': 0.0, 'max_duration_minutes': 10080, 'max_memory_mb': 131072, 'startup_time_sec': 5, 'type': 'container', 'best_for': 'heavy_local_tasks'} model_details={'id': 'gemini-3-flash-preview', 'provider': 'google', 'cost_per_1k_tokens': 0.0001, 'context_window': 1000000, 'reasoning_capability': 'medium', 'speed': 'very_fast'} reason="Routing to tier 'medium' using infra local_server_docker."
+2026-03-19 09:34:40,321 [INFO] Offline Mode detected for task QUEUED_OFFLINE_7b67c538-0fba-4b20-bb90-f7b5442b5995
+2026-03-19 09:42:33,899 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 162736)
+2026-03-19 09:42:33,919 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3
+2026-03-19 11:08:52,843 [ERROR] Error getting updates: HTTPSConnectionPool(host='api.telegram.org', port=443): Max retries exceeded with url: /bot8222873613:AAEMLtuWE_xlsSDpr7-oOTJZWPhrFHEA_u0/getUpdates?offset=64200942&timeout=30 (Caused by NewConnectionError("HTTPSConnection(host='api.telegram.org', port=443): Failed to establish a new connection: [Errno 101] Network is unreachable"))
+2026-03-19 11:35:44,180 [INFO] 🤖 Telegram Monitor started. Listening for instructions... (PID: 183083)
+2026-03-19 11:35:44,193 [INFO] 🐍 Python Executable: /home/pi/Projects/ai-orchestration-project/venv/bin/python3

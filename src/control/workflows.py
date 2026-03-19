@@ -8,7 +8,7 @@ from typing import Any, Dict
 @workflow.defn
 class AIOrchestrationWorkflow:
     @workflow.run
-    async def run(self, task_description: str) -> Dict[str, Any]:
+    async def run(self, task: str, model_id: str, provider: str) -> Dict[str, Any]:
         """
         Main Durable Workflow for AI Orchestration.
         Guarantees that the LangGraph decision-making process never disappears.
@@ -22,4 +22,4 @@ class AIOrchestrationWorkflow:
         # Executing Payload on Worker (Temporal Activity)
         
         # Return final result to the Raspberry Pi
-        return {"status": "success", "task": task_description}
+        return {"status": "success", "task": task, "model_id": model_id, "provider": provider}

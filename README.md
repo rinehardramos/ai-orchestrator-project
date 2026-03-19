@@ -78,6 +78,27 @@ Review the plan and check if the remote core services (Temporal, Qdrant) are rea
 ./main.py --plan "Assess system performance"
 ```
 
+### **3. Telegram Ingress Control (Headless Mode)**
+The Genesis Node can be controlled remotely via Telegram. This is ideal for headless Raspberry Pi deployments.
+
+- **Start Monitor**: 
+  ```bash
+  python3 src/cnc/orchestrator/telegram_monitor.py
+  ```
+- **Install Background Service**:
+  Run the setup script and follow the prompts to install the `systemd` service:
+  ```bash
+  ./scripts/setup.sh
+  ```
+- **Commands**:
+  - `/status`: Check if the CNC node is online.
+  - `/start`: Welcome message and instructions.
+  - `<Any Text>`: Treat as a task statement for the AI to analyze and execute.
+- **Monitoring Logs**:
+  ```bash
+  journalctl -u telegram-monitor -f
+  ```
+
 ## 🔄 Development & Reloading
 
 To apply changes made to the codebase, follow these steps based on the component modified:

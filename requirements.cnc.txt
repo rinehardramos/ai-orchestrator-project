@@ -18,5 +18,10 @@ pulumi-aws
 pulumi-command
 pulumi-docker
 
+# --- AI & Memory ---
+google-genai
+qdrant-client
+pydantic
+
 # --- Utilities ---
 requests

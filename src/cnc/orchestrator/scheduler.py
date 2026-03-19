@@ -6,8 +6,12 @@ import os
 import socket
 import sqlite3
 import json
+import logging
 from typing import Dict, Any
 from temporalio.client import Client
+
+# Configure logging
+logger = logging.getLogger("TaskScheduler")
 
 # Local imports
 try:
@@ -59,7 +63,7 @@ class TaskScheduler:
                   (task_id, description, meta_str, 'QUEUED'))
         conn.commit()
         conn.close()
-        print(f"📴 [OFFLINE] Task {task_id} queued locally. It will be flushed when network is restored.")
+        logger.info(f"📴 [OFFLINE] Task {task_id} queued locally. It will be flushed when network is restored.")
         if self.notifier:
             self.notifier.send_message(f"📴 *Offline Mode*: Task {task_id} queued locally.")
 
@@ -96,13 +100,13 @@ class TaskScheduler:
         task_id = str(uuid.uuid4())
         
         # [NEW] Pre-flight Knowledge Base Check with Cache
-        print(f"\n🧠 [CNC NODE] Querying Knowledge Base for relevant past issues...")
+        logger.info(f"🧠 [CNC NODE] Querying Knowledge Base for relevant past issues...")
         cache_key = task_description.lower().strip()
         
         warnings = []
         if False: # Temporarily disabled KB lookup due to genai library conflicts
             if cache_key in self.preflight_cache:
-                print("⚡ Using cached Knowledge Base lookup.")
+                logger.info("⚡ Using cached Knowledge Base lookup.")
                 warnings = self.preflight_cache[cache_key]
             else:
                 kb = None
@@ -112,23 +116,23 @@ class TaskScheduler:
                     warnings = kb.query_similar_issues(task_description, limit=2)
                     self.preflight_cache[cache_key] = warnings
                 except Exception as e:
-                    print(f"⚠️  Knowledge Base lookup failed or is unconfigured: {e}")
+                    logger.warning(f"⚠️  Knowledge Base lookup failed or is unconfigured: {e}")
                 finally:
                     if kb:
                         kb.close()
 
         if warnings:
-            print("⚠️  WARNING: Found similar past issues that you should be aware of:")
+            logger.warning("⚠️  WARNING: Found similar past issues that you should be aware of:")
             for w in warnings:
-                print(f"  - {w['title']} (Relevance: {w['score']:.2f})")
+                logger.warning(f"  - {w['title']} (Relevance: {w['score']:.2f})")
             
             # Non-interactive mode (e.g. for Telegram bot or CLI with --yolo)
             # We log it and proceed for now, but in a production bot we might want a 'confirm' button in Telegram.
-            print("⏳ [HEADLESS] Proceeding despite warnings...")
+            logger.info("⏳ [HEADLESS] Proceeding despite warnings...")
         else:
-            print("✅ No highly relevant past issues found.")
+            logger.info("✅ No highly relevant past issues found.")
             
-        print("-" * 50)
+        logger.info("-" * 50)
         
         # [NEW] Save task description to Redis for Observability Web Dashboard
         try:
@@ -136,24 +140,28 @@ class TaskScheduler:
             redis_cfg = self.config.get("redis", {})
             redis_host = redis_cfg.get("host", "localhost")
             redis_port = redis_cfg.get("port", 6379)
-            r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+            logger.info(f"DEBUG: Connecting to Redis at {redis_host}:{redis_port}")
+            r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True, socket_connect_timeout=5)
             r.setex(f"obs:task_desc:{task_id}", 604800, task_description)
         except Exception as e:
-            print(f"⚠️  Could not save task description to Redis: {e}")
+            logger.warning(f"⚠️  Could not save task description to Redis: {e}")
 
         
         if self.notifier:
             self.notifier.send_message(f"🚀 *New Task Submitted*\nID: `{task_id}`\nDescription: {task_description}")
 
         if self.queue_url == "dummy-temporal-queue":
-            print("🚀 [GENESIS CNC] Delegating task to Temporal cluster on Central Node...")
+            logger.info("🚀 [GENESIS CNC] Delegating task to Temporal cluster on Central Node...")
             try:
                 temp_cfg = self.config.get("temporal", {})
-                temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
+                host = temp_cfg.get('host', 'localhost')
+                port = temp_cfg.get('port', 7233)
+                temporal_host = f"{host}:{port}"
                 
-                print(f"Connecting to Temporal at {temporal_host}...")
-                client = await asyncio.wait_for(Client.connect(temporal_host), timeout=5.0)
-                print(f"📥 Pushing task '{task_description}' to Temporal workflow...")
+                logger.info(f"DEBUG: temp_cfg={temp_cfg}")
+                logger.info(f"DEBUG: Connecting to Temporal at {temporal_host}...")
+                client = await asyncio.wait_for(Client.connect(temporal_host), timeout=10.0)
+                logger.info(f"📥 Pushing task '{task_description}' to Temporal workflow...")
 
                 model_id = analysis_result['llm_model_id']
                 provider = analysis_result['model_details']['provider']
@@ -166,8 +174,10 @@ class TaskScheduler:
                 )
                 return task_id
             except (Exception, asyncio.TimeoutError) as e:
-                print(f"❌ Error connecting to Temporal: {e}")
-                print("Falling back to local offline queue...")
+                logger.error(f"❌ Error connecting to Temporal: {e}", exc_info=True)
+                if self.notifier:
+                    self.notifier.send_message(f"⚠️ *Temporal Connection Failed*\nError: `{e}`\nFalling back to offline mode.")
+                logger.info("Falling back to local offline queue...")
                 self._save_task_offline(task_id, task_description, analysis_result)
                 return f"QUEUED_OFFLINE_{task_id}"
             
@@ -215,7 +225,7 @@ class TaskScheduler:
                 client = await Client.connect(temporal_host)
                 handle = client.get_workflow_handle(task_id)
                 
-                print(f"\n⏳ [CENTRAL NODE] Polling for worker progress on task {task_id}...")
+                logger.info(f"⏳ [CENTRAL NODE] Polling for worker progress on task {task_id}...")
                 last_progress = None
                 from temporalio.client import WorkflowExecutionStatus
                 
@@ -232,7 +242,7 @@ class TaskScheduler:
                                 payloads = act.heartbeat_details.payloads
                                 current_progress = default().payload_converter.from_payloads(payloads)[0]
                                 if current_progress != last_progress:
-                                    print(f"📈 Worker Progress: {current_progress}")
+                                    logger.info(f"📈 Worker Progress: {current_progress}")
                                     last_progress = current_progress
                             except Exception:
                                 pass
@@ -240,7 +250,7 @@ class TaskScheduler:
                     await asyncio.sleep(1.0)
                     
                 result = await handle.result()
-                print(f"\n✅ [CENTRAL NODE] Worker Execution Complete.")
+                logger.info(f"✅ [CENTRAL NODE] Worker Execution Complete.")
                 
                 if self.notifier:
                     # Format a cleaner summary
@@ -259,7 +269,7 @@ class TaskScheduler:
                     
                 return "COMPLETED"
             except Exception as e:
-                print(f"❌ Error waiting for Temporal workflow: {e}")
+                logger.error(f"❌ Error waiting for Temporal workflow: {e}", exc_info=True)
                 if self.notifier:
                     msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Error:*\n{e}"
                     self.notifier.send_message(msg)
@@ -273,22 +283,23 @@ class TaskScheduler:
             
             if status == 'COMPLETED':
                 result = item.get('result', 'No result detail provided.')
-                print(f"✅ Task {task_id} COMPLETED.")
+                logger.info(f"✅ Task {task_id} COMPLETED.")
                 if self.notifier:
                     msg = f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}"
                     self.notifier.send_message(msg)
                 return status
             elif status == 'FAILED':
                 reason = item.get('error', 'Unknown error.')
-                print(f"❌ Task {task_id} FAILED.")
+                logger.info(f"❌ Task {task_id} FAILED.")
                 if self.notifier:
                     msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Reason:*\n{reason}"
                     self.notifier.send_message(msg)
                 return status
                 
-            print(f"⌛ Task {task_id} is {status}...")
+            logger.info(f"⌛ Task {task_id} is {status}...")
             await asyncio.sleep(10)
         
         if self.notifier:
             self.notifier.send_message(f"⚠️ *Task Timeout*\nID: `{task_id}`\nTask exceeded {timeout}s.")
         return "TIMEOUT"
+

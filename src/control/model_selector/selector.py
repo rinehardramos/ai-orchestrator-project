@@ -34,4 +34,4 @@ class SelectionRequest(BaseModel):
 @app.post("/select")
 async def select(request: SelectionRequest):
     model = select_model(request.task_type, request.required_tokens)
-    return model.dict()
+    return model.model_dump()

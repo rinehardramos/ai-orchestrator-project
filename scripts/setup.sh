@@ -53,6 +53,28 @@ python3 --version
 source venv/bin/activate && python3 -c "import google.genai; import langgraph; import pulumi; print('✅ Core Orchestrator dependencies verified')"
 pulumi version
 
+# 6. Install Telegram Monitor as a systemd service (Optional/Interactive)
+echo "🤖 Do you want to install the Telegram Ingress Monitor as a systemd service? (y/N)"
+read -r INSTALL_TG
+if [[ "$INSTALL_TG" =~ ^[Yy]$ ]]; then
+    echo "📦 Installing Telegram Monitor Service..."
+    SERVICE_PATH="/etc/systemd/system/telegram-monitor.service"
+    
+    # Use the absolute path from current directory
+    REPO_DIR=$(pwd)
+    
+    # Update the service file with correct working directory and user
+    sed "s|/home/pi/Projects/ai-orchestration-project|$REPO_DIR|g" "$REPO_DIR/scripts/telegram-monitor.service" | \
+    sed "s|User=pi|User=$(whoami)|g" > telegram-monitor.service.tmp
+    
+    sudo mv telegram-monitor.service.tmp "$SERVICE_PATH"
+    sudo systemctl daemon-reload
+    sudo systemctl enable telegram-monitor
+    sudo systemctl start telegram-monitor
+    echo "✅ Telegram Monitor Service installed and started."
+    echo "   View logs: journalctl -u telegram-monitor -f"
+fi
+
 echo "------------------------------------------------"
 echo "✨ Orchestrator Setup Complete!"
 echo "Note: This system is now a 'Pure Orchestrator'."

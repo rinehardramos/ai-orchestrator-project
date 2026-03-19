@@ -9,6 +9,9 @@ services:
   # ── CNC Genesis Node ───────────────────────────────────────────────────────
   # Runs the main orchestrator/CLI inside a persistent container.
   cnc:
+    build:
+      context: .
+      dockerfile: Dockerfile.cnc
     image: ghcr.io/rinehardramos/ai-orchestrator-project/cnc:latest
     container_name: cnc-genesis
     environment:
@@ -23,6 +26,27 @@ services:
       - ${HOME}/.aws:/root/.aws:ro
       - ${HOME}/.pulumi:/root/.pulumi:ro
       - .:/app  # Optional: mount local code for development override
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  # ── Telegram Ingress Service ──────────────────────────────────────────────
+  # Monitors Telegram for instructions and sends them to the Control Plane.
+  telegram-ingress:
+    build:
+      context: .
+      dockerfile: Dockerfile.cnc
+    container_name: telegram-ingress
+    command: ["python", "src/cnc/orchestrator/telegram_monitor.py"]
+    environment:
+      - TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+    volumes:
+      - .:/app
     networks:
       - ai-network
     restart: unless-stopped
