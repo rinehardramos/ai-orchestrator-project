@@ -21,7 +21,7 @@ class AnalyzerResult(BaseModel):
     model_details: dict
     reason: str
 
-class AnalyzerAgent:
+class TaskAnalyzer:
     def __init__(self, config_path: str = "config/profiles.yaml"):
         # Resolve config path relative to project root
         if not os.path.isabs(config_path):

@@ -53,7 +53,7 @@ class SystemMonitor:
                     freed_count += len(obj.preflight_cache)
                     obj.preflight_cache.clear()
                 
-                # Clear AnalyzerAgent internal caches
+                # Clear TaskAnalyzer internal caches
                 if hasattr(obj, 'cache') and isinstance(obj.cache, dict):
                     freed_count += len(obj.cache)
                     obj.cache.clear()

@@ -6,7 +6,7 @@ from pydantic import ValidationError
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from src.cnc.analyzer.agent import AnalyzerAgent, TaskRequirement, AnalyzerResult
+from src.cnc.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
 
 def get_input_with_default(prompt, default):
     val = input(f"{prompt} [{default}]: ").strip()
@@ -55,12 +55,12 @@ def main():
     except Exception as e:
         pass
 
-    agent = AnalyzerAgent()
+    analyzer = TaskAnalyzer()
     task = build_task()
     
     while True:
         try:
-            result = agent.analyze(task)
+            result = analyzer.analyze(task)
             show_plan(result)
             
             choice = input("\nOptions: [e]xecute, [r]ecalculate (change params), [q]uit: ").lower().strip()

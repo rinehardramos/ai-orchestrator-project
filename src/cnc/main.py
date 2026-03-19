@@ -12,7 +12,7 @@ load_dotenv()
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from src.cnc.analyzer.agent import AnalyzerAgent, TaskRequirement, AnalyzerResult
+from src.cnc.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
 from src.cnc.cli import show_plan
 from src.cnc.iac.pulumi_wrapper import provision_worker, destroy_worker
 from src.cnc.orchestrator.scheduler import TaskScheduler
@@ -26,7 +26,7 @@ async def execute_task_async(result: AnalyzerResult, statement: str, scheduler: 
         print("\n⚠️  [CRITICAL] System memory usage is extremely high (>90%).")
         freed = monitor.free_memory([scheduler] if scheduler else [])
         print(f"🧹 Attempted to free memory (cleared {freed} cache entries).")
-        monitor.save_state({"task_statement": statement, "plan": result.dict()})
+        monitor.save_state({"task_statement": statement, "plan": result.model_dump()})
         print("💾 State saved to data/last_state.json. Exiting for safety...")
         sys.exit(137) # Standard OOM exit code
 
@@ -65,7 +65,7 @@ async def execute_task_async(result: AnalyzerResult, statement: str, scheduler: 
 
     print(f"\n🚀 [ORCHESTRATOR] Delegating task to {result.infrastructure_id}...")
     print(f"📥 Pushing task to queue: \"{statement}\"")
-    task_id = await scheduler.submit_task(statement, result.dict())
+    task_id = await scheduler.submit_task(statement, result.model_dump())
     
     print(f"✅ Task registered: {task_id}")
     
@@ -106,20 +106,20 @@ async def main_async():
         parser.print_help()
         sys.exit(1)
 
-    agent = AnalyzerAgent(config_path=args.config)
+    analyzer = TaskAnalyzer(config_path=args.config)
     
     print(f"🔍 Analyzing statement: \"{args.statement}\"")
     try:
         # Pre-flight Memory Check
         if monitor.is_crash_imminent():
             print("⚠️  Warning: High memory usage detected before analysis. Clearing caches...")
-            monitor.free_memory([agent])
+            monitor.free_memory([analyzer])
 
         # 1. Parse natural language to structured requirements (Async)
-        task_req = await agent.parse_statement(args.statement)
+        task_req = await analyzer.parse_statement(args.statement)
         
         # 2. Analyze requirements for optimal infra and model
-        result = agent.analyze(task_req)
+        result = analyzer.analyze(task_req)
         
         # Override infrastructure if using existing
         if args.use_existing:
@@ -142,7 +142,7 @@ async def main_async():
                 elif choice == 'r':
                     from src.cnc.cli import build_task
                     manual_task = build_task()
-                    manual_result = agent.analyze(manual_task)
+                    manual_result = analyzer.analyze(manual_task)
                     show_plan(manual_result)
                     if input("Execute this new plan? (y/n): ").lower() == 'y':
                         await execute_task_async(manual_result, args.statement)

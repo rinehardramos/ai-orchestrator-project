@@ -1,3 +1,3 @@
-from .agent import AnalyzerAgent, TaskRequirement, AnalyzerResult
+from .task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
 
-__all__ = ["AnalyzerAgent", "TaskRequirement", "AnalyzerResult"]
+__all__ = ["TaskAnalyzer", "TaskRequirement", "AnalyzerResult"]

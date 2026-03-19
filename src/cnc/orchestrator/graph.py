@@ -11,7 +11,7 @@ class AgentState(TypedDict):
 # Node 1: Analyze Node (Uses Gemini)
 def analyze_node(state: AgentState):
     print(f"🔍 [LangGraph] Analyzing task: {state['task']}")
-    # Call Gemini (as we did in AnalyzerAgent)
+    # Call Gemini (as we did in TaskAnalyzer)
     # For now, return a placeholder decision
     return {"infra_choice": "local_server_docker" if "local" in state['task'].lower() else "aws_ec2_spot_t4g",
             "model_choice": "gemini-3.1-flash",
