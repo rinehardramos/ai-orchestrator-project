@@ -72,11 +72,19 @@
       when: lookup('env', 'GIT_REPO') | default('') != ''
       tags: [sync]
 
+    - name: Verify .git directory exists for pull
+      stat:
+        path: "{{ project_dir }}/.git"
+      register: git_dir
+      tags: [sync]
+
     - name: Git pull (fallback when GIT_REPO not set)
-      command:
-        cmd: git pull --rebase origin main
+      shell: |
+        git stash
+        git pull --rebase origin main
+      args:
         chdir: "{{ project_dir }}"
-      when: lookup('env', 'GIT_REPO') | default('') == ''
+      when: lookup('env', 'GIT_REPO') | default('') == '' and git_dir.stat.exists
       register: git_pull
       changed_when: "'Already up to date' not in git_pull.stdout"
       tags: [sync]

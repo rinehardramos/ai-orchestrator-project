@@ -241,10 +241,20 @@ class TaskScheduler:
                     
                 result = await handle.result()
                 print(f"\n✅ [CENTRAL NODE] Worker Execution Complete.")
-                print(f"Result: {result}")
                 
                 if self.notifier:
-                    msg = f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}"
+                    # Format a cleaner summary
+                    assessment = result.get('assessment', 'No assessment provided.')
+                    recommendations = result.get('recommendations', 'No recommendations provided.')
+                    
+                    # Ensure we don't exceed Telegram message limit and escape basic chars if needed
+                    # For now, just a clean structure.
+                    msg = (
+                        f"✅ *Task Succeeded*\n"
+                        f"ID: `{task_id}`\n\n"
+                        f"🧠 *Assessment:*\n{assessment[:1000]}{'...' if len(assessment) > 1000 else ''}\n\n"
+                        f"💡 *Recommendations:*\n{recommendations[:1000]}{'...' if len(recommendations) > 1000 else ''}"
+                    )
                     self.notifier.send_message(msg)
                     
                 return "COMPLETED"
