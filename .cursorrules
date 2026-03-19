@@ -2,6 +2,6 @@
 
 Whenever you successfully implement a feature or fix and commit it to the repository, you MUST update the `CHANGELOG.md` file located at the root of the project. Detail what was added, changed, deprecated, removed, or fixed. 
 
-CRITICAL: The core operational constraints for all agents are defined centrally in `GEMINI.md`. You MUST adhere strictly to its rules on Plan Mode, Verification tracking, and Autonomous behavior.
+CRITICAL: The core operational constraints for all agents are defined centrally in `.gemini/GEMINI.md`. You MUST adhere strictly to its rules on Plan Mode, Verification tracking, and Autonomous behavior.
 
 Additionally, maintain `tasks/todo.md` by checking off completed tasks and adding new ones for future features or technical debt. After any significant correction from the user, you MUST proactively synthesize the rule to avoid the mistake and dump it into `tasks/lessons.md`.
