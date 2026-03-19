@@ -36,6 +36,8 @@ class KnowledgeBaseClient:
         self.embedding_model = "gemini-embedding-001"
 
     def embed_text(self, text: str) -> list[float]:
+        if not self.client:
+            return [0.0] * 768
         try:
             response = self.client.models.embed_content(
                 model=self.embedding_model,
@@ -44,7 +46,11 @@ class KnowledgeBaseClient:
             return response.embeddings[0].values
         except Exception as e:
             print(f"Error generating embedding: {e}")
-            return [0.0] * 768 # Default empty vector if API key is missing
+            return [0.0] * 768
+
+    def close(self):
+        """Explicitly clear the client to prevent cleanup issues."""
+        self.client = None
 
     def ingest_markdown(self, filepath: str):
         if not os.path.exists(filepath):

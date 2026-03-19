@@ -100,28 +100,31 @@ class TaskScheduler:
         cache_key = task_description.lower().strip()
         
         warnings = []
-        if cache_key in self.preflight_cache:
-            print("⚡ Using cached Knowledge Base lookup.")
-            warnings = self.preflight_cache[cache_key]
-        else:
-            try:
-                from src.shared.memory.knowledge_base import KnowledgeBaseClient
-                kb = KnowledgeBaseClient()
-                warnings = kb.query_similar_issues(task_description, limit=2)
-                self.preflight_cache[cache_key] = warnings
-            except Exception as e:
-                print(f"⚠️  Knowledge Base lookup failed or is unconfigured: {e}")
+        if False: # Temporarily disabled KB lookup due to genai library conflicts
+            if cache_key in self.preflight_cache:
+                print("⚡ Using cached Knowledge Base lookup.")
+                warnings = self.preflight_cache[cache_key]
+            else:
+                kb = None
+                try:
+                    from src.shared.memory.knowledge_base import KnowledgeBaseClient
+                    kb = KnowledgeBaseClient()
+                    warnings = kb.query_similar_issues(task_description, limit=2)
+                    self.preflight_cache[cache_key] = warnings
+                except Exception as e:
+                    print(f"⚠️  Knowledge Base lookup failed or is unconfigured: {e}")
+                finally:
+                    if kb:
+                        kb.close()
 
         if warnings:
             print("⚠️  WARNING: Found similar past issues that you should be aware of:")
             for w in warnings:
                 print(f"  - {w['title']} (Relevance: {w['score']:.2f})")
             
-            # Interactive pre-flight resolution
-            proceed = input("\nProceed anyway? (Y/n): ").strip().lower()
-            if proceed == 'n':
-                print("❌ Task cancelled by user due to pre-flight warnings.")
-                return "CANCELLED"
+            # Non-interactive mode (e.g. for Telegram bot or CLI with --yolo)
+            # We log it and proceed for now, but in a production bot we might want a 'confirm' button in Telegram.
+            print("⏳ [HEADLESS] Proceeding despite warnings...")
         else:
             print("✅ No highly relevant past issues found.")
             

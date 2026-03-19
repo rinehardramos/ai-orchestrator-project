@@ -169,27 +169,32 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
     print(f"[L3 Archived] Full state archived to S3")
     
     # ── OODA Feedback Loop: Write observation back to Knowledge Base ──
-    try:
-        q_start = time.time()
-        kb = KnowledgeBaseClient()
-        observation_text = f"Task: {input_task}\nOutcome Assessment: {final_state.get('assessment', '')}\nRecommendations: {final_state.get('recommendations', '')}"
-        vector = kb.embed_text(observation_text)
-        
-        entry = MemoryEntry(
-            id=str(uuid.uuid4()), 
-            content=observation_text, 
-            metadata={
-                "task": input_task,
-                "type": "observation",
-                "model_used": model_id,
-                "score": 1.0 # Initial belief score before decay
-            }
-        )
-        kb.store.store_l2("agent_insights", entry, vector=vector)
-        QDRANT_LATENCY.observe(time.time() - q_start)
-        print(f"[Feedback Loop] OODA Observation written to Qdrant")
-    except Exception as e:
-        print(f"Failed to write OODA observation: {e}")
+    if False: # Temporarily disabled
+        kb = None
+        try:
+            q_start = time.time()
+            kb = KnowledgeBaseClient()
+            observation_text = f"Task: {input_task}\nOutcome Assessment: {final_state.get('assessment', '')}\nRecommendations: {final_state.get('recommendations', '')}"
+            vector = kb.embed_text(observation_text)
+            
+            entry = MemoryEntry(
+                id=str(uuid.uuid4()), 
+                content=observation_text, 
+                metadata={
+                    "task": input_task,
+                    "type": "observation",
+                    "model_used": model_id,
+                    "score": 1.0 # Initial belief score before decay
+                }
+            )
+            kb.store.store_l2("agent_insights", entry, vector=vector)
+            QDRANT_LATENCY.observe(time.time() - q_start)
+            print(f"[Feedback Loop] OODA Observation written to Qdrant")
+        except Exception as e:
+            print(f"Failed to write OODA observation: {e}")
+        finally:
+            if kb:
+                kb.close()
 
     TASK_DURATION.observe(time.time() - float(final_state.get('_start_time', time.time())))
     return final_state

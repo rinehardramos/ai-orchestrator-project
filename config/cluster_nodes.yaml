@@ -14,7 +14,7 @@ nodes:
   - name: genesis
     host: localhost
     role: cnc
-    project_dir: /Users/rinehardramos/Projects/ai-orchestrator-project
+    project_dir: /home/pi/Projects/ai-orchestration-project
 
   - name: worker-main
     host: 192.168.100.249

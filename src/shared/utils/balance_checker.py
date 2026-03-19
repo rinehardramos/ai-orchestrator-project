@@ -30,7 +30,7 @@ class BalanceChecker:
 
     def _get_supported_providers(self):
         """Returns a list of providers with balance check implementations."""
-        return ["google"] # Add "openai", "anthropic" as they are implemented
+        return ["google", "openai", "anthropic"]
 
     def _check_google_balance(self) -> float:
         """

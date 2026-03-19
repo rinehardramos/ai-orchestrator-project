@@ -4,10 +4,6 @@ import json
 from google import genai
 from pydantic import BaseModel, Field
 from typing import List, Optional
-from src.shared.utils.balance_checker import get_provider_balance
-
-# Define a minimum balance required to consider a provider's models
-MINIMUM_BALANCE_THRESHOLD = 1.00 # $1.00
 
 class TaskRequirement(BaseModel):
     estimated_duration_seconds: int
@@ -87,21 +83,13 @@ class AnalyzerAgent:
 
         valid_models = []
         for model in self.models:
-            # Financial check: ensure provider has sufficient balance
-            provider = model.get("provider", "unknown")
-            balance = get_provider_balance(provider)
-            if balance < MINIMUM_BALANCE_THRESHOLD:
-                print(f"Skipping model {model['id']} due to low provider balance (${balance:.2f})")
-                continue
-
             # Capability check
             model_tier = complexity_tiers.get(model['reasoning_capability'], 1)
             if model_tier >= req_tier and model['context_window'] >= task.context_length:
                 valid_models.append(model)
         
         if not valid_models:
-            # Fallback to most capable model regardless of balance if no models meet the criteria
-            print("Warning: No models with sufficient balance meet the task requirements. Falling back to the most capable model available.")
+            # Fallback to most capable model if no models meet the criteria
             all_models_sorted = sorted(self.models, key=lambda x: complexity_tiers.get(x['reasoning_capability'], 1), reverse=True)
             if not all_models_sorted:
                 raise ValueError("No models are defined in the configuration.")

@@ -45,9 +45,11 @@ services:
       - ai-network
 
   # ── Execution Plane Worker ───────────────────────────────────────────────
-  # Automatically pulls newest versions from GHCR via Watchtower.
+  # Local build for rapid development.
   ai-worker:
-    image: ghcr.io/rinehardramos/ai-orchestrator-project/worker:latest
+    build:
+      context: ../../../
+      dockerfile: src/execution/worker/Dockerfile.worker
     container_name: ai-worker
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
@@ -57,34 +59,13 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - PYTHONUNBUFFERED=1
-    # Registry-driven deployment (no local volume mounts) — Watchtower will pull new images.
-    # volumes:
-    #   - ../../../src:/app/src
-    #   - ../../../config:/app/config
+    volumes:
+      - ../../../src:/app/src
+      - ../../../config:/app/config
     depends_on:
       - temporal
       - qdrant
       - redis
-    networks:
-      - ai-network
-    restart: unless-stopped
-
-  # ── Watchtower — Automatic Image Update & Restart ────────────────────────
-  # Polls for new Docker image versions every 60s. When ai-worker's image is
-  # updated (via CI/CD or `docker push`), Watchtower pulls and restarts it
-  # automatically — no manual SSH or redeploy needed.
-  watchtower:
-    image: containrrr/watchtower:1.7.1
-    container_name: watchtower
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - WATCHTOWER_POLL_INTERVAL=60
-      - WATCHTOWER_CLEANUP=true
-      - WATCHTOWER_INCLUDE_STOPPED=false
-      - WATCHTOWER_MONITOR_ONLY=${WATCHTOWER_MONITOR_ONLY:-false}
-      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
-      - DOCKER_API_VERSION=1.44
     networks:
       - ai-network
     restart: unless-stopped

@@ -29,7 +29,7 @@
 
   vars:
     plane: "all"
-    worker_container: "worker-ai-worker-1"
+    worker_container: "ai-worker"
 
   tasks:
 
@@ -129,8 +129,19 @@
         chdir: "{{ project_dir }}"
       environment:
         PROJECT_ROOT: "{{ project_dir }}"
+        GOOGLE_API_KEY: "{{ lookup('env', 'GOOGLE_API_KEY') }}"
+        OPENAI_API_KEY: "{{ lookup('env', 'OPENAI_API_KEY') }}"
+        ANTHROPIC_API_KEY: "{{ lookup('env', 'ANTHROPIC_API_KEY') }}"
       when: (plane_config | from_json).services | length > 0
       tags: [build, reload]
+
+    - name: Restart Telegram Monitor service (CNC Plane)
+      become: true
+      systemd:
+        name: telegram-monitor
+        state: restarted
+      when: plane in ['all', 'cnc'] and ansible_os_family != 'Darwin'
+      tags: [reload]
 
     # ── Verify ───────────────────────────────────────────────────────────────
 
