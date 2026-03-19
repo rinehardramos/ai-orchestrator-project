@@ -26,46 +26,58 @@ import time
 
 # AI Provider SDKs
 import litellm
+from litellm import Router
 
-# --- Tiered Memory Setup ---
-memory_store = HybridMemoryStore()
+# --- LiteLLM Router Setup ---
+def load_router_config():
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml"))
+    model_list = []
+    if os.path.exists(config_path):
+        with open(config_path, 'r') as f:
+            data = yaml.safe_load(f)
+            for m in data.get('models', []):
+                provider = m['provider'].lower()
+                if provider == "google": provider = "gemini"
+                
+                # We use the reasoning_capability as the "model_name" for the router
+                # to allow routing to ANY model in that tier.
+                model_entry = {
+                    "model_name": m['reasoning_capability'], 
+                    "litellm_params": {
+                        "model": f"{provider}/{m['id']}" if provider != "local" else m['id'],
+                        "api_key": os.environ.get(f"{provider.upper()}_API_KEY")
+                    }
+                }
+                model_list.append(model_entry)
+    return model_list
 
-# --- Prometheus Metrics ---
-CACHE_HITS = Counter('worker_cache_hits_total', 'Total L1 cache hits')
-CACHE_MISSES = Counter('worker_cache_misses_total', 'Total L1 cache misses')
-TASK_DURATION = Histogram('worker_task_duration_seconds', 'Task execution duration')
-QDRANT_LATENCY = Histogram('worker_qdrant_latency_seconds', 'Qdrant Q/W latency')
-
-# --- Dynamic LLM Call via LiteLLM ---
+llm_router = Router(model_list=load_router_config())
 
 def generate_content(provider: str, model: str, prompt: str) -> str:
-    """A wrapper to call the correct content generation method using LiteLLM."""
-    provider = provider.lower()
-    # Map google to gemini for litellm prefix
-    if provider == "google":
-        provider_prefix = "gemini"
-    else:
-        provider_prefix = provider
-        
-    if provider_prefix and not model.startswith(f"{provider_prefix}/"):
-        litellm_model = f"{provider_prefix}/{model}"
-    else:
-        litellm_model = model
-
+    """Uses LiteLLM Router to call a model within a requested reasoning tier."""
+    # If the CNC specifically asked for a model ID that matches a tier name, use it.
+    # Otherwise, fall back to the provided model ID.
+    target = model 
+    
     try:
-        # For anthropic models litellm might require max_tokens
-        kwargs = {}
-        if provider == "anthropic":
-            kwargs["max_tokens"] = 2048
-            
-        response = litellm.completion(
-            model=litellm_model,
-            messages=[{"role": "user", "content": prompt}],
-            **kwargs
+        response = llm_router.completion(
+            model=target,
+            messages=[{"role": "user", "content": prompt}]
         )
         return response.choices[0].message.content
     except Exception as e:
-        raise ValueError(f"LiteLLM generation failed for {litellm_model}: {str(e)}")
+        # Fallback: try using the exact model string if routing by tier failed
+        try:
+            full_model = f"{provider}/{model}" if "/" not in model else model
+            if "google" in full_model: full_model = full_model.replace("google", "gemini")
+            
+            response = litellm.completion(
+                model=full_model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e2:
+            raise ValueError(f"LiteLLM Router & Fallback failed: {str(e)} | {str(e2)}")
 
 
 # --- Langgraph State & Logic ---

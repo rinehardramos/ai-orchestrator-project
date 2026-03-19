@@ -151,9 +151,11 @@ class AnalyzerAgent:
         
         return AnalyzerResult(
             infrastructure_id=selected_infra['id'],
-            llm_model_id=selected_model['id'],
+            # We now pass the 'reasoning_capability' (tier) instead of a specific model ID.
+            # The LiteLLM Router on the worker will then decide which specific model to use.
+            llm_model_id=selected_model['reasoning_capability'],
             estimated_cost=infra_cost + model_cost,
             infra_details=selected_infra,
             model_details=selected_model,
-            reason=f"Selected {selected_infra['id']} for constraints, and {selected_model['id']} for reasoning tier '{task.reasoning_complexity}'."
+            reason=f"Routing to tier '{selected_model['reasoning_capability']}' using infra {selected_infra['id']}."
         )
