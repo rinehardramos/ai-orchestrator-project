@@ -43,9 +43,14 @@ def generate_content(provider: str, model: str, prompt: str) -> str:
     provider = provider.lower()
     # Map google to gemini for litellm prefix
     if provider == "google":
-        provider = "gemini"
+        provider_prefix = "gemini"
+    else:
+        provider_prefix = provider
         
-    litellm_model = f"{provider}/{model}" if provider not in model else model
+    if provider_prefix and not model.startswith(f"{provider_prefix}/"):
+        litellm_model = f"{provider_prefix}/{model}"
+    else:
+        litellm_model = model
 
     try:
         # For anthropic models litellm might require max_tokens
