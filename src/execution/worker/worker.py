@@ -37,15 +37,20 @@ def load_router_config():
             data = yaml.safe_load(f)
             for m in data.get('models', []):
                 provider = m['provider'].lower()
-                if provider == "google": provider = "gemini"
+                if provider == "google": 
+                    provider = "gemini"
+                elif provider == "local":
+                    # Map 'local' to 'ollama' which LiteLLM supports for local inference
+                    provider = "ollama"
                 
                 # We use the reasoning_capability as the "model_name" for the router
                 # to allow routing to ANY model in that tier.
+                env_key_name = f"{provider.upper()}_API_KEY"
                 model_entry = {
                     "model_name": m['reasoning_capability'], 
                     "litellm_params": {
-                        "model": f"{provider}/{m['id']}" if provider != "local" else m['id'],
-                        "api_key": os.environ.get(f"{provider.upper()}_API_KEY")
+                        "model": f"{provider}/{m['id']}",
+                        "api_key": os.environ.get(env_key_name, "dummy-key")
                     }
                 }
                 model_list.append(model_entry)
