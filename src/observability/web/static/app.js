@@ -85,20 +85,27 @@ function renderNodes(nodes) {
 
 function renderWorkflows(temporal) {
   document.getElementById('wf-active').textContent = temporal?.active ?? '—';
-  if ((temporal?.failed ?? 0) > 0) wfFailed += temporal.failed;
-  document.getElementById('wf-failed').textContent = wfFailed;
+  document.getElementById('wf-failed').textContent = temporal?.failed ?? '—';
 }
 
 function renderTasks(tasks) {
   const el = document.getElementById('tasks-table');
   if (!tasks?.length) { el.innerHTML = '<p class="muted">No recent tasks</p>'; return; }
+  
+  const statusMap = {
+    '1': 'Running', '2': 'Completed', '3': 'Failed',
+    '4': 'Canceled', '5': 'Terminated', '6': 'Continued as new', '7': 'Timed out'
+  };
+
   el.innerHTML = `<table>
-    <thead><tr><th style="width: 15%">ID</th><th style="width: 15%">Status</th><th>Description</th></tr></thead>
+    <thead><tr><th style="width: 15%">ID</th><th style="width: 20%">Status</th><th>Description</th></tr></thead>
     <tbody>${tasks.map(t => {
-      const isUp = t.status === 'COMPLETED' || t.status === 'WORKFLOW_EXECUTION_STATUS_COMPLETED';
-      const isFailed = t.status === 'FAILED' || t.status === 'WORKFLOW_EXECUTION_STATUS_FAILED' || t.status === 'WORKFLOW_EXECUTION_STATUS_TIMED_OUT';
+      let rawStatus = t.status.toString().replace('WORKFLOW_EXECUTION_STATUS_', '');
+      let statusText = statusMap[rawStatus] || (rawStatus.charAt(0).toUpperCase() + rawStatus.slice(1).toLowerCase().replace(/_/g, ' '));
+      
+      const isUp = rawStatus === 'COMPLETED' || rawStatus === '2';
+      const isFailed = rawStatus === 'FAILED' || rawStatus === 'TIMED_OUT' || rawStatus === '3' || rawStatus === '7';
       const cls = isUp ? 'up' : (isFailed ? 'down' : 'pending');
-      const statusText = t.status.replace('WORKFLOW_EXECUTION_STATUS_', '');
       
       return `<tr>
         <td style="font-family: monospace; font-size: 0.85em;">${t.task_id.substring(0,8)}…</td>

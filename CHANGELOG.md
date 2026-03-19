@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
 - Integrated L1/L2/L3 storage latency metrics to Observability dashboard, plus YOLO mode and Telegram summaries.
 
 ### Fixed
+- Corrected Temporal active/failed metric collections in Observability and replaced deprecated model-selector REST API with direct `profiles.yaml` config parsing.
 - Improved task completion notifications and deployment robustness in CNC.
 - Fixed LiteLLM router provider mapping and API key handling in the worker.
 - Updated config to use `gemini-3-flash-preview`.

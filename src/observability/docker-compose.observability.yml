@@ -19,6 +19,7 @@ services:
       - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-temporal:7233}
       - COORDINATOR_URL=${COORDINATOR_URL:-http://host.docker.internal:8000}
       - MODEL_SELECTOR_URL=${MODEL_SELECTOR_URL:-http://host.docker.internal:8003}
+      - QDRANT_URL=${QDRANT_URL:-http://worker-qdrant-1:6333}
       - PROMETHEUS_PORT=9091
       - POLL_INTERVAL=10
       - PYTHONUNBUFFERED=1

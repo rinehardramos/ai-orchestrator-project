@@ -145,14 +145,32 @@ async def collect_temporal() -> dict[str, Any]:
         async for wf in client.list_workflows("ExecutionStatus='Running'"):
             active += 1
             
+        failed = 0
+        try:
+            async for wf in client.list_workflows("ExecutionStatus='Failed'"):
+                failed += 1
+        except Exception:
+            pass
+            
+        data["active"] = active
+        data["failed"] = failed
+            
         # Get tasks with ID, status, and fetch description from Redis
         import redis.asyncio as aioredis
         r = aioredis.from_url(REDIS_URL, decode_responses=True)
         tasks = []
         try:
             async for wf in client.list_workflows('WorkflowType="AIOrchestrationWorkflow"'):
-                # Extract status as string, e.g., 'COMPLETED', 'RUNNING'
-                status_str = str(wf.status).split('.')[-1]
+                # Handle status whether it is an IntEnum or just an integer
+                status_val = wf.status
+                status_str = status_val.name if hasattr(status_val, 'name') else str(status_val)
+                # Fallback if temporal returns bare integers during list_workflows
+                if status_str == "1": status_str = "RUNNING"
+                elif status_str == "2": status_str = "COMPLETED"
+                elif status_str == "3": status_str = "FAILED"
+                elif status_str == "4": status_str = "CANCELED"
+                elif status_str == "7": status_str = "TIMED_OUT"
+                
                 desc = await r.get(f"obs:task_desc:{wf.id}")
                 tasks.append({
                     "task_id": wf.id,
@@ -163,6 +181,7 @@ async def collect_temporal() -> dict[str, Any]:
                 if len(tasks) >= 15:
                     break
         except Exception as query_e:
+
             print(f"[Collector] Error querying Temporal task history: {query_e}")
         finally:
             await r.aclose()
@@ -197,16 +216,23 @@ async def collect_coordinator() -> dict[str, Any]:
 # ── Model Selector probe ──────────────────────────────────────────────────────
 
 async def collect_model_selector() -> dict[str, Any]:
-    data = {"providers": []}
     try:
-        async with httpx.AsyncClient(timeout=3.0) as client:
-            resp = await client.get(f"{MODEL_SEL_URL}/status")
-            if resp.status_code == 200:
-                body = resp.json()
-                data["providers"] = body.get("active_providers", [])
-    except Exception:
+        import yaml
+        import os
+        config_path = "/app/config/profiles.yaml"
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                data = yaml.safe_load(f)
+                providers = set()
+                for m in data.get("models", []):
+                    if "provider" in m:
+                        # Extract the base API routing provider
+                        providers.add(m["provider"])
+                return {"providers": sorted(list(providers))}
+    except Exception as e:
+        print(f"[Collector] Error parsing profiles.yaml: {e}")
         COLLECTOR_ERRORS.labels(source="model_selector").inc()
-    return data
+    return {"providers": []}
 
 # ── L1, L2, L3 Performance Probes ─────────────────────────────────────────────
 
