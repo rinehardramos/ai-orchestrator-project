@@ -13,12 +13,16 @@ python-dotenv
 # --- Orchestration & AI ---
 temporalio
 litellm
+google-genai
+qdrant-client
+pydantic
 
 # --- Utilities ---
 httpx
 redis
 requests
 beautifulsoup4
+prometheus-client>=0.17.0
 
 # --- Development & Linting (can be moved to a dev-requirements.txt) ---
 flake8

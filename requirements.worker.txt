@@ -12,6 +12,9 @@ python-dotenv==1.2.2
 PyYAML==6.0.3
 pydantic>=2.9.0
 
+# Monitoring
+prometheus_client>=0.17.0
+
 # Durable Orchestration
 langgraph==0.2.60
 temporalio==1.7.1
