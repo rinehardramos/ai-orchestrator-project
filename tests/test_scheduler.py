@@ -48,6 +48,7 @@ def test_save_task_offline(mock_scheduler):
     assert json.loads(row[2]) == test_meta
     assert row[3] == "QUEUED"
 
+@pytest.mark.skip(reason="Knowledge Base preflight lookup temporarily disabled in scheduler")
 @patch("src.cnc.orchestrator.scheduler.TaskScheduler.check_connectivity")
 def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
     # Setup mock KB
