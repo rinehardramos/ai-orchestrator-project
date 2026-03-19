@@ -84,6 +84,11 @@ graph TD
 - Zero context switching required from the user
 - Go fix failing CI tests without being told how
 
+### 7. L2 Memory Integration (Qdrant)
+- For every complex issue, architectural roadblock, or bug that is successfully resolved, you MUST embed the context, symptoms, and the applied fix into the L2 Vector Database (Qdrant).
+- Use `KnowledgeBaseClient` to push a synthesized `MemoryEntry` into the `agent_insights` collection.
+- This creates a permanent semantic immune system, ensuring future agents naturally retrieve the exact fix if identical tracebacks ever surface.
+
 ## Task Management & Organization
 
 1. **Plan First**: Write plan to `tasks/todo.md` with checkable items
