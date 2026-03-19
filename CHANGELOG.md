@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [2026-03-19]
 ### Added
 - **Observability Dashboard**: Added task tracking by mapping Temporal workflows (IDs and human-readable Statuses) to `obs:events` payloads.
+- **Task Details Modal**: Implemented an elegant, on-demand REST API (`GET /api/tasks/{task_id}`) to securely fetch and display Temporal failure stack traces inside a UI modal without bloating websocket streams.
 - **Task Telemetry**: Scheduler now pushes task descriptions (content) as transient `SETEX` keys to Redis, mitigating unbounded memory growth.
 - **Frontend Upgrades**: Added "Recent Tasks" grid panel to the web monitor UI, converting generic integer statuses (e.g., `1`, `2`) into elegant strings like "Running" or "Completed".
 - Added `CHANGELOG.md`, `TODO.md`, and an agent memory rule to ensure these files are updated continuously.
