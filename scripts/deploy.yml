@@ -106,7 +106,7 @@
           }
           {% elif plane == 'execution' %}
           {
-            "services": "ai-worker",
+            "services": "temporal qdrant redis ai-worker",
             "files": ["src/execution/worker/docker-compose.yml"]
           }
           {% elif plane == 'observability' %}
@@ -133,7 +133,7 @@
         cmd: >-
           docker compose 
           {% for f in (plane_config | from_json).files %} -f {{ f }} {% endfor %}
-          up -d --build --no-deps {{ (plane_config | from_json).services }}
+          up -d --build {{ (plane_config | from_json).services }}
         chdir: "{{ project_dir }}"
       environment:
         PROJECT_ROOT: "{{ project_dir }}"
