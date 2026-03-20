@@ -70,11 +70,11 @@ class KnowledgeBaseClient:
     def _embed_google(self, text: str) -> list[float]:
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"text-embedding-004:embedContent?key={self._google_key}"
+            f"gemini-embedding-001:embedContent?key={self._google_key}"
         )
         resp = _requests.post(
             url,
-            json={"model": "models/text-embedding-004", "content": {"parts": [{"text": text}]}},
+            json={"model": "models/gemini-embedding-001", "content": {"parts": [{"text": text}]}},
             timeout=15,
         )
         resp.raise_for_status()

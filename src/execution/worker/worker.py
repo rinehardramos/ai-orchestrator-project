@@ -167,7 +167,7 @@ def generate_recommendations(state: AgentState) -> AgentState:
     if memory_store.qdrant:
         entry = MemoryEntry(id=str(uuid.uuid4()), content=recommendations, metadata={"task": state['input_task']})
         try:
-            embed_response = litellm.embedding(model="gemini/text-embedding-004", input=[recommendations])
+            embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[recommendations])
             vector = embed_response.data[0]["embedding"]
             memory_store.store_l2("agent_insights", entry, vector=vector)
             logger.info(f"[L2 Stored] Insight saved to Qdrant with real embedding")
