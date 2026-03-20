@@ -278,15 +278,9 @@ def git_push(workspace_dir: str, path: str = ".", remote: str = "origin", branch
             return f"ERROR: Could not get remote URL: {_sanitize(get_url.stderr)}"
         original_url = get_url.stdout.strip()
 
-        # Convert SSH or HTTPS URL to authenticated HTTPS
-        # Handle git@github.com:owner/repo.git
-        if original_url.startswith("git@github.com:"):
-            repo_path = original_url.replace("git@github.com:", "").rstrip(".git")
-            auth_url = f"https://x-access-token:{token}@github.com/{repo_path}.git"
-        elif "github.com" in original_url:
-            # Handle https://github.com/owner/repo.git — inject token
-            auth_url = original_url.replace("https://", f"https://x-access-token:{token}@")
-        else:
+        # Convert any GitHub URL format to authenticated HTTPS
+        auth_url = _to_authenticated_https(original_url)
+        if auth_url == original_url and "x-access-token" not in auth_url:
             return f"ERROR: Unsupported remote URL format: {_sanitize(original_url)}"
 
         # Temporarily set the authenticated URL
