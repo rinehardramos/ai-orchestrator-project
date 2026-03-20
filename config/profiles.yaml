@@ -1,11 +1,11 @@
 models:
-  - id: "gemini-2.0-flash-lite"
+  - id: "gemini-2.5-flash-lite"
     provider: "google"
     cost_per_1k_tokens: 0.00001
     context_window: 1000000
     reasoning_capability: "low"
     speed: "ultra_fast"
-  - id: "gemini-2.5-flash-preview-04-17"
+  - id: "gemini-2.5-flash"
     provider: "google"
     cost_per_1k_tokens: 0.0001
     context_window: 1000000
