@@ -17,17 +17,24 @@ from src.config import load_settings
 
 import logging
 
-# Configure logging
+# Configure logging — use RotatingFileHandler to protect SD card
+from logging.handlers import RotatingFileHandler
+
 os.makedirs("logs", exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler("logs/telegram_monitor.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
+
+# Only our loggers go to file; silence noisy libraries
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s [%(levelname)s] %(message)s')
+
+_file_handler = RotatingFileHandler("logs/telegram_monitor.log", maxBytes=512_000, backupCount=1)
+_file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+
+_stream_handler = logging.StreamHandler(sys.stdout)
+_stream_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
+
 logger = logging.getLogger("TelegramMonitor")
+logger.setLevel(logging.INFO)
+logger.addHandler(_file_handler)
+logger.addHandler(_stream_handler)
 
 class TelegramMonitor:
     def __init__(self, bot_token: str, chat_id: str):
@@ -73,7 +80,7 @@ class TelegramMonitor:
         msg_text = message.get("text", "")
         msg_chat_id = str(message.get("chat", {}).get("id", ""))
         
-        logger.info(f"📩 Incoming message from {msg_chat_id}: {msg_text}")
+        logger.debug(f"Incoming message from {msg_chat_id}: {msg_text}")
 
         if msg_chat_id != self.chat_id:
             logger.warning(f"⚠️ Unauthorized chat ID: {msg_chat_id}")
@@ -100,7 +107,7 @@ class TelegramMonitor:
             logger.error(f"Failed to send chat action: {e}")
 
     async def _handle_command(self, command: str):
-        logger.info(f"🛠 Handling command: {command}")
+        logger.debug(f"Handling command: {command}")
         
         if command == "/start":
             self.notifier.send_message("👋 *Welcome to Gemini AI Orchestrator*\nSend me any task description to start execution.")
@@ -116,7 +123,7 @@ class TelegramMonitor:
             self.notifier.send_message(f"❓ Unknown command: {command}")
 
     async def _handle_task(self, statement: str):
-        logger.info(f"🚀 Handling task: {statement}")
+        logger.info(f"Task received: {statement[:80]}")
         # 0. Immediate Receipt Confirmation
         self.notifier.send_message(f"📥 *Received*: \"{statement}\"\n_Analyzing requirements..._")
         
@@ -124,7 +131,7 @@ class TelegramMonitor:
             # 1. Analyze task
             logger.debug(f"Parsing statement: {statement}")
             task_req = await self.analyzer.parse_statement(statement)
-            logger.info(f"Task requirements: {task_req}")
+            logger.debug(f"Task requirements: {task_req}")
             self._send_chat_action("typing") 
             
             logger.debug(f"Analyzing requirements...")
@@ -132,7 +139,7 @@ class TelegramMonitor:
             # Telegram mode always uses existing infrastructure (headless — no Pulumi provisioning)
             result.infrastructure_id = "existing_server"
             result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
-            logger.info(f"Analyzer result: {result}")
+            logger.debug(f"Analyzer result: {result}")
             
             summary = (
                 f"📝 *Execution Plan*\n"

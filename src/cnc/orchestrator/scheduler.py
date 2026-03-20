@@ -50,6 +50,7 @@ class TaskScheduler:
     def _init_offline_db(self):
         conn = sqlite3.connect(self.offline_db_path)
         c = conn.cursor()
+        c.execute("PRAGMA journal_mode=WAL")  # Reduce disk writes on SD card
         c.execute('''CREATE TABLE IF NOT EXISTS offline_tasks
                      (task_id TEXT PRIMARY KEY, description TEXT, metadata TEXT, status TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS task_history
@@ -274,7 +275,7 @@ class TaskScheduler:
         else:
             logger.info("✅ No highly relevant past issues found.")
             
-        logger.info("-" * 50)
+        logger.debug("-" * 50)
         
         # [NEW] Save task description to Redis for Observability Web Dashboard
         try:
@@ -282,7 +283,7 @@ class TaskScheduler:
             redis_cfg = self.config.get("redis", {})
             redis_host = redis_cfg.get("host", "localhost")
             redis_port = redis_cfg.get("port", 6379)
-            logger.info(f"DEBUG: Connecting to Redis at {redis_host}:{redis_port}")
+            logger.debug(f"Connecting to Redis at {redis_host}:{redis_port}")
             r = redis.Redis(host=redis_host, port=redis_port, decode_responses=True, socket_connect_timeout=5)
             r.setex(f"obs:task_desc:{task_id}", 604800, task_description)
         except Exception as e:
@@ -300,13 +301,13 @@ class TaskScheduler:
                 port = temp_cfg.get('port', 7233)
                 temporal_host = f"{host}:{port}"
                 
-                logger.info(f"DEBUG: temp_cfg={temp_cfg}")
-                logger.info(f"DEBUG: Connecting to Temporal at {temporal_host}...")
+                logger.debug(f"temp_cfg={temp_cfg}")
+                logger.debug(f"Connecting to Temporal at {temporal_host}...")
                 client = await asyncio.wait_for(Client.connect(temporal_host), timeout=30.0)
                 # Flush any previously offline-queued tasks now that we're connected
                 await self.flush_offline_queue(client)
 
-                logger.info(f"📥 Pushing task '{task_description}' to Temporal workflow...")
+                logger.info(f"Pushing task to Temporal workflow...")
 
                 model_id = analysis_result['llm_model_id']
                 provider = analysis_result['model_details']['provider']
