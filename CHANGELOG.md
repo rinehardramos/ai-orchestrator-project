@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-20]
+### Added
+- **Unified Bootstrap Script**: Created `scripts/bootstrap_machine.sh`, a one-stop-shop for configuring and verifying machine roles (Controller, Worker, CNC, or Full Stack). Includes automated dependency checks, role-based .env generation, and terminal-friendly interactive setup.
+- **Automated Service Verification**: Integrated a post-provisioning health check layer into the bootstrap script that validates container status and service availability (Temporal, Qdrant, Redis, etc.) before completion.
+
 ## [2026-03-19]
 ### Added
 - **Observability Dashboard**: Added task tracking by mapping Temporal workflows (IDs and human-readable Statuses) to `obs:events` payloads.
