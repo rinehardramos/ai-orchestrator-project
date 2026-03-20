@@ -199,7 +199,7 @@ class TaskScheduler:
                 
                 logger.info(f"DEBUG: temp_cfg={temp_cfg}")
                 logger.info(f"DEBUG: Connecting to Temporal at {temporal_host}...")
-                client = await asyncio.wait_for(Client.connect(temporal_host), timeout=10.0)
+                client = await asyncio.wait_for(Client.connect(temporal_host), timeout=30.0)
                 # Flush any previously offline-queued tasks now that we're connected
                 await self.flush_offline_queue(client)
 
