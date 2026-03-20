@@ -9,6 +9,7 @@ set -e
 ENV_FILE=".env"
 NETWORK_NAME="worker_ai-network"
 COMPOSE_WORKER_FILE="src/execution/worker/docker-compose.yml"
+COMPOSE_CONTROL_FILE="src/control/docker-compose.control.yml"
 COMPOSE_CNC_FILE="docker-compose.cnc.yml"
 
 # Colors for output
@@ -96,7 +97,12 @@ verify_service() {
                     return 0
                 fi
                 # Special case for Temporal gRPC port which might not respond to HTTP curl
-                if echo > /dev/tcp/${target#*://*} 2>/dev/null; then
+                local host_port=$(echo "$target" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+                local host=$(echo "$host_port" | cut -d: -f1)
+                local port=$(echo "$host_port" | cut -d: -f2)
+                if [ -z "$port" ]; then port=80; fi
+                
+                if timeout 1 bash -c "echo > /dev/tcp/$host/$port" 2>/dev/null; then
                      echo -e "${GREEN}REACHABLE (PORT)${NC}"
                      return 0
                 fi
@@ -122,6 +128,8 @@ verify_role_health() {
             verify_service "Qdrant" "url" "http://localhost:6333/health"
             verify_service "Redis" "container" "redis"
             verify_service "Postgres" "container" "postgres"
+            verify_service "Control Dispatcher" "container" "control-dispatcher"
+            verify_service "Control Selector" "container" "control-selector"
             verify_service "AI Worker" "container" "ai-worker"
             verify_service "CNC Genesis" "container" "cnc-genesis"
             verify_service "Telegram Ingress" "container" "telegram-ingress"
@@ -131,6 +139,8 @@ verify_role_health() {
             verify_service "Qdrant" "url" "http://localhost:6333/health"
             verify_service "Redis" "container" "redis"
             verify_service "Postgres" "container" "postgres"
+            verify_service "Control Dispatcher" "container" "control-dispatcher"
+            verify_service "Control Selector" "container" "control-selector"
             ;;
         3) # Worker
             local t_host=$(grep "^TEMPORAL_HOST_URL=" "$ENV_FILE" | cut -d'=' -f2-)
@@ -151,7 +161,7 @@ verify_role_health() {
 # --- Role Selection ---
 echo -e "\n${BLUE}Select the role for this machine:${NC}"
 echo "1) Full Stack (Controller + Worker + CNC)"
-echo "2) Controller (Temporal, Qdrant, Redis, Postgres)"
+echo "2) Controller (Temporal, Qdrant, Redis, Postgres, Control Plane)"
 echo "3) Worker (Task Execution only)"
 echo "4) CNC (Command interface & Telegram Monitor)"
 echo -n -e "${YELLOW}Enter choice [1-4]: ${NC}"
@@ -171,29 +181,40 @@ case $ROLE_CHOICE in
         prompt_if_empty "GOOGLE_API_KEY" "Enter Google API Key"
         prompt_if_empty "OPENAI_API_KEY" "Enter OpenAI API Key"
         prompt_if_empty "ANTHROPIC_API_KEY" "Enter Anthropic API Key"
+        prompt_if_empty "GITHUB_TOKEN" "Enter GitHub Token"
         prompt_if_empty "TELEGRAM_BOT_TOKEN" "Enter Telegram Bot Token"
         prompt_if_empty "TELEGRAM_CHAT_ID" "Enter Telegram Chat ID"
         
         echo -e "${BLUE}🚢 Launching Core Services & Worker...${NC}"
-        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d
+        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d --build
+        
+        echo -e "${BLUE}🚢 Launching Control Plane...${NC}"
+        $DOCKER_COMPOSE -f "$COMPOSE_CONTROL_FILE" up -d --build
         
         echo -e "${BLUE}🚢 Launching CNC Services...${NC}"
-        $DOCKER_COMPOSE -f "$COMPOSE_CNC_FILE" up -d
+        $DOCKER_COMPOSE -f "$COMPOSE_CNC_FILE" up -d --build
         ;;
     2)
         echo -e "${GREEN}Configuring Controller only...${NC}"
+        prompt_if_empty "GOOGLE_API_KEY" "Enter Google API Key"
+        prompt_if_empty "OPENAI_API_KEY" "Enter OpenAI API Key"
+
         # Start core services but not the worker
         echo -e "${BLUE}🚢 Launching Core Services...${NC}"
-        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d temporal postgres qdrant redis
+        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d --build temporal postgres qdrant redis
+        
+        echo -e "${BLUE}🚢 Launching Control Plane...${NC}"
+        $DOCKER_COMPOSE -f "$COMPOSE_CONTROL_FILE" up -d --build
         ;;
     3)
         echo -e "${GREEN}Configuring Worker only...${NC}"
         prompt_if_empty "TEMPORAL_HOST_URL" "Enter Temporal Host (e.g., 192.168.1.10:7233)"
         prompt_if_empty "QDRANT_URL" "Enter Qdrant URL (e.g., http://192.168.1.10:6333)"
         prompt_if_empty "GOOGLE_API_KEY" "Enter Google API Key"
+        prompt_if_empty "GITHUB_TOKEN" "Enter GitHub Token"
         
         echo -e "${BLUE}🚢 Launching AI Worker...${NC}"
-        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d ai-worker
+        $DOCKER_COMPOSE -f "$COMPOSE_WORKER_FILE" up -d --build ai-worker
         ;;
     4)
         echo -e "${GREEN}Configuring CNC node...${NC}"
@@ -206,7 +227,7 @@ case $ROLE_CHOICE in
         prompt_if_empty "TELEGRAM_CHAT_ID" "Enter Telegram Chat ID"
         
         echo -e "${BLUE}🚢 Launching CNC Tools...${NC}"
-        $DOCKER_COMPOSE -f "$COMPOSE_CNC_FILE" up -d
+        $DOCKER_COMPOSE -f "$COMPOSE_CNC_FILE" up -d --build
         ;;
     *)
         echo -e "${RED}Invalid choice. Exiting.${NC}"

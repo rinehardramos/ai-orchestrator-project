@@ -9,9 +9,14 @@ services:
 
   # ── Dispatcher (Dynamic Orchestration) ─────────────────────────────────────
   dispatcher:
+    build:
+      context: ../../
+      dockerfile: src/control/Dockerfile.control
     image: ghcr.io/rinehardramos/ai-orchestrator-project/control:latest
     container_name: control-dispatcher
-    command: ["python", "-m", "src.control.dispatcher.dispatcher"]
+    command: ["uvicorn", "src.control.dispatcher.dispatcher:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8001:8000"
     environment:
       - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-temporal:7233}
       - REDIS_URL=redis://redis:6379
@@ -22,9 +27,14 @@ services:
 
   # ── Model Selector (Constraint-based Scaling) ──────────────────────────────
   selector:
+    build:
+      context: ../../
+      dockerfile: src/control/Dockerfile.control
     image: ghcr.io/rinehardramos/ai-orchestrator-project/control:latest
     container_name: control-selector
-    command: ["python", "-m", "src.control.model_selector.selector"]
+    command: ["uvicorn", "src.control.model_selector.selector:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8002:8000"
     environment:
       - REDIS_URL=redis://redis:6379
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
