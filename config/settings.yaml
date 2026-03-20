@@ -35,3 +35,21 @@ environments:
     redis:
       host: "192.168.100.249"
       port: 6379
+
+  worker-sigbin:
+    remote_worker:
+      host: "192.168.100.100"
+      port: 22002
+      user: "sigbin"
+      ssh_key_path: "/home/pi/.ssh/id_ed25519"
+      project_dir: "ai-orchestration-worker"
+    # Use the same control plane hosted on .249
+    temporal:
+      host: "192.168.100.249"
+      port: 7233
+    qdrant:
+      host: "192.168.100.249"
+      port: 6333
+    redis:
+      host: "192.168.100.249"
+      port: 6379

@@ -29,3 +29,11 @@ nodes:
   #   role: execution
   #   user: ubuntu
   #   key: ~/.ssh/cloud_key.pem
+
+  - name: worker-sigbin
+    host: 192.168.100.100
+    port: 22002
+    role: execution
+    user: sigbin
+    # project_dir: /home/sigbin/ai-orchestration-worker
+

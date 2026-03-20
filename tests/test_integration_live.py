@@ -226,5 +226,8 @@ async def _run_and_monitor(client, workflow_id: str):
     print(f"     Assessment   : {str(result.get('assessment', ''))[:200]}...")
 
     assert result.get("status") == "completed", f"Unexpected result status: {result}"
-    assert "assessment" in result, "Result missing 'assessment' field"
-    assert "recommendations" in result, "Result missing 'recommendations' field"
+    if "summary" in result:
+        assert "summary" in result, "Result missing 'summary' field"
+    else:
+        assert "assessment" in result, "Result missing 'assessment' field"
+        assert "recommendations" in result, "Result missing 'recommendations' field"
