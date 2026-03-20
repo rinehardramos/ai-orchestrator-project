@@ -129,6 +129,9 @@ class TelegramMonitor:
             
             logger.debug(f"Analyzing requirements...")
             result = self.analyzer.analyze(task_req)
+            # Telegram mode always uses existing infrastructure (headless — no Pulumi provisioning)
+            result.infrastructure_id = "existing_server"
+            result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
             logger.info(f"Analyzer result: {result}")
             
             summary = (
