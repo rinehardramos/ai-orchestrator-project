@@ -40,8 +40,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Worker")
 
 # --- Prometheus Metrics ---
-CACHE_HITS = Counter("worker_cache_hits_total", "Number of L1 cache hits")
-CACHE_MISSES = Counter("worker_cache_misses_total", "Number of L1 cache misses")
 TASK_DURATION = Histogram("worker_task_duration_seconds", "Time spent processing a task")
 QDRANT_LATENCY = Histogram("worker_qdrant_latency_seconds", "Time spent querying Qdrant")
 AGENT_TOOL_CALLS = Counter("worker_agent_tool_calls_total", "Total agent tool calls", ["tool_name"])
@@ -108,40 +106,6 @@ llm_router = Router(
     set_verbose=False,
 )
 
-def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float]:
-    """
-    Uses LiteLLM Router to call a model within a requested reasoning tier.
-    Returns (content, cost_usd).
-    """
-    target = model
-    try:
-        response = llm_router.completion(
-            model=target,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        cost = litellm.completion_cost(completion_response=response)
-        return response.choices[0].message.content, cost
-    except Exception as e:
-        logger.warning(f"Router failed for tier '{target}': {e}. Trying direct fallback...")
-        fallback_models = [
-            "gemini/gemini-2.5-flash-lite",
-            "gemini/gemini-2.5-flash",
-            "openai/gpt-4o",
-        ]
-        for fallback_model in fallback_models:
-            try:
-                response = litellm.completion(
-                    model=fallback_model,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                cost = litellm.completion_cost(completion_response=response)
-                logger.info(f"Fallback succeeded with {fallback_model}")
-                return response.choices[0].message.content, cost
-            except Exception:
-                continue
-        raise ValueError(f"LiteLLM Router & all fallbacks failed. Router error: {str(e)}")
-
-
 def generate_content_with_tools(messages: list[dict], model: str = "low") -> tuple[Any, float]:
     """
     Call LLM with tool schemas. Returns (response_message, cost_usd).
@@ -179,114 +143,6 @@ def generate_content_with_tools(messages: list[dict], model: str = "low") -> tup
                 continue
         raise ValueError(f"All models failed for tool call. Last error: {e}")
 
-
-# ──────────────────────────────────────────────
-# LEGACY PIPELINE (analyze → recommend)
-# ──────────────────────────────────────────────
-
-class LegacyAgentState(TypedDict):
-    input_task: str
-    assessment: str
-    recommendations: str
-    status: str
-    model_id: str
-    provider: str
-    total_cost_usd: float
-
-def analyze_current_system(state: LegacyAgentState) -> LegacyAgentState:
-    task_hash = str(hash(state['input_task']))
-    cached_assessment = memory_store.get_l1(f"cache:{task_hash}")
-
-    if cached_assessment:
-        CACHE_HITS.inc()
-        logger.info(f"[L1 Cache Hit] Found assessment for task")
-        return {"assessment": cached_assessment, "status": "assessed"}
-
-    CACHE_MISSES.inc()
-    logger.info(f"[L1 Cache Miss] Analyzing via LLM using {state['model_id']}...")
-
-    context_code = ""
-    try:
-        project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
-        for file_rel in ["src/cnc/orchestrator/scheduler.py", "src/execution/worker/worker.py"]:
-            file_path = os.path.join(project_root, file_rel)
-            if os.path.exists(file_path):
-                with open(file_path, "r") as f:
-                    context_code += f"\n--- {file_rel} ---\n" + f.read()
-    except Exception:
-        pass
-
-    prompt = f"Task: {state['input_task']}\n\nPerform a security and performance audit of the following code:\n{context_code}"
-
-    assessment_text, cost = generate_content(state['provider'], state['model_id'], prompt)
-    memory_store.store_l1(f"cache:{task_hash}", assessment_text, ttl_seconds=3600)
-
-    prior_cost = state.get("total_cost_usd", 0.0)
-    return {"assessment": assessment_text, "status": "assessed", "total_cost_usd": prior_cost + cost}
-
-def generate_recommendations(state: LegacyAgentState) -> LegacyAgentState:
-    prompt = f"Based on this security and performance assessment:\n{state['assessment']}\n\nProvide actionable refactoring recommendations."
-
-    recommendations, cost = generate_content(state['provider'], state['model_id'], prompt)
-    prior_cost = state.get("total_cost_usd", 0.0)
-
-    if memory_store.qdrant:
-        entry = MemoryEntry(id=str(uuid.uuid4()), content=recommendations, metadata={"task": state['input_task']})
-        try:
-            embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[recommendations])
-            vector = embed_response.data[0]["embedding"]
-            memory_store.store_l2("agent_insights", entry, vector=vector)
-            logger.info(f"[L2 Stored] Insight saved to Qdrant with real embedding")
-        except Exception as e:
-            logger.error(f"Failed to store in Qdrant: {e}")
-
-    total_cost = prior_cost + cost
-    logger.info(f"[Cost] Task total cost: ${total_cost:.6f} USD")
-    return {"recommendations": recommendations, "status": "completed", "total_cost_usd": total_cost}
-
-# Build the Legacy Graph
-legacy_builder = StateGraph(LegacyAgentState)
-legacy_builder.add_node("analyze", analyze_current_system)
-legacy_builder.add_node("recommend", generate_recommendations)
-legacy_builder.add_edge(START, "analyze")
-legacy_builder.add_edge("analyze", "recommend")
-legacy_builder.add_edge("recommend", END)
-legacy_graph = legacy_builder.compile()
-
-
-async def run_legacy_pipeline(input_task: str, model_id: str, provider: str) -> dict:
-    """Run the original 2-step analyze → recommend pipeline."""
-    initial_state = {
-        "input_task": input_task,
-        "assessment": "",
-        "recommendations": "",
-        "status": "started",
-        "model_id": model_id,
-        "provider": provider,
-        "total_cost_usd": 0.0,
-        "_start_time": time.time()
-    }
-
-    final_state = initial_state.copy()
-    activity.heartbeat("0%")
-    logger.info(f"Worker progress: 0% (Task started with model {model_id})")
-
-    async for event in legacy_graph.astream(initial_state):
-        if "analyze" in event:
-            activity.heartbeat("50%")
-            logger.info("Worker progress: 50% (Analysis complete)")
-            final_state.update(event["analyze"])
-        elif "recommend" in event:
-            activity.heartbeat("100%")
-            logger.info("Worker progress: 100% (Recommendations complete)")
-            final_state.update(event["recommend"])
-
-    task_id = str(uuid.uuid4())
-    memory_store.archive_l3(task_id, final_state)
-    logger.info(f"[L3 Archived] Full state archived to S3")
-
-    TASK_DURATION.observe(time.time() - float(final_state.get('_start_time', time.time())))
-    return final_state
 
 
 # ──────────────────────────────────────────────
@@ -533,7 +389,16 @@ agent_builder.add_conditional_edges("agent", should_continue, {
     "tool_executor": "tool_executor",
     "summarize": "summarize",
 })
-agent_builder.add_edge("tool_executor", "agent")
+def should_continue_after_tools(state: AgenticState) -> str:
+    """After tool execution, check if task_complete was called."""
+    if state.get("status") in ("completed", "error", "budget_exceeded", "limit_reached"):
+        return "summarize"
+    return "agent"
+
+agent_builder.add_conditional_edges("tool_executor", should_continue_after_tools, {
+    "agent": "agent",
+    "summarize": "summarize",
+})
 agent_builder.add_edge("summarize", END)
 
 agent_graph = agent_builder.compile()
@@ -573,7 +438,9 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         final_state = initial_state.copy()
         start_time = time.time()
 
-        async for event in agent_graph.astream(initial_state):
+        # max_tool_calls * 3 accounts for plan + agent + tool_executor per tool call, plus buffer
+        recursion_limit = max(max_tool_calls * 3 + 10, 100)
+        async for event in agent_graph.astream(initial_state, config={"recursion_limit": recursion_limit}):
             for node_name, node_output in event.items():
                 final_state.update(node_output)
                 logger.info(f"[AgentGraph] Node '{node_name}' completed")
@@ -649,12 +516,19 @@ def parse_task_input(input_task: str) -> tuple[str, dict | None]:
 async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
     mode, payload = parse_task_input(input_task)
 
-    if mode == "agent":
-        logger.info(f"[AGENT MODE] Starting agentic pipeline for: {payload.get('description', '')[:100]}")
-        return await run_agent_pipeline(payload, model_id)
-    else:
-        logger.info(f"[LEGACY MODE] Starting 2-step pipeline for: {input_task[:100]}")
-        return await run_legacy_pipeline(input_task, model_id, provider)
+    if mode != "agent":
+        # Wrap plain-text tasks as agent payloads — all tasks use the agentic pipeline
+        logger.info(f"[AGENT MODE] Wrapping plain-text task as agent payload: {input_task[:100]}")
+        payload = {
+            "task_type": "agent",
+            "description": input_task,
+            "repo_url": "",
+            "max_tool_calls": AGENT_DEFAULTS["max_tool_calls"],
+            "max_cost_usd": AGENT_DEFAULTS["max_cost_usd"],
+        }
+
+    logger.info(f"[AGENT MODE] Starting agentic pipeline for: {payload.get('description', '')[:100]}")
+    return await run_agent_pipeline(payload, model_id)
 
 
 # --- Temporal Workflow ---
