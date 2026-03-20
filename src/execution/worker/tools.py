@@ -157,27 +157,59 @@ def search_files(workspace_dir: str, pattern: str, path: str = ".", glob: str = 
         return f"ERROR: {e}"
 
 
+def _to_authenticated_https(url: str) -> str:
+    """Convert SSH or plain HTTPS GitHub URLs to token-authenticated HTTPS."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    # ssh://git@github.com/owner/repo.git → https://x-access-token:TOKEN@github.com/owner/repo.git
+    if url.startswith("ssh://git@github.com/"):
+        repo_path = url.replace("ssh://git@github.com/", "").rstrip(".git")
+        if token:
+            return f"https://x-access-token:{token}@github.com/{repo_path}.git"
+        return f"https://github.com/{repo_path}.git"
+    # git@github.com:owner/repo.git
+    if url.startswith("git@github.com:"):
+        repo_path = url.replace("git@github.com:", "").rstrip(".git")
+        if token:
+            return f"https://x-access-token:{token}@github.com/{repo_path}.git"
+        return f"https://github.com/{repo_path}.git"
+    # Already HTTPS — inject token if missing
+    if "github.com" in url and token and "x-access-token" not in url:
+        return url.replace("https://", f"https://x-access-token:{token}@")
+    return url
+
+
 def git_clone(workspace_dir: str, repo_url: str = "", target_dir: str = "repo", shallow: bool = True) -> str:
     """Clone a git repository into the workspace. Defaults to the shared workspaces repo."""
     repo_url = repo_url or AGENT_DEFAULT_REPO
+    # Convert SSH URLs to authenticated HTTPS (containers don't have SSH keys)
+    clone_url = _to_authenticated_https(repo_url)
     try:
         resolved = validate_path(target_dir, workspace_dir)
         cmd = ["git", "clone"]
         if shallow:
             cmd.append("--depth=1")
-        cmd.extend([repo_url, resolved])
+        cmd.extend([clone_url, resolved])
         result = subprocess.run(
             cmd,
             capture_output=True, text=True, timeout=120, cwd=workspace_dir,
         )
         if result.returncode != 0:
-            return f"ERROR: git clone failed: {result.stderr}"
+            return f"ERROR: git clone failed: {_sanitize_output(result.stderr)}"
+        # Set git identity for commits in this repo
+        subprocess.run(["git", "config", "user.email", "agent@ai-orchestrator.local"],
+                       capture_output=True, cwd=resolved, timeout=5)
+        subprocess.run(["git", "config", "user.name", "AI Agent"],
+                       capture_output=True, cwd=resolved, timeout=5)
+        # Restore the original URL (without token) so token doesn't persist on disk
+        if clone_url != repo_url:
+            subprocess.run(["git", "remote", "set-url", "origin", repo_url],
+                           capture_output=True, cwd=resolved, timeout=5)
         depth_str = "shallow" if shallow else "full"
         return f"OK: Cloned {repo_url} into {target_dir} ({depth_str})"
     except subprocess.TimeoutExpired:
         return "ERROR: git clone timed out."
     except Exception as e:
-        return f"ERROR: {e}"
+        return f"ERROR: {_sanitize_output(str(e))}"
 
 
 def git_commit(workspace_dir: str, message: str, path: str = ".") -> str:
