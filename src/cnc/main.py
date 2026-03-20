@@ -124,6 +124,22 @@ async def handle_submit(args):
         result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
         result.reason = "User requested to use existing infrastructure."
 
+    # Determine the statement to send — agent mode wraps it in JSON
+    effective_statement = args.statement
+    if args.agent:
+        import json as _json
+        agent_payload = {
+            "task_type": "agent",
+            "description": args.statement,
+            "repo_url": getattr(args, "repo_url", ""),
+            "max_tool_calls": getattr(args, "max_tool_calls", 50),
+            "max_cost_usd": getattr(args, "max_cost", 0.50),
+        }
+        if getattr(args, "push_branch", ""):
+            agent_payload["push_branch"] = args.push_branch
+        effective_statement = _json.dumps(agent_payload)
+        print(f"🤖 [AGENT MODE] Task will run as autonomous agent")
+
     if args.plan or not args.yolo:
         # INTERACTIVE MODE (Default or if --plan is specified)
         show_plan(result)
@@ -134,7 +150,7 @@ async def handle_submit(args):
             choice = input("\nOptions: [e]xecute, [r]ecalculate (manual params), [m]emory, [q]uit: ").lower().strip()
 
             if choice == 'e':
-                await execute_task_async(result, args.statement, wait=args.wait)
+                await execute_task_async(result, effective_statement, wait=args.wait)
                 break
             elif choice == 'r':
                 from src.cnc.cli import build_task
@@ -142,7 +158,7 @@ async def handle_submit(args):
                 manual_result = analyzer.analyze(manual_task)
                 show_plan(manual_result)
                 if input("Execute this new plan? (y/n): ").lower() == 'y':
-                    await execute_task_async(manual_result, args.statement, wait=args.wait)
+                    await execute_task_async(manual_result, effective_statement, wait=args.wait)
                 break
             elif choice == 'm' or choice == '/memory':
                 stats = monitor.get_memory_stats()
@@ -155,7 +171,7 @@ async def handle_submit(args):
     else:
         # AUTOMATIC MODE (Only if --yolo is specified and --plan is NOT specified)
         print("🚀 [YOLO] Auto-executing task...")
-        await execute_task_async(result, args.statement, wait=args.wait)
+        await execute_task_async(result, effective_statement, wait=args.wait)
 
 
 async def handle_status(args):
@@ -182,14 +198,30 @@ async def handle_status(args):
             result = detail['result']
             if isinstance(result, dict):
                 cost = result.get('total_cost_usd', 0.0)
-                assessment = result.get('assessment', '')
-                recommendations = result.get('recommendations', '')
                 if cost:
                     print(f"   Cost:        ${cost:.6f} USD")
-                if assessment:
-                    print(f"\n   🧠 Assessment:\n   {assessment[:2000]}")
-                if recommendations:
-                    print(f"\n   💡 Recommendations:\n   {recommendations[:2000]}")
+                if result.get('mode') == 'agent':
+                    # Agent mode result
+                    tool_calls = result.get('tool_call_count', 0)
+                    duration = result.get('duration_seconds', 0)
+                    summary = result.get('summary', '')
+                    print(f"   Tool Calls:  {tool_calls}")
+                    print(f"   Duration:    {duration:.1f}s")
+                    if summary:
+                        print(f"\n   📋 Summary:\n   {summary[:2000]}")
+                    progress = result.get('progress_log', [])
+                    if progress:
+                        print(f"\n   📈 Progress Log:")
+                        for entry in progress[-10:]:
+                            print(f"      - {entry}")
+                else:
+                    # Legacy mode result
+                    assessment = result.get('assessment', '')
+                    recommendations = result.get('recommendations', '')
+                    if assessment:
+                        print(f"\n   🧠 Assessment:\n   {assessment[:2000]}")
+                    if recommendations:
+                        print(f"\n   💡 Recommendations:\n   {recommendations[:2000]}")
             else:
                 print(f"   Result:      {result}")
 
@@ -237,6 +269,12 @@ async def main_async():
     submit_parser.add_argument("--use-existing", action="store_true", help="Use existing infrastructure")
     submit_parser.add_argument("--config", default="config/profiles.yaml", help="Path to profiles configuration")
     submit_parser.add_argument("--wait", action="store_true", help="Block until task completes (legacy behavior)")
+    submit_parser.add_argument("--agent", action="store_true", help="Run task in autonomous agent mode with tools")
+    submit_parser.add_argument("--repo-url", default=os.environ.get("AGENT_DEFAULT_REPO", "ssh://git@github.com/rinehardramos/workspaces.git"),
+                               help="Git repo URL for agent to work with (defaults to AGENT_DEFAULT_REPO)")
+    submit_parser.add_argument("--max-tool-calls", type=int, default=50, help="Max tool calls for agent mode")
+    submit_parser.add_argument("--max-cost", type=float, default=0.50, help="Max cost in USD for agent mode")
+    submit_parser.add_argument("--push-branch", default="", help="Hint branch name for agent to push results to (e.g. agent/my-feature)")
 
     # Status subcommand
     status_parser = subparsers.add_parser("status", help="Check status of a task")

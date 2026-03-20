@@ -58,6 +58,8 @@ services:
       - GOOGLE_API_KEY=${GOOGLE_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - AGENT_DEFAULT_REPO=${AGENT_DEFAULT_REPO:-ssh://git@github.com/rinehardramos/workspaces.git}
       - PYTHONUNBUFFERED=1
     volumes:
       - ../../../src:/app/src
