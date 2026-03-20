@@ -85,7 +85,14 @@ def load_router_config():
                 model_list.append(model_entry)
     return model_list
 
-llm_router = Router(model_list=load_router_config())
+llm_router = Router(
+    model_list=load_router_config(),
+    allowed_fails=1,
+    cooldown_time=120,
+    routing_strategy="latency-based-routing",
+    num_retries=2,
+    set_verbose=False,
+)
 
 def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float]:
     """
@@ -101,19 +108,25 @@ def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float
         cost = litellm.completion_cost(completion_response=response)
         return response.choices[0].message.content, cost
     except Exception as e:
-        try:
-            full_model = f"{provider}/{model}" if "/" not in model else model
-            if "google" in full_model:
-                full_model = full_model.replace("google", "gemini")
-
-            response = litellm.completion(
-                model=full_model,
-                messages=[{"role": "user", "content": prompt}]
-            )
-            cost = litellm.completion_cost(completion_response=response)
-            return response.choices[0].message.content, cost
-        except Exception as e2:
-            raise ValueError(f"LiteLLM Router & Fallback failed: {str(e)} | {str(e2)}")
+        logger.warning(f"Router failed for tier '{target}': {e}. Trying direct fallback...")
+        # Direct fallback: use gemini flash lite as the reliable cheap model
+        fallback_models = [
+            "gemini/gemini-2.5-flash-lite",
+            "gemini/gemini-2.5-flash",
+            "openai/gpt-4o",
+        ]
+        for fallback_model in fallback_models:
+            try:
+                response = litellm.completion(
+                    model=fallback_model,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                cost = litellm.completion_cost(completion_response=response)
+                logger.info(f"Fallback succeeded with {fallback_model}")
+                return response.choices[0].message.content, cost
+            except Exception:
+                continue
+        raise ValueError(f"LiteLLM Router & all fallbacks failed. Router error: {str(e)}")
 
 
 # --- Langgraph State & Logic ---

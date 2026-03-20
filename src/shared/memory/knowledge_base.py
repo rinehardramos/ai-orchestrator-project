@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
 
 # Embedding dimensions per provider model
-_GOOGLE_EMBED_DIM = 768
-_OPENAI_EMBED_DIM = 1536
+_GOOGLE_EMBED_DIM = 3072   # gemini-embedding-001
+_OPENAI_EMBED_DIM = 1536   # text-embedding-3-small
 
 
 class KnowledgeBaseClient:
