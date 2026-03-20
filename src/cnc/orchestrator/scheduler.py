@@ -52,6 +52,8 @@ class TaskScheduler:
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS offline_tasks
                      (task_id TEXT PRIMARY KEY, description TEXT, metadata TEXT, status TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS task_history
+                     (task_id TEXT PRIMARY KEY, description TEXT, submitted_at REAL, status TEXT)''')
         conn.commit()
         conn.close()
 
@@ -66,6 +68,93 @@ class TaskScheduler:
         logger.info(f"📴 [OFFLINE] Task {task_id} queued locally. It will be flushed when network is restored.")
         if self.notifier:
             self.notifier.send_message(f"📴 *Offline Mode*: Task {task_id} queued locally.")
+
+    def _record_task(self, task_id: str, description: str):
+        """Record a submitted task in the local history table."""
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute(
+            "INSERT OR REPLACE INTO task_history (task_id, description, submitted_at, status) VALUES (?, ?, ?, ?)",
+            (task_id, description, time.time(), "SUBMITTED")
+        )
+        conn.commit()
+        conn.close()
+
+    def _update_task_status(self, task_id: str, status: str):
+        """Update the status of a task in the local history table."""
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute("UPDATE task_history SET status=? WHERE task_id=?", (status, task_id))
+        conn.commit()
+        conn.close()
+
+    def _get_task_description(self, task_id: str) -> str:
+        """Read a task's description from the local history table."""
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute("SELECT description FROM task_history WHERE task_id=?", (task_id,))
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else "Unknown"
+
+    def get_recent_tasks(self, limit: int = 20) -> list:
+        """Return recent tasks from the local history table, newest first."""
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute("SELECT task_id, description, submitted_at, status FROM task_history ORDER BY submitted_at DESC LIMIT ?", (limit,))
+        rows = c.fetchall()
+        conn.close()
+        return [{"task_id": r[0], "description": r[1], "submitted_at": r[2], "status": r[3]} for r in rows]
+
+    async def get_task_detail(self, task_id: str) -> Dict[str, Any]:
+        """Query Temporal for live workflow status and combine with local history."""
+        description = self._get_task_description(task_id)
+        detail = {"task_id": task_id, "description": description, "status": "UNKNOWN", "result": None}
+
+        if task_id.startswith("QUEUED_OFFLINE"):
+            detail["status"] = "QUEUED_OFFLINE"
+            return detail
+
+        try:
+            temp_cfg = self.config.get("temporal", {})
+            temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
+            client = await asyncio.wait_for(Client.connect(temporal_host), timeout=10.0)
+            handle = client.get_workflow_handle(task_id)
+            desc = await handle.describe()
+
+            from temporalio.client import WorkflowExecutionStatus
+            status_map = {
+                WorkflowExecutionStatus.RUNNING: "RUNNING",
+                WorkflowExecutionStatus.COMPLETED: "COMPLETED",
+                WorkflowExecutionStatus.FAILED: "FAILED",
+                WorkflowExecutionStatus.CANCELED: "CANCELED",
+                WorkflowExecutionStatus.TERMINATED: "TERMINATED",
+                WorkflowExecutionStatus.TIMED_OUT: "TIMED_OUT",
+            }
+            detail["status"] = status_map.get(desc.status, str(desc.status))
+            detail["start_time"] = str(desc.start_time) if desc.start_time else None
+            detail["close_time"] = str(desc.close_time) if desc.close_time else None
+
+            if desc.status == WorkflowExecutionStatus.COMPLETED:
+                try:
+                    detail["result"] = await handle.result()
+                except Exception:
+                    pass
+
+            # Sync local status
+            self._update_task_status(task_id, detail["status"])
+        except Exception as e:
+            logger.warning(f"⚠️  Could not query Temporal for task {task_id}: {e}")
+            # Fall back to local status
+            conn = sqlite3.connect(self.offline_db_path)
+            c = conn.cursor()
+            c.execute("SELECT status FROM task_history WHERE task_id=?", (task_id,))
+            row = c.fetchone()
+            conn.close()
+            if row:
+                detail["status"] = row[0]
+
+        return detail
 
     async def check_connectivity(self) -> Dict[str, bool]:
         """
@@ -137,7 +226,8 @@ class TaskScheduler:
 
     async def submit_task(self, task_description: str, analysis_result: Dict[str, Any]) -> str:
         task_id = str(uuid.uuid4())
-        
+        self._record_task(task_id, task_description)
+
         # [NEW] Pre-flight Knowledge Base Check with Cache
         logger.info(f"🧠 [CNC NODE] Querying Knowledge Base for relevant past issues...")
         cache_key = task_description.lower().strip()
@@ -269,13 +359,19 @@ class TaskScheduler:
                 
                 logger.info(f"⏳ [CENTRAL NODE] Polling for worker progress on task {task_id}...")
                 last_progress = None
+                notified_running = False
                 from temporalio.client import WorkflowExecutionStatus
-                
+
                 while True:
                     desc = await handle.describe()
                     if desc.status != WorkflowExecutionStatus.RUNNING:
                         break
-                        
+
+                    # Notify once when worker picks up the task
+                    if not notified_running and self.notifier:
+                        self.notifier.send_message(f"⚙️ *Task Running*\nID: `{task_id}`\nWorker has picked up the task.")
+                        notified_running = True
+
                     if desc.raw_description.pending_activities:
                         act = desc.raw_description.pending_activities[0]
                         if act.heartbeat_details:
@@ -285,15 +381,18 @@ class TaskScheduler:
                                 current_progress = default().payload_converter.from_payloads(payloads)[0]
                                 if current_progress != last_progress:
                                     logger.info(f"📈 Worker Progress: {current_progress}")
+                                    if self.notifier and current_progress != "0%":
+                                        self.notifier.send_message(f"📈 *Progress*: {current_progress}\nTask: `{task_id}`")
                                     last_progress = current_progress
                             except Exception:
                                 pass
-                                
+
                     await asyncio.sleep(1.0)
                     
                 result = await handle.result()
                 logger.info(f"✅ [CENTRAL NODE] Worker Execution Complete.")
-                
+                self._update_task_status(task_id, "COMPLETED")
+
                 if self.notifier:
                     assessment = result.get('assessment', 'No assessment provided.')
                     recommendations = result.get('recommendations', 'No recommendations provided.')
@@ -310,6 +409,7 @@ class TaskScheduler:
                 return "COMPLETED"
             except Exception as e:
                 logger.error(f"❌ Error waiting for Temporal workflow: {e}", exc_info=True)
+                self._update_task_status(task_id, "FAILED")
                 if self.notifier:
                     msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Error:*\n{e}"
                     self.notifier.send_message(msg)

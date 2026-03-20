@@ -3,6 +3,7 @@ import os
 import sys
 import asyncio
 import argparse
+import time
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -20,7 +21,22 @@ from src.cnc.utils.system_monitor import SystemMonitor
 
 monitor = SystemMonitor(threshold_percent=90.0)
 
-async def execute_task_async(result: AnalyzerResult, statement: str, scheduler: Optional[TaskScheduler] = None):
+
+def preprocess_argv():
+    """If the first positional arg isn't a known subcommand, inject 'submit'."""
+    subcommands = {"submit", "status", "list"}
+    # Find first positional arg (skip flags like --memory)
+    for i, arg in enumerate(sys.argv[1:], start=1):
+        if arg.startswith("-"):
+            continue
+        if arg not in subcommands:
+            sys.argv.insert(i, "submit")
+        return
+    # No positional args found — don't inject anything (let argparse handle --memory etc.)
+
+
+async def execute_task_async(result: AnalyzerResult, statement: str, wait: bool = False, scheduler: Optional[TaskScheduler] = None):
+    """Submit a task. If wait=False (default), returns immediately after submission."""
     # 0. Proactive Memory Check
     if monitor.is_crash_imminent():
         print("\n⚠️  [CRITICAL] System memory usage is extremely high (>90%).")
@@ -28,31 +44,30 @@ async def execute_task_async(result: AnalyzerResult, statement: str, scheduler: 
         print(f"🧹 Attempted to free memory (cleared {freed} cache entries).")
         monitor.save_state({"task_statement": statement, "plan": result.model_dump()})
         print("💾 State saved to data/last_state.json. Exiting for safety...")
-        sys.exit(137) # Standard OOM exit code
+        sys.exit(137)  # Standard OOM exit code
 
     # 1. Initial Connectivity Check (Proactive)
     if not scheduler:
         scheduler = TaskScheduler("dummy-temporal-queue", "dummy-qdrant-db")
-    
+
     print("\n🔍 [CHECK] Initial connectivity probe to core services...")
     conn_status = await scheduler.check_connectivity()
     for service, status in conn_status.items():
         icon = "✅" if status else "❌"
         print(f"  {icon} {service.capitalize()}: {'Reachable' if status else 'Offline'}")
 
-    # 1. Provision Infrastructure via Pulumi
+    # 2. Provision Infrastructure via Pulumi
     stack_name = "prod-task-worker"
     project_name = "ai-orchestration"
-    
-    # If already reachable, we might skip heavy provisioning logic if the user uses --use-existing
+
     outputs = await provision_worker(stack_name, project_name, result.infrastructure_id, {})
-    
+
     queue_url = outputs["queue_url"].value
     table_name = outputs["table_name"].value
 
-    # 2. Schedule Task
+    # 3. Schedule Task
     scheduler = TaskScheduler(queue_url, table_name)
-    
+
     # Final Verification
     if not all(conn_status.values()):
         print("\n🔍 [CHECK] Verifying connectivity after provisioning...")
@@ -61,17 +76,141 @@ async def execute_task_async(result: AnalyzerResult, statement: str, scheduler: 
             print("  ✅ All core services are now ONLINE.")
         else:
             for service, status in conn_status.items():
-                if not status: print(f"  ❌ {service.capitalize()} is still OFFLINE.")
+                if not status:
+                    print(f"  ❌ {service.capitalize()} is still OFFLINE.")
 
     print(f"\n🚀 [ORCHESTRATOR] Delegating task to {result.infrastructure_id}...")
     print(f"📥 Pushing task to queue: \"{statement}\"")
     task_id = await scheduler.submit_task(statement, result.model_dump())
-    
-    print(f"✅ Task registered: {task_id}")
-    
-    # 3. Monitor Status
-    final_status = await scheduler.wait_for_completion(task_id)
-    print(f"\n🏁 Task {task_id} finished with status: {final_status}")
+
+    print(f"\n✅ Task submitted: {task_id}")
+
+    if wait:
+        # Legacy blocking mode
+        print(f"⏳ Waiting for completion (--wait mode)...")
+        final_status = await scheduler.wait_for_completion(task_id)
+        print(f"\n🏁 Task {task_id} finished with status: {final_status}")
+    else:
+        # Fire-and-forget (new default)
+        print(f"\n📋 Check progress:  ./main.py status {task_id}")
+        print(f"📋 Live watch:      ./main.py status {task_id} --watch")
+        print(f"📋 List all tasks:  ./main.py list")
+        if scheduler.notifier and scheduler.notifier.enabled:
+            print(f"📋 Telegram notifications are active — you'll be pinged on completion.")
+
+    return task_id
+
+
+async def handle_submit(args):
+    """Handle the 'submit' subcommand."""
+    analyzer = TaskAnalyzer(config_path=args.config)
+
+    print(f"🔍 Analyzing statement: \"{args.statement}\"")
+
+    # Pre-flight Memory Check
+    if monitor.is_crash_imminent():
+        print("⚠️  Warning: High memory usage detected before analysis. Clearing caches...")
+        monitor.free_memory([analyzer])
+
+    # 1. Parse natural language to structured requirements (Async)
+    task_req = await analyzer.parse_statement(args.statement)
+
+    # 2. Analyze requirements for optimal infra and model
+    result = analyzer.analyze(task_req)
+
+    # Override infrastructure if using existing
+    if args.use_existing:
+        result.infrastructure_id = "existing_server"
+        result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
+        result.reason = "User requested to use existing infrastructure."
+
+    if args.plan or not args.yolo:
+        # INTERACTIVE MODE (Default or if --plan is specified)
+        show_plan(result)
+        if not args.yolo:
+            print("\n[PROMPT] Running in safe mode. Use --yolo to bypass this check.")
+
+        while True:
+            choice = input("\nOptions: [e]xecute, [r]ecalculate (manual params), [m]emory, [q]uit: ").lower().strip()
+
+            if choice == 'e':
+                await execute_task_async(result, args.statement, wait=args.wait)
+                break
+            elif choice == 'r':
+                from src.cnc.cli import build_task
+                manual_task = build_task()
+                manual_result = analyzer.analyze(manual_task)
+                show_plan(manual_result)
+                if input("Execute this new plan? (y/n): ").lower() == 'y':
+                    await execute_task_async(manual_result, args.statement, wait=args.wait)
+                break
+            elif choice == 'm' or choice == '/memory':
+                stats = monitor.get_memory_stats()
+                print(f"🧠 Memory Usage: {stats['percent']}% ({stats['used_gb']}GB/{stats['total_gb']}GB used)")
+            elif choice == 'q':
+                print("Aborted.")
+                break
+            else:
+                print("Invalid choice.")
+    else:
+        # AUTOMATIC MODE (Only if --yolo is specified and --plan is NOT specified)
+        print("🚀 [YOLO] Auto-executing task...")
+        await execute_task_async(result, args.statement, wait=args.wait)
+
+
+async def handle_status(args):
+    """Handle the 'status' subcommand."""
+    scheduler = TaskScheduler("dummy-temporal-queue", "dummy-qdrant-db")
+
+    if args.watch:
+        # Live-watch mode: poll until done, with Telegram notifications
+        print(f"⏳ Watching task {args.task_id} until completion...")
+        final_status = await scheduler.wait_for_completion(args.task_id)
+        print(f"\n🏁 Task {args.task_id} finished with status: {final_status}")
+    else:
+        # One-shot status query
+        detail = await scheduler.get_task_detail(args.task_id)
+        print(f"\n📋 Task Status")
+        print(f"   ID:          {detail['task_id']}")
+        print(f"   Description: {detail['description']}")
+        print(f"   Status:      {detail['status']}")
+        if detail.get('start_time'):
+            print(f"   Started:     {detail['start_time']}")
+        if detail.get('close_time'):
+            print(f"   Completed:   {detail['close_time']}")
+        if detail.get('result'):
+            result = detail['result']
+            if isinstance(result, dict):
+                cost = result.get('total_cost_usd', 0.0)
+                assessment = result.get('assessment', '')
+                recommendations = result.get('recommendations', '')
+                if cost:
+                    print(f"   Cost:        ${cost:.6f} USD")
+                if assessment:
+                    print(f"\n   🧠 Assessment:\n   {assessment[:2000]}")
+                if recommendations:
+                    print(f"\n   💡 Recommendations:\n   {recommendations[:2000]}")
+            else:
+                print(f"   Result:      {result}")
+
+
+async def handle_list(args):
+    """Handle the 'list' subcommand."""
+    scheduler = TaskScheduler("dummy-temporal-queue", "dummy-qdrant-db")
+    tasks = scheduler.get_recent_tasks(limit=20)
+
+    if not tasks:
+        print("\n📋 No tasks found.")
+        return
+
+    print(f"\n📋 Recent Tasks ({len(tasks)})")
+    print(f"{'ID':<38} {'Status':<16} {'Submitted':<20} Description")
+    print("-" * 100)
+    for t in tasks:
+        submitted = time.strftime("%Y-%m-%d %H:%M", time.localtime(t['submitted_at'])) if t['submitted_at'] else "?"
+        desc = t['description'][:40] + "..." if len(t['description']) > 40 else t['description']
+        print(f"{t['task_id']:<38} {t['status']:<16} {submitted:<20} {desc}")
+
 
 async def main_async():
     try:
@@ -82,16 +221,33 @@ async def main_async():
     except Exception as e:
         print(f"Failed to send initialization notification: {e}")
 
+    # Preprocess argv so bare task strings route to 'submit'
+    preprocess_argv()
+
     parser = argparse.ArgumentParser(description="AI Task Orchestrator - Genesis/CNC Node")
-    parser.add_argument("statement", nargs="?", help="Natural language description of the task")
-    parser.add_argument("--plan", action="store_true", help="Review the execution plan before proceeding")
-    parser.add_argument("--yolo", action="store_true", help="Automatically execute the task without prompting (bypass plan review)")
-    parser.add_argument("--use-existing", action="store_true", help="Use existing infrastructure instead of provisioning dynamically")
-    parser.add_argument("--config", default="config/profiles.yaml", help="Path to profiles configuration")
     parser.add_argument("--memory", action="store_true", help="Show current system memory usage stats and exit")
-    
+
+    subparsers = parser.add_subparsers(dest="command")
+
+    # Submit subcommand
+    submit_parser = subparsers.add_parser("submit", help="Submit a new task (default)")
+    submit_parser.add_argument("statement", help="Natural language description of the task")
+    submit_parser.add_argument("--plan", action="store_true", help="Review the execution plan before proceeding")
+    submit_parser.add_argument("--yolo", action="store_true", help="Bypass plan review and auto-execute")
+    submit_parser.add_argument("--use-existing", action="store_true", help="Use existing infrastructure")
+    submit_parser.add_argument("--config", default="config/profiles.yaml", help="Path to profiles configuration")
+    submit_parser.add_argument("--wait", action="store_true", help="Block until task completes (legacy behavior)")
+
+    # Status subcommand
+    status_parser = subparsers.add_parser("status", help="Check status of a task")
+    status_parser.add_argument("task_id", help="Task ID to check")
+    status_parser.add_argument("--watch", action="store_true", help="Live-watch until task completes")
+
+    # List subcommand
+    subparsers.add_parser("list", help="List recent tasks")
+
     args = parser.parse_args()
-    
+
     if args.memory:
         stats = monitor.get_memory_stats()
         print(f"\n🧠 [SYSTEM MEMORY STATUS]")
@@ -101,68 +257,16 @@ async def main_async():
         print(f"   Total:      {stats['total_gb']} GB")
         sys.exit(0)
 
-    if not args.statement:
-        print("❌ Error: Task statement is required unless using --memory.")
+    if args.command == "submit":
+        await handle_submit(args)
+    elif args.command == "status":
+        await handle_status(args)
+    elif args.command == "list":
+        await handle_list(args)
+    else:
         parser.print_help()
         sys.exit(1)
 
-    analyzer = TaskAnalyzer(config_path=args.config)
-    
-    print(f"🔍 Analyzing statement: \"{args.statement}\"")
-    try:
-        # Pre-flight Memory Check
-        if monitor.is_crash_imminent():
-            print("⚠️  Warning: High memory usage detected before analysis. Clearing caches...")
-            monitor.free_memory([analyzer])
-
-        # 1. Parse natural language to structured requirements (Async)
-        task_req = await analyzer.parse_statement(args.statement)
-        
-        # 2. Analyze requirements for optimal infra and model
-        result = analyzer.analyze(task_req)
-        
-        # Override infrastructure if using existing
-        if args.use_existing:
-            result.infrastructure_id = "existing_server"
-            result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
-            result.reason = "User requested to use existing infrastructure."
-        
-        if args.plan or not args.yolo:
-            # INTERACTIVE MODE (Default or if --plan is specified)
-            show_plan(result)
-            if not args.yolo:
-                print("\n[PROMPT] Running in safe mode. Use --yolo to bypass this check.")
-            
-            while True:
-                choice = input("\nOptions: [e]xecute, [r]ecalculate (manual params), [m]emory, [q]uit: ").lower().strip()
-                
-                if choice == 'e':
-                    await execute_task_async(result, args.statement)
-                    break
-                elif choice == 'r':
-                    from src.cnc.cli import build_task
-                    manual_task = build_task()
-                    manual_result = analyzer.analyze(manual_task)
-                    show_plan(manual_result)
-                    if input("Execute this new plan? (y/n): ").lower() == 'y':
-                        await execute_task_async(manual_result, args.statement)
-                    break
-                elif choice == 'm' or choice == '/memory':
-                    stats = monitor.get_memory_stats()
-                    print(f"🧠 Memory Usage: {stats['percent']}% ({stats['used_gb']}GB/{stats['total_gb']}GB used)")
-                elif choice == 'q':
-                    print("Aborted.")
-                    break
-                else:
-                    print("Invalid choice.")
-        else:
-            # AUTOMATIC MODE (Only if --yolo is specified and --plan is NOT specified)
-            print("🚀 [YOLO] Auto-executing task...")
-            await execute_task_async(result, args.statement)
-            
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        sys.exit(1)
 
 if __name__ == "__main__":
     asyncio.run(main_async())
