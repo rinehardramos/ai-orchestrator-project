@@ -3,13 +3,12 @@ version: '3.8'
 services:
   ai-worker:
     image: ghcr.io/rinehardramos/ai-orchestrator-project/worker:latest
+    env_file:
+      - ../.env
     environment:
       - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-192.168.100.249:7233}
       - QDRANT_URL=${QDRANT_URL:-http://192.168.100.249:6333}
       - REDIS_URL=${REDIS_URL:-redis://192.168.100.249:6379}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - PYTHONUNBUFFERED=1
     restart: always
     logging:
