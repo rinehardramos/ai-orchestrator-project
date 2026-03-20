@@ -224,6 +224,19 @@ class TaskScheduler:
             logger.info(f"✅ [OFFLINE FLUSH] {flushed}/{len(rows)} queued tasks flushed to Temporal.")
         return flushed
 
+    async def submit_agent_task(self, task_description: str, analysis_result: Dict[str, Any],
+                               repo_url: str = "", max_tool_calls: int = 50,
+                               max_cost_usd: float = 0.50) -> str:
+        """Submit an agent-mode task by wrapping the description in a JSON payload."""
+        agent_payload = json.dumps({
+            "task_type": "agent",
+            "description": task_description,
+            "repo_url": repo_url,
+            "max_tool_calls": max_tool_calls,
+            "max_cost_usd": max_cost_usd,
+        })
+        return await self.submit_task(agent_payload, analysis_result)
+
     async def submit_task(self, task_description: str, analysis_result: Dict[str, Any]) -> str:
         task_id = str(uuid.uuid4())
         self._record_task(task_id, task_description)
@@ -380,9 +393,19 @@ class TaskScheduler:
                                 payloads = act.heartbeat_details.payloads
                                 current_progress = default().payload_converter.from_payloads(payloads)[0]
                                 if current_progress != last_progress:
-                                    logger.info(f"📈 Worker Progress: {current_progress}")
+                                    # Handle structured agent heartbeats
+                                    display = current_progress
+                                    if isinstance(current_progress, str) and current_progress.startswith("{"):
+                                        try:
+                                            hb = json.loads(current_progress)
+                                            display = f"Step {hb.get('step', '?')}/{hb.get('max_steps', '?')} | ${hb.get('cost_usd', 0):.4f} | {hb.get('phase', '')}"
+                                            if hb.get("last_tool"):
+                                                display += f" | last: {hb['last_tool']}"
+                                        except (json.JSONDecodeError, TypeError):
+                                            pass
+                                    logger.info(f"📈 Worker Progress: {display}")
                                     if self.notifier and current_progress != "0%":
-                                        self.notifier.send_message(f"📈 *Progress*: {current_progress}\nTask: `{task_id}`")
+                                        self.notifier.send_message(f"📈 *Progress*: {display}\nTask: `{task_id}`")
                                     last_progress = current_progress
                             except Exception:
                                 pass
@@ -394,16 +417,31 @@ class TaskScheduler:
                 self._update_task_status(task_id, "COMPLETED")
 
                 if self.notifier:
-                    assessment = result.get('assessment', 'No assessment provided.')
-                    recommendations = result.get('recommendations', 'No recommendations provided.')
                     cost = result.get('total_cost_usd', 0.0)
-                    msg = (
-                        f"✅ *Task Succeeded*\n"
-                        f"ID: `{task_id}`\n"
-                        f"💰 *Cost:* ${cost:.6f} USD\n\n"
-                        f"🧠 *Assessment:*\n{assessment[:1000]}{'...' if len(assessment) > 1000 else ''}\n\n"
-                        f"💡 *Recommendations:*\n{recommendations[:1000]}{'...' if len(recommendations) > 1000 else ''}"
-                    )
+                    if result.get('mode') == 'agent':
+                        summary = result.get('summary', 'No summary.')
+                        tool_calls = result.get('tool_call_count', 0)
+                        duration = result.get('duration_seconds', 0)
+                        msg = (
+                            f"✅ *Agent Task Succeeded*\n"
+                            f"ID: `{task_id}`\n"
+                            f"💰 *Cost:* ${cost:.6f} USD\n"
+                            f"🔧 *Tool Calls:* {tool_calls}\n"
+                            f"⏱ *Duration:* {duration:.1f}s\n\n"
+                            f"📋 *Summary:*\n{summary[:2000]}{'...' if len(summary) > 2000 else ''}"
+                        )
+                    else:
+                        recommendations = result.get('recommendations', '')
+                        # Keep Telegram notification concise — full details available via status command
+                        brief = recommendations[:300] + '...' if len(recommendations) > 300 else recommendations
+                        description = self._get_task_description(task_id)
+                        msg = (
+                            f"✅ *Task Succeeded*\n"
+                            f"ID: `{task_id}`\n"
+                            f"📝 *Task:* {description[:200]}\n"
+                            f"💰 *Cost:* ${cost:.6f} USD\n\n"
+                            f"💡 *Result:*\n{brief}"
+                        )
                     self.notifier.send_message(msg)
                     
                 return "COMPLETED"

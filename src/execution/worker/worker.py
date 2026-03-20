@@ -27,13 +27,10 @@ from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
 from src.shared.memory.knowledge_base import KnowledgeBaseClient
 from src.shared.memory.decay_workflow import BeliefDecayWorkflow, apply_belief_decay
 from src.config import load_settings
+from src.execution.worker.sandbox import create_workspace, cleanup_workspace
+from src.execution.worker.tools import get_tool_schemas, get_tool_fn, TOOL_REGISTRY
+from src.execution.worker.prompts import build_system_prompt
 
-memory_store = HybridMemoryStore()
-
-CACHE_HITS = Counter('agent_cache_hits_total', 'Total number of L1 cache hits')
-CACHE_MISSES = Counter('agent_cache_misses_total', 'Total number of L1 cache misses')
-QDRANT_LATENCY = Histogram('qdrant_latency_seconds', 'Latency of Qdrant vector operations')
-TASK_DURATION = Histogram('agent_task_duration_seconds', 'Total duration of Langgraph agent task')
 # AI Provider SDKs
 import litellm
 from litellm import Router
@@ -47,6 +44,7 @@ CACHE_HITS = Counter("worker_cache_hits_total", "Number of L1 cache hits")
 CACHE_MISSES = Counter("worker_cache_misses_total", "Number of L1 cache misses")
 TASK_DURATION = Histogram("worker_task_duration_seconds", "Time spent processing a task")
 QDRANT_LATENCY = Histogram("worker_qdrant_latency_seconds", "Time spent querying Qdrant")
+AGENT_TOOL_CALLS = Counter("worker_agent_tool_calls_total", "Total agent tool calls", ["tool_name"])
 
 # --- Global Config & Memory Store ---
 config = load_settings()
@@ -60,6 +58,22 @@ memory_store = HybridMemoryStore(
     qdrant_url=f"http://{qdrant_cfg.get('host', 'localhost')}:{qdrant_cfg.get('port', 6333)}"
 )
 
+# --- Agent Defaults (from jobs.yaml) ---
+def load_agent_defaults() -> dict:
+    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/jobs.yaml"))
+    defaults = {"max_tool_calls": 50, "max_cost_usd": 0.50, "shell_timeout_seconds": 120, "activity_timeout_minutes": 30}
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                data = yaml.safe_load(f)
+                if data and "agent_defaults" in data:
+                    defaults.update(data["agent_defaults"])
+    except Exception:
+        pass
+    return defaults
+
+AGENT_DEFAULTS = load_agent_defaults()
+
 # --- LiteLLM Router Setup ---
 def load_router_config():
     config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml"))
@@ -69,14 +83,14 @@ def load_router_config():
             data = yaml.safe_load(f)
             for m in data.get('models', []):
                 provider = m['provider'].lower()
-                if provider == "google": 
+                if provider == "google":
                     provider = "gemini"
                 elif provider == "local":
                     provider = "ollama"
-                
+
                 env_key_name = f"{provider.upper()}_API_KEY"
                 model_entry = {
-                    "model_name": m['reasoning_capability'], 
+                    "model_name": m['reasoning_capability'],
                     "litellm_params": {
                         "model": f"{provider}/{m['id']}",
                         "api_key": os.environ.get(env_key_name, "dummy-key")
@@ -109,7 +123,6 @@ def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float
         return response.choices[0].message.content, cost
     except Exception as e:
         logger.warning(f"Router failed for tier '{target}': {e}. Trying direct fallback...")
-        # Direct fallback: use gemini flash lite as the reliable cheap model
         fallback_models = [
             "gemini/gemini-2.5-flash-lite",
             "gemini/gemini-2.5-flash",
@@ -129,9 +142,49 @@ def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float
         raise ValueError(f"LiteLLM Router & all fallbacks failed. Router error: {str(e)}")
 
 
-# --- Langgraph State & Logic ---
+def generate_content_with_tools(messages: list[dict], model: str = "low") -> tuple[Any, float]:
+    """
+    Call LLM with tool schemas. Returns (response_message, cost_usd).
+    The response_message may contain tool_calls or plain content.
+    """
+    tool_schemas = get_tool_schemas()
+    try:
+        response = llm_router.completion(
+            model=model,
+            messages=messages,
+            tools=tool_schemas,
+            tool_choice="auto",
+        )
+        cost = litellm.completion_cost(completion_response=response) or 0.0
+        return response.choices[0].message, cost
+    except Exception as e:
+        logger.warning(f"Router failed for tool call: {e}. Trying direct fallback...")
+        fallback_models = [
+            "gemini/gemini-2.5-flash-lite",
+            "gemini/gemini-2.5-flash",
+            "openai/gpt-4o",
+        ]
+        for fallback_model in fallback_models:
+            try:
+                response = litellm.completion(
+                    model=fallback_model,
+                    messages=messages,
+                    tools=tool_schemas,
+                    tool_choice="auto",
+                )
+                cost = litellm.completion_cost(completion_response=response) or 0.0
+                logger.info(f"Tool-call fallback succeeded with {fallback_model}")
+                return response.choices[0].message, cost
+            except Exception:
+                continue
+        raise ValueError(f"All models failed for tool call. Last error: {e}")
 
-class AgentState(TypedDict):
+
+# ──────────────────────────────────────────────
+# LEGACY PIPELINE (analyze → recommend)
+# ──────────────────────────────────────────────
+
+class LegacyAgentState(TypedDict):
     input_task: str
     assessment: str
     recommendations: str
@@ -140,15 +193,15 @@ class AgentState(TypedDict):
     provider: str
     total_cost_usd: float
 
-def analyze_current_system(state: AgentState) -> AgentState:
+def analyze_current_system(state: LegacyAgentState) -> LegacyAgentState:
     task_hash = str(hash(state['input_task']))
     cached_assessment = memory_store.get_l1(f"cache:{task_hash}")
-    
+
     if cached_assessment:
         CACHE_HITS.inc()
         logger.info(f"[L1 Cache Hit] Found assessment for task")
         return {"assessment": cached_assessment, "status": "assessed"}
-        
+
     CACHE_MISSES.inc()
     logger.info(f"[L1 Cache Miss] Analyzing via LLM using {state['model_id']}...")
 
@@ -171,12 +224,12 @@ def analyze_current_system(state: AgentState) -> AgentState:
     prior_cost = state.get("total_cost_usd", 0.0)
     return {"assessment": assessment_text, "status": "assessed", "total_cost_usd": prior_cost + cost}
 
-def generate_recommendations(state: AgentState) -> AgentState:
+def generate_recommendations(state: LegacyAgentState) -> LegacyAgentState:
     prompt = f"Based on this security and performance assessment:\n{state['assessment']}\n\nProvide actionable refactoring recommendations."
 
     recommendations, cost = generate_content(state['provider'], state['model_id'], prompt)
     prior_cost = state.get("total_cost_usd", 0.0)
-    
+
     if memory_store.qdrant:
         entry = MemoryEntry(id=str(uuid.uuid4()), content=recommendations, metadata={"task": state['input_task']})
         try:
@@ -191,19 +244,18 @@ def generate_recommendations(state: AgentState) -> AgentState:
     logger.info(f"[Cost] Task total cost: ${total_cost:.6f} USD")
     return {"recommendations": recommendations, "status": "completed", "total_cost_usd": total_cost}
 
-# Build the Graph
-builder = StateGraph(AgentState)
-builder.add_node("analyze", analyze_current_system)
-builder.add_node("recommend", generate_recommendations)
-builder.add_edge(START, "analyze")
-builder.add_edge("analyze", "recommend")
-builder.add_edge("recommend", END)
-graph = builder.compile()
+# Build the Legacy Graph
+legacy_builder = StateGraph(LegacyAgentState)
+legacy_builder.add_node("analyze", analyze_current_system)
+legacy_builder.add_node("recommend", generate_recommendations)
+legacy_builder.add_edge(START, "analyze")
+legacy_builder.add_edge("analyze", "recommend")
+legacy_builder.add_edge("recommend", END)
+legacy_graph = legacy_builder.compile()
 
-# --- Temporal Activities ---
 
-@activity.defn
-async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
+async def run_legacy_pipeline(input_task: str, model_id: str, provider: str) -> dict:
+    """Run the original 2-step analyze → recommend pipeline."""
     initial_state = {
         "input_task": input_task,
         "assessment": "",
@@ -214,12 +266,12 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
         "total_cost_usd": 0.0,
         "_start_time": time.time()
     }
-    
-    final_state = initial_state
+
+    final_state = initial_state.copy()
     activity.heartbeat("0%")
     logger.info(f"Worker progress: 0% (Task started with model {model_id})")
-    
-    async for event in graph.astream(initial_state):
+
+    async for event in legacy_graph.astream(initial_state):
         if "analyze" in event:
             activity.heartbeat("50%")
             logger.info("Worker progress: 50% (Analysis complete)")
@@ -228,13 +280,382 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
             activity.heartbeat("100%")
             logger.info("Worker progress: 100% (Recommendations complete)")
             final_state.update(event["recommend"])
-            
+
     task_id = str(uuid.uuid4())
     memory_store.archive_l3(task_id, final_state)
     logger.info(f"[L3 Archived] Full state archived to S3")
-    
+
     TASK_DURATION.observe(time.time() - float(final_state.get('_start_time', time.time())))
     return final_state
+
+
+# ──────────────────────────────────────────────
+# AGENTIC PIPELINE (ReAct loop with tools)
+# ──────────────────────────────────────────────
+
+class AgenticState(TypedDict):
+    messages: list[dict]
+    workspace_dir: str
+    tool_call_count: int
+    max_tool_calls: int
+    max_cost_usd: float
+    total_cost_usd: float
+    model_id: str
+    artifacts: list[str]
+    progress_log: list[str]
+    error: str
+    status: str
+    summary: str
+
+
+def _fetch_qdrant_context(task_description: str) -> str:
+    """Retrieve relevant past insights from Qdrant for the agent system prompt."""
+    try:
+        embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[task_description])
+        vector = embed_response.data[0]["embedding"]
+        start = time.time()
+        results = memory_store.query_l2("agent_insights", vector, limit=3)
+        QDRANT_LATENCY.observe(time.time() - start)
+        if results:
+            entries = []
+            for r in results:
+                payload = r.payload or {}
+                if r.score > 0.5:
+                    entries.append(f"- [{r.score:.2f}] {payload.get('content', '')[:300]}")
+            if entries:
+                return "\n".join(entries)
+    except Exception as e:
+        logger.warning(f"Qdrant context fetch failed: {e}")
+    return "No relevant past insights found."
+
+
+def agent_plan(state: AgenticState) -> AgenticState:
+    """Initial node: build system prompt and seed the conversation."""
+    qdrant_context = _fetch_qdrant_context(
+        state["messages"][0]["content"] if state["messages"] else ""
+    )
+    system_prompt = build_system_prompt(
+        workspace_dir=state["workspace_dir"],
+        task_description=state["messages"][0]["content"] if state["messages"] else "",
+        budget_remaining=state["max_cost_usd"] - state["total_cost_usd"],
+        steps_remaining=state["max_tool_calls"] - state["tool_call_count"],
+        max_steps=state["max_tool_calls"],
+        qdrant_context=qdrant_context,
+    )
+    # Prepend system message
+    messages = [{"role": "system", "content": system_prompt}] + state["messages"]
+    return {"messages": messages, "progress_log": ["plan: system prompt built"]}
+
+
+def agent_step(state: AgenticState) -> AgenticState:
+    """Core agent node: call LLM, get response (may include tool_calls or final text)."""
+    # Budget check
+    if state["total_cost_usd"] >= state["max_cost_usd"]:
+        logger.warning(f"Cost budget exceeded (${state['total_cost_usd']:.4f} >= ${state['max_cost_usd']:.4f}), forcing completion")
+        return {
+            "messages": state["messages"] + [{"role": "assistant", "content": "Budget exceeded. Summarizing progress so far."}],
+            "status": "budget_exceeded",
+            "progress_log": state["progress_log"] + ["agent: budget exceeded, forcing summarize"],
+        }
+
+    if state["tool_call_count"] >= state["max_tool_calls"]:
+        logger.warning(f"Tool call limit reached ({state['max_tool_calls']}), forcing completion")
+        return {
+            "messages": state["messages"] + [{"role": "assistant", "content": "Tool call limit reached. Summarizing progress so far."}],
+            "status": "limit_reached",
+            "progress_log": state["progress_log"] + ["agent: tool call limit reached"],
+        }
+
+    try:
+        response_msg, cost = generate_content_with_tools(state["messages"], model=state["model_id"])
+        new_cost = state["total_cost_usd"] + cost
+
+        # Heartbeat with structured progress
+        progress = {
+            "step": state["tool_call_count"],
+            "max_steps": state["max_tool_calls"],
+            "cost_usd": round(new_cost, 6),
+            "phase": "agent_step",
+        }
+        try:
+            activity.heartbeat(json.dumps(progress))
+        except Exception:
+            pass
+
+        # Convert response to dict for message history
+        msg_dict = {"role": "assistant", "content": response_msg.content or ""}
+        if hasattr(response_msg, "tool_calls") and response_msg.tool_calls:
+            msg_dict["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                }
+                for tc in response_msg.tool_calls
+            ]
+
+        return {
+            "messages": state["messages"] + [msg_dict],
+            "total_cost_usd": new_cost,
+            "progress_log": state["progress_log"] + [f"agent: LLM call (cost=${cost:.6f})"],
+        }
+    except Exception as e:
+        logger.error(f"Agent LLM call failed: {e}")
+        return {
+            "messages": state["messages"] + [{"role": "assistant", "content": f"LLM call failed: {e}"}],
+            "error": str(e),
+            "status": "error",
+            "progress_log": state["progress_log"] + [f"agent: ERROR - {e}"],
+        }
+
+
+def tool_executor(state: AgenticState) -> AgenticState:
+    """Execute tool calls from the last assistant message and append results."""
+    last_msg = state["messages"][-1]
+    tool_calls = last_msg.get("tool_calls", [])
+    if not tool_calls:
+        return state
+
+    new_messages = []
+    new_count = state["tool_call_count"]
+    new_artifacts = list(state.get("artifacts", []))
+    new_log = list(state["progress_log"])
+    task_complete_triggered = False
+    summary = state.get("summary", "")
+
+    for tc in tool_calls:
+        fn_name = tc["function"]["name"]
+        try:
+            args = json.loads(tc["function"]["arguments"])
+        except json.JSONDecodeError:
+            args = {}
+
+        AGENT_TOOL_CALLS.labels(tool_name=fn_name).inc()
+        new_count += 1
+
+        tool_fn = get_tool_fn(fn_name)
+        if tool_fn is None:
+            result_str = f"ERROR: Unknown tool '{fn_name}'"
+        else:
+            try:
+                # All tool fns take workspace_dir as first arg
+                result_str = tool_fn(state["workspace_dir"], **args)
+            except Exception as e:
+                result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
+
+        logger.info(f"[Tool] {fn_name}({list(args.keys())}) -> {result_str[:200]}")
+        new_log.append(f"tool: {fn_name} (step {new_count})")
+
+        # Check for task_complete signal
+        if fn_name == "task_complete":
+            try:
+                parsed = json.loads(result_str)
+                if parsed.get("action") == "task_complete":
+                    task_complete_triggered = True
+                    summary = parsed.get("summary", "")
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        new_messages.append({
+            "role": "tool",
+            "tool_call_id": tc["id"],
+            "content": result_str[:10000],  # Truncate tool output
+        })
+
+    heartbeat_data = {
+        "step": new_count,
+        "max_steps": state["max_tool_calls"],
+        "last_tool": tool_calls[-1]["function"]["name"] if tool_calls else "",
+        "cost_usd": round(state["total_cost_usd"], 6),
+        "phase": "tool_execution",
+    }
+    try:
+        activity.heartbeat(json.dumps(heartbeat_data))
+    except Exception:
+        pass
+
+    result = {
+        "messages": state["messages"] + new_messages,
+        "tool_call_count": new_count,
+        "artifacts": new_artifacts,
+        "progress_log": new_log,
+    }
+    if task_complete_triggered:
+        result["status"] = "completed"
+        result["summary"] = summary
+    return result
+
+
+def should_continue(state: AgenticState) -> str:
+    """Conditional edge: decide whether to loop back to agent or finish."""
+    # If status indicates we should stop
+    if state.get("status") in ("completed", "error", "budget_exceeded", "limit_reached"):
+        return "summarize"
+
+    # Check last message for tool_calls
+    last_msg = state["messages"][-1] if state["messages"] else {}
+    if last_msg.get("tool_calls"):
+        return "tool_executor"
+
+    # No tool calls = final answer text
+    return "summarize"
+
+
+def summarize(state: AgenticState) -> AgenticState:
+    """Final node: extract summary from conversation."""
+    summary = state.get("summary", "")
+    if not summary:
+        # Use last assistant message as summary
+        for msg in reversed(state["messages"]):
+            if msg.get("role") == "assistant" and msg.get("content"):
+                summary = msg["content"]
+                break
+    if not summary:
+        summary = "Agent completed without producing a summary."
+
+    return {
+        "status": "completed",
+        "summary": summary,
+        "progress_log": state["progress_log"] + ["summarize: done"],
+    }
+
+
+# Build the Agent Graph
+agent_builder = StateGraph(AgenticState)
+agent_builder.add_node("plan", agent_plan)
+agent_builder.add_node("agent", agent_step)
+agent_builder.add_node("tool_executor", tool_executor)
+agent_builder.add_node("summarize", summarize)
+
+agent_builder.add_edge(START, "plan")
+agent_builder.add_edge("plan", "agent")
+agent_builder.add_conditional_edges("agent", should_continue, {
+    "tool_executor": "tool_executor",
+    "summarize": "summarize",
+})
+agent_builder.add_edge("tool_executor", "agent")
+agent_builder.add_edge("summarize", END)
+
+agent_graph = agent_builder.compile()
+
+
+async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
+    """Run the agentic ReAct loop pipeline."""
+    task_description = task_payload.get("description", "")
+    repo_url = task_payload.get("repo_url", "")
+    max_tool_calls = task_payload.get("max_tool_calls", AGENT_DEFAULTS["max_tool_calls"])
+    max_cost_usd = task_payload.get("max_cost_usd", AGENT_DEFAULTS["max_cost_usd"])
+
+    task_id = str(uuid.uuid4())
+    workspace_dir = create_workspace(task_id)
+
+    try:
+        # Build initial user message
+        user_content = task_description
+        if repo_url:
+            user_content += f"\n\nRepository to work with: {repo_url}"
+
+        initial_state: AgenticState = {
+            "messages": [{"role": "user", "content": user_content}],
+            "workspace_dir": workspace_dir,
+            "tool_call_count": 0,
+            "max_tool_calls": max_tool_calls,
+            "max_cost_usd": max_cost_usd,
+            "total_cost_usd": 0.0,
+            "model_id": model_id,
+            "artifacts": [],
+            "progress_log": [],
+            "error": "",
+            "status": "started",
+            "summary": "",
+        }
+
+        final_state = initial_state.copy()
+        start_time = time.time()
+
+        async for event in agent_graph.astream(initial_state):
+            for node_name, node_output in event.items():
+                final_state.update(node_output)
+                logger.info(f"[AgentGraph] Node '{node_name}' completed")
+
+        duration = time.time() - start_time
+        TASK_DURATION.observe(duration)
+
+        # Store insight to L2 if we completed successfully
+        if final_state.get("summary") and memory_store.qdrant:
+            try:
+                insight = f"Task: {task_description}\nResult: {final_state['summary'][:500]}"
+                embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[insight])
+                vector = embed_response.data[0]["embedding"]
+                entry = MemoryEntry(
+                    id=str(uuid.uuid4()),
+                    content=insight,
+                    metadata={"task": task_description, "source": "agent", "tool_calls": final_state.get("tool_call_count", 0)},
+                )
+                memory_store.store_l2("agent_insights", entry, vector=vector)
+                logger.info("[L2 Stored] Agent insight saved to Qdrant")
+            except Exception as e:
+                logger.error(f"Failed to store agent insight in Qdrant: {e}")
+
+        # Archive to L3
+        memory_store.archive_l3(task_id, {
+            "task_description": task_description,
+            "summary": final_state.get("summary", ""),
+            "status": final_state.get("status", "unknown"),
+            "total_cost_usd": final_state.get("total_cost_usd", 0.0),
+            "tool_call_count": final_state.get("tool_call_count", 0),
+            "progress_log": final_state.get("progress_log", []),
+            "duration_seconds": duration,
+        })
+
+        return {
+            "status": final_state.get("status", "completed"),
+            "summary": final_state.get("summary", ""),
+            "total_cost_usd": final_state.get("total_cost_usd", 0.0),
+            "tool_call_count": final_state.get("tool_call_count", 0),
+            "progress_log": final_state.get("progress_log", []),
+            "duration_seconds": round(duration, 2),
+            "mode": "agent",
+        }
+    finally:
+        cleanup_workspace(workspace_dir)
+
+
+# ──────────────────────────────────────────────
+# TASK INPUT PARSING
+# ──────────────────────────────────────────────
+
+def parse_task_input(input_task: str) -> tuple[str, dict | None]:
+    """
+    Detect whether input is a legacy plain string or an agent JSON payload.
+    Returns: (mode, payload)
+      - ("legacy", None)    for plain text tasks
+      - ("agent", {...})    for JSON agent tasks
+    """
+    stripped = input_task.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+            if payload.get("task_type") == "agent":
+                return ("agent", payload)
+        except json.JSONDecodeError:
+            pass
+    return ("legacy", None)
+
+
+# --- Temporal Activities ---
+
+@activity.defn
+async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
+    mode, payload = parse_task_input(input_task)
+
+    if mode == "agent":
+        logger.info(f"[AGENT MODE] Starting agentic pipeline for: {payload.get('description', '')[:100]}")
+        return await run_agent_pipeline(payload, model_id)
+    else:
+        logger.info(f"[LEGACY MODE] Starting 2-step pipeline for: {input_task[:100]}")
+        return await run_legacy_pipeline(input_task, model_id, provider)
+
 
 # --- Temporal Workflow ---
 
@@ -242,10 +663,18 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
 class AIOrchestrationWorkflow:
     @workflow.run
     async def run(self, task: str, model_id: str, provider: str) -> dict:
+        # Use longer timeout for agent tasks
+        _, payload = parse_task_input(task)
+        if payload:
+            timeout_minutes = AGENT_DEFAULTS["activity_timeout_minutes"]
+        else:
+            timeout_minutes = 10
+
         result = await workflow.execute_activity(
             execute_langgraph_agent,
             args=[task, model_id, provider],
-            start_to_close_timeout=timedelta(minutes=10),
+            start_to_close_timeout=timedelta(minutes=timeout_minutes),
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3)
         )
         return result
@@ -261,17 +690,17 @@ async def main():
 
     temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
     logger.info(f"Connecting to Temporal at {temporal_host}...")
-    
+
     client = None
     for i in range(10):
         try:
             client = await Client.connect(temporal_host)
-            logger.info(f"✅ Successfully connected to Temporal at {temporal_host}")
+            logger.info(f"Successfully connected to Temporal at {temporal_host}")
             break
         except Exception as e:
             logger.warning(f"Attempt {i+1}/10 - Failed to connect to Temporal: {e}")
             await asyncio.sleep(5)
-            
+
     if not client:
         logger.error("Could not connect to Temporal. Exiting.")
         return

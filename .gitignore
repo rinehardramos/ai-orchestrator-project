@@ -6,3 +6,10 @@ src/orchestrator/__pycache__/*
 tests/__pycache__/***/__pycache__/
 __pycache__/
 *.db
+
+# Claude Code local settings
+.claude/settings.json
+.claude/settings.local.json
+
+# Runtime logs
+logs/
