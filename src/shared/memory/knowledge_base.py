@@ -8,17 +8,28 @@ import re
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
-from google import genai
+import requests as _requests
 from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
 
+# Embedding dimensions per provider model
+_GOOGLE_EMBED_DIM = 768
+_OPENAI_EMBED_DIM = 1536
+
+
 class KnowledgeBaseClient:
+    """
+    Lightweight embedding client for the CNC (Genesis) node.
+    Uses direct HTTP calls to embedding APIs — no heavy ML libraries required.
+    Supported providers: Google (text-embedding-004), OpenAI (text-embedding-3-small).
+    """
+
     def __init__(self, settings_path=None):
         if settings_path is None:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             settings_path = os.path.join(project_root, "config/settings.yaml")
-        
+
         qdrant_url = os.environ.get("QDRANT_URL")
         if not qdrant_url and os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
@@ -27,30 +38,61 @@ class KnowledgeBaseClient:
                     host = settings["qdrant"].get("host", "localhost")
                     port = settings["qdrant"].get("port", 6333)
                     qdrant_url = f"http://{host}:{port}"
-        
+
         self.store = HybridMemoryStore(qdrant_url=qdrant_url)
         self.collection_name = "knowledge_base"
-        
-        api_key = os.environ.get("GOOGLE_API_KEY")
-        self.client = genai.Client(api_key=api_key) if api_key else genai.Client()
-        self.embedding_model = "gemini-embedding-001"
+
+        # Pick provider based on available API keys (Google preferred — free tier)
+        self._google_key = os.environ.get("GOOGLE_API_KEY")
+        self._openai_key = os.environ.get("OPENAI_API_KEY")
+
+        if self._google_key:
+            self._provider = "google"
+            self._embed_dim = _GOOGLE_EMBED_DIM
+        elif self._openai_key:
+            self._provider = "openai"
+            self._embed_dim = _OPENAI_EMBED_DIM
+        else:
+            self._provider = None
+            self._embed_dim = _GOOGLE_EMBED_DIM
 
     def embed_text(self, text: str) -> list[float]:
-        if not self.client:
-            return [0.0] * 768
+        """Generate an embedding vector via direct HTTP API call."""
         try:
-            response = self.client.models.embed_content(
-                model=self.embedding_model,
-                contents=text
-            )
-            return response.embeddings[0].values
+            if self._provider == "google":
+                return self._embed_google(text)
+            elif self._provider == "openai":
+                return self._embed_openai(text)
         except Exception as e:
-            print(f"Error generating embedding: {e}")
-            return [0.0] * 768
+            print(f"Error generating embedding ({self._provider}): {e}")
+        return [0.0] * self._embed_dim
+
+    def _embed_google(self, text: str) -> list[float]:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"text-embedding-004:embedContent?key={self._google_key}"
+        )
+        resp = _requests.post(
+            url,
+            json={"model": "models/text-embedding-004", "content": {"parts": [{"text": text}]}},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["embedding"]["values"]
+
+    def _embed_openai(self, text: str) -> list[float]:
+        resp = _requests.post(
+            "https://api.openai.com/v1/embeddings",
+            headers={"Authorization": f"Bearer {self._openai_key}"},
+            json={"model": "text-embedding-3-small", "input": text},
+            timeout=15,
+        )
+        resp.raise_for_status()
+        return resp.json()["data"][0]["embedding"]
 
     def close(self):
-        """Explicitly clear the client to prevent cleanup issues."""
-        self.client = None
+        """No-op: kept for API compatibility."""
+        pass
 
     def ingest_markdown(self, filepath: str):
         if not os.path.exists(filepath):

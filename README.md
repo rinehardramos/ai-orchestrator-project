@@ -6,13 +6,17 @@ An autonomous, multi-tier orchestrator designed to run as a **Genesis Node (L0 C
 
 - **Genesis Node (Thin CNC)**: Optimized for Raspberry Pi 3 (1GB RAM). Handles intent parsing and delegation without local heavy lifting.
 - **Durable Orchestration (Temporal)**: Uses Temporal.io to ensure task execution is resilient, retryable, and stateful across ephemeral workers.
-- **Infrastructure & Model Analyzer Agent**: Uses Gemini 3 Flash to determine the most economical and efficient execution environment.
+- **Multi-Model Support via LiteLLM**: Unified proxy abstraction for Gemini, Claude, GPT-4, and other providers — swap models without touching worker code.
+- **Infrastructure & Model Analyzer Agent**: Dynamically determines the most economical and efficient execution environment and model for each task.
 - **Automated Remote Provisioning**: Dynamically syncs code and provisions Dockerized environments on remote servers (via SSH/Pulumi) or cloud (AWS/GCP).
 - **Tiered Memory System**:
   - **L1 (Redis)**: Fast ephemeral cache.
-  - **L2 (Qdrant)**: Persistent semantic vector memory.
+  - **L2 (Qdrant)**: Persistent semantic vector memory — shared across all agents for cross-agent knowledge.
   - **L3 (S3/Local)**: Cold archival audit trails.
-- **Dual Modes**: 
+- **Agent Feedback Loop**: Workers embed resolved bugs and insights into Qdrant (L2). All agents query this shared knowledge base before execution, creating a continuous self-improvement cycle.
+- **Real-time Notifications**: Telegram integration for task status updates (submitted, running, complete, failed, blocked).
+- **Offline Resilience**: Local SQLite queue for tasks submitted when the Control Plane is unreachable — auto-flushed on reconnect.
+- **Dual Modes**:
   - **Automatic**: High-speed, one-step "Analyze & Execute" flow.
   - **Plan (Dry Run)**: Interactive mode to review reasoning, costs, and connectivity status.
 
@@ -21,9 +25,11 @@ An autonomous, multi-tier orchestrator designed to run as a **Genesis Node (L0 C
 - **Python 3.13+**
 - **Pulumi CLI**: Installed on the Genesis Node.
 - **Docker & Docker Compose**: Installed on the Remote Worker Node.
-- **Temporal Server**: Running on the worker node (provisioned automatically by Genesis).
-- **API Keys**: 
-  - `GOOGLE_API_KEY`: Required for the Gemini reasoning engine.
+- **Temporal Server**: Running on the Control Plane node (provisioned automatically by Genesis).
+- **API Keys** (one or more, depending on the models you use):
+  - `ANTHROPIC_API_KEY`: For Claude models (recommended).
+  - `GOOGLE_API_KEY`: For Gemini models.
+  - `OPENAI_API_KEY`: For GPT models.
 
 ## 🔐 Configuration
 
@@ -62,7 +68,10 @@ temporal:
 3. **Configure Secrets**:
    ```bash
    cp .env.template .env
-   # Add your GOOGLE_API_KEY
+   # Add your API keys (at least one LLM provider is required)
+   # ANTHROPIC_API_KEY=...
+   # GOOGLE_API_KEY=...
+   # OPENAI_API_KEY=...
    ```
 
 ## 📖 Usage
@@ -103,18 +112,12 @@ The Genesis Node can be controlled remotely via Telegram. This is ideal for head
 
 To apply changes made to the codebase, follow these steps based on the component modified:
 
-### **1. Gemini CLI Interface**
-If you are using the Gemini CLI interactive mode and change instruction files (`GEMINI.md`), skills, or core settings:
-- **Restart Application**: Press **`R`** (Capital R) to perform a full reload.
-- **Refresh Memory**: Run **`/memory refresh`** to reload architectural mandates.
-- **Reload Skills**: Run **`/skills reload`** if you modified the `analyzer-agent` skill definition.
+### **1. Genesis Node Logic (Python)**
+If you modify files in `src/cnc/` (like `orchestrator/` or `analyzer/`):
+- No explicit reload is needed. Simply run `./main.py` or `python3 src/cnc/cli.py` again.
 
-### **2. Genesis Node Logic (Python)**
-If you modify files in `src/` (like `analyzer/`, `iac/`, or `orchestrator/`):
-- No explicit reload is needed for the logic itself. Simply run `./main.py` or `python3 src/cli.py` again, and the new Python code will be executed.
-
-### **3. Remote Worker Node**
-If you modify `central_node/worker.py` or the worker's environment:
+### **2. Remote Worker Node**
+If you modify `src/execution/worker/worker.py` or the worker's environment:
 - **Restart Worker**: Access the remote machine and restart the Docker container:
   ```bash
   docker compose restart worker
@@ -127,7 +130,7 @@ The project is organized into three "planes" to clearly separate responsibilitie
 
 - **Genesis Plane (`src/cnc/`)**: 
   - `main.py`: Entry point for the Genesis CNC Node.
-  - `analyzer/`: Intent parsing and infrastructure selection (Gemini 3 Flash).
+  - `analyzer/`: Intent parsing and infrastructure selection (via LiteLLM).
   - `iac/`: Pulumi SSH/Command orchestration for remote provisioning.
   - `orchestrator/`: Temporal client and task scheduler.
 - **Control Plane (`src/control/`)**:

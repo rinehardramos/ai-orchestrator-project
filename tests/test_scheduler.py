@@ -48,7 +48,42 @@ def test_save_task_offline(mock_scheduler):
     assert json.loads(row[2]) == test_meta
     assert row[3] == "QUEUED"
 
-@pytest.mark.skip(reason="Knowledge Base preflight lookup temporarily disabled in scheduler")
+@pytest.mark.asyncio
+async def test_flush_offline_queue(mock_scheduler):
+    """Tasks with status=QUEUED are resubmitted and marked FLUSHED."""
+    # Seed the offline DB with one queued task
+    mock_scheduler._save_task_offline(
+        "flush_task_001",
+        "deploy staging",
+        {"llm_model_id": "low", "model_details": {"provider": "google"}}
+    )
+
+    mock_client = AsyncMock()
+    mock_client.start_workflow = AsyncMock()
+
+    flushed = await mock_scheduler.flush_offline_queue(mock_client)
+
+    assert flushed == 1
+    mock_client.start_workflow.assert_called_once()
+
+    # Status should now be FLUSHED
+    conn = sqlite3.connect(mock_scheduler.offline_db_path)
+    c = conn.cursor()
+    c.execute("SELECT status FROM offline_tasks WHERE task_id='flush_task_001'")
+    row = c.fetchone()
+    conn.close()
+    assert row[0] == "FLUSHED"
+
+
+@pytest.mark.asyncio
+async def test_flush_offline_queue_empty(mock_scheduler):
+    """No tasks to flush returns 0."""
+    mock_client = AsyncMock()
+    flushed = await mock_scheduler.flush_offline_queue(mock_client)
+    assert flushed == 0
+    mock_client.start_workflow.assert_not_called()
+
+
 @patch("src.cnc.orchestrator.scheduler.TaskScheduler.check_connectivity")
 def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
     # Setup mock KB
@@ -56,6 +91,7 @@ def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
     test_desc = "deploy aws instance"
     cache_key = test_desc.lower().strip()
     
+    import src.shared.memory.knowledge_base  # ensure module is loaded before patching
     with patch("src.shared.memory.knowledge_base.KnowledgeBaseClient") as MockKB:
         mock_kb_instance = MockKB.return_value
         mock_kb_instance.query_similar_issues.return_value = [{"title": "Warning", "score": 0.9}]

@@ -87,25 +87,31 @@ def load_router_config():
 
 llm_router = Router(model_list=load_router_config())
 
-def generate_content(provider: str, model: str, prompt: str) -> str:
-    """Uses LiteLLM Router to call a model within a requested reasoning tier."""
-    target = model 
+def generate_content(provider: str, model: str, prompt: str) -> tuple[str, float]:
+    """
+    Uses LiteLLM Router to call a model within a requested reasoning tier.
+    Returns (content, cost_usd).
+    """
+    target = model
     try:
         response = llm_router.completion(
             model=target,
             messages=[{"role": "user", "content": prompt}]
         )
-        return response.choices[0].message.content
+        cost = litellm.completion_cost(completion_response=response)
+        return response.choices[0].message.content, cost
     except Exception as e:
         try:
             full_model = f"{provider}/{model}" if "/" not in model else model
-            if "google" in full_model: full_model = full_model.replace("google", "gemini")
-            
+            if "google" in full_model:
+                full_model = full_model.replace("google", "gemini")
+
             response = litellm.completion(
                 model=full_model,
                 messages=[{"role": "user", "content": prompt}]
             )
-            return response.choices[0].message.content
+            cost = litellm.completion_cost(completion_response=response)
+            return response.choices[0].message.content, cost
         except Exception as e2:
             raise ValueError(f"LiteLLM Router & Fallback failed: {str(e)} | {str(e2)}")
 
@@ -119,6 +125,7 @@ class AgentState(TypedDict):
     status: str
     model_id: str
     provider: str
+    total_cost_usd: float
 
 def analyze_current_system(state: AgentState) -> AgentState:
     task_hash = str(hash(state['input_task']))
@@ -131,10 +138,9 @@ def analyze_current_system(state: AgentState) -> AgentState:
         
     CACHE_MISSES.inc()
     logger.info(f"[L1 Cache Miss] Analyzing via LLM using {state['model_id']}...")
-    
+
     context_code = ""
     try:
-        # Resolve paths relative to project root
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
         for file_rel in ["src/cnc/orchestrator/scheduler.py", "src/execution/worker/worker.py"]:
             file_path = os.path.join(project_root, file_rel)
@@ -145,27 +151,32 @@ def analyze_current_system(state: AgentState) -> AgentState:
         pass
 
     prompt = f"Task: {state['input_task']}\n\nPerform a security and performance audit of the following code:\n{context_code}"
-    
-    assessment_text = generate_content(state['provider'], state['model_id'], prompt)
+
+    assessment_text, cost = generate_content(state['provider'], state['model_id'], prompt)
     memory_store.store_l1(f"cache:{task_hash}", assessment_text, ttl_seconds=3600)
-    
-    return {"assessment": assessment_text, "status": "assessed"}
+
+    prior_cost = state.get("total_cost_usd", 0.0)
+    return {"assessment": assessment_text, "status": "assessed", "total_cost_usd": prior_cost + cost}
 
 def generate_recommendations(state: AgentState) -> AgentState:
     prompt = f"Based on this security and performance assessment:\n{state['assessment']}\n\nProvide actionable refactoring recommendations."
-    
-    recommendations = generate_content(state['provider'], state['model_id'], prompt)
+
+    recommendations, cost = generate_content(state['provider'], state['model_id'], prompt)
+    prior_cost = state.get("total_cost_usd", 0.0)
     
     if memory_store.qdrant:
         entry = MemoryEntry(id=str(uuid.uuid4()), content=recommendations, metadata={"task": state['input_task']})
         try:
-            # Vector dummy for now
-            memory_store.store_l2("agent_insights", entry, vector=[0.1] * 1536) 
-            logger.info(f"[L2 Stored] Insight saved to Qdrant")
+            embed_response = litellm.embedding(model="gemini/text-embedding-004", input=[recommendations])
+            vector = embed_response.data[0]["embedding"]
+            memory_store.store_l2("agent_insights", entry, vector=vector)
+            logger.info(f"[L2 Stored] Insight saved to Qdrant with real embedding")
         except Exception as e:
             logger.error(f"Failed to store in Qdrant: {e}")
-        
-    return {"recommendations": recommendations, "status": "completed"}
+
+    total_cost = prior_cost + cost
+    logger.info(f"[Cost] Task total cost: ${total_cost:.6f} USD")
+    return {"recommendations": recommendations, "status": "completed", "total_cost_usd": total_cost}
 
 # Build the Graph
 builder = StateGraph(AgentState)
@@ -187,6 +198,7 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
         "status": "started",
         "model_id": model_id,
         "provider": provider,
+        "total_cost_usd": 0.0,
         "_start_time": time.time()
     }
     

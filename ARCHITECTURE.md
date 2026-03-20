@@ -80,3 +80,57 @@ graph TD
 *   **Role:** High-Privilege Execution.
 *   **Worker:** A containerized agent that executes tasks. It is **Data-Driven**, meaning it does not have hardcoded logic. Instead, it dynamically loads its task definitions from `config/jobs.yaml`.
 *   **Execution Guardrail:** Like the CNC node, the worker performs its own internal KB lookup before starting a subprocess, ensuring that even if the CNC pre-flight is bypassed, the execution remains context-aware.
+*   **Horizontal Scaling:** Multiple workers can run simultaneously — all are stateless and share the same Temporal task queue. Add machines by pointing them at the Control Plane (see `docs/cluster_expansion.md`).
+
+---
+
+## 🔄 Agent Feedback Loop & Cross-Agent Learning
+
+The system implements a continuous self-improvement cycle across all agents using the shared L2 memory layer.
+
+```mermaid
+graph LR
+    A[Worker Executes Task] --> B{Success or Failure?}
+    B -- Success with Insight --> C[Embed MemoryEntry in Qdrant]
+    B -- Failure / Bug Fixed --> C
+    C --> D[L2 Qdrant — agent_insights collection]
+    D --> E[All Future Agents: Pre-flight KB Query]
+    E --> F[Retrieve Relevant Warnings & Fixes]
+    F --> A
+```
+
+### How It Works
+
+1. **During Execution**: Every worker queries Qdrant (`agent_insights` collection) via semantic search before starting a task. If a similar task has failed before, the warning surfaces to the CNC node's pre-flight check and can be surfaced to the user.
+
+2. **After Resolution**: When a complex bug or architectural blocker is resolved, the resolving agent embeds a `MemoryEntry` into Qdrant using `KnowledgeBaseClient`. This entry includes:
+   - The symptom / traceback
+   - The root cause
+   - The applied fix
+   - Relevant tags for future retrieval
+
+3. **Cross-Agent Sharing**: Because all workers point to the same Qdrant instance on the Control Plane, insights from one agent are immediately available to every other agent — including on newly added worker nodes.
+
+4. **Semantic Retrieval**: Qdrant uses vector similarity search (not keyword matching), so a future agent encountering a *similar but not identical* problem will still retrieve the relevant historical fix.
+
+### Reporting to the User
+
+Agents report status back through two channels:
+
+| Channel | When | Content |
+|:--------|:-----|:--------|
+| **CLI (stdout)** | Interactive sessions | Task result, warnings, pre-flight alerts |
+| **Telegram Notifier** | All modes (headless-friendly) | Submitted, running, complete, failed, blocked |
+
+The Telegram notifier (`src/cnc/orchestrator/telegram_monitor.py`) allows the system to operate fully headless on a Raspberry Pi while the user receives real-time updates on their phone.
+
+---
+
+## 📦 Key Configuration Files
+
+| File | Purpose |
+|:-----|:--------|
+| `config/settings.yaml` | Network topology (worker IPs, SSH keys, ports) |
+| `config/profiles.yaml` | LLM model definitions and infrastructure tiers |
+| `config/jobs.yaml` | Data-driven task definitions for the worker |
+| `config/cluster_nodes.yaml` | Ansible inventory for multi-node deployments |

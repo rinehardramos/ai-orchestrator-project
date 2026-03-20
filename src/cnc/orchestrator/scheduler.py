@@ -96,6 +96,45 @@ class TaskScheduler:
         except (socket.timeout, ConnectionRefusedError, OSError):
             return False
 
+    async def flush_offline_queue(self, client) -> int:
+        """
+        Attempt to resubmit any locally queued (offline) tasks to Temporal.
+        Returns the number of tasks successfully flushed.
+        """
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        c.execute("SELECT task_id, description, metadata FROM offline_tasks WHERE status='QUEUED'")
+        rows = c.fetchall()
+        conn.close()
+
+        flushed = 0
+        for task_id, description, meta_str in rows:
+            try:
+                metadata = json.loads(meta_str) if meta_str else {}
+                model_id = metadata.get("llm_model_id", "low")
+                provider = metadata.get("model_details", {}).get("provider", "google")
+                await client.start_workflow(
+                    "AIOrchestrationWorkflow",
+                    args=[description, model_id, provider],
+                    id=task_id,
+                    task_queue="ai-orchestration-queue"
+                )
+                conn = sqlite3.connect(self.offline_db_path)
+                c = conn.cursor()
+                c.execute("UPDATE offline_tasks SET status='FLUSHED' WHERE task_id=?", (task_id,))
+                conn.commit()
+                conn.close()
+                logger.info(f"✅ [OFFLINE FLUSH] Task {task_id} submitted to Temporal.")
+                if self.notifier:
+                    self.notifier.send_message(f"🔄 *Offline Task Flushed*\nID: `{task_id}`\nDescription: {description}")
+                flushed += 1
+            except Exception as e:
+                logger.warning(f"⚠️  Could not flush offline task {task_id}: {e}")
+
+        if flushed:
+            logger.info(f"✅ [OFFLINE FLUSH] {flushed}/{len(rows)} queued tasks flushed to Temporal.")
+        return flushed
+
     async def submit_task(self, task_description: str, analysis_result: Dict[str, Any]) -> str:
         task_id = str(uuid.uuid4())
         
@@ -104,7 +143,7 @@ class TaskScheduler:
         cache_key = task_description.lower().strip()
         
         warnings = []
-        if False: # Temporarily disabled KB lookup due to genai library conflicts
+        if True:
             if cache_key in self.preflight_cache:
                 logger.info("⚡ Using cached Knowledge Base lookup.")
                 warnings = self.preflight_cache[cache_key]
@@ -161,6 +200,9 @@ class TaskScheduler:
                 logger.info(f"DEBUG: temp_cfg={temp_cfg}")
                 logger.info(f"DEBUG: Connecting to Temporal at {temporal_host}...")
                 client = await asyncio.wait_for(Client.connect(temporal_host), timeout=10.0)
+                # Flush any previously offline-queued tasks now that we're connected
+                await self.flush_offline_queue(client)
+
                 logger.info(f"📥 Pushing task '{task_description}' to Temporal workflow...")
 
                 model_id = analysis_result['llm_model_id']
@@ -253,15 +295,13 @@ class TaskScheduler:
                 logger.info(f"✅ [CENTRAL NODE] Worker Execution Complete.")
                 
                 if self.notifier:
-                    # Format a cleaner summary
                     assessment = result.get('assessment', 'No assessment provided.')
                     recommendations = result.get('recommendations', 'No recommendations provided.')
-                    
-                    # Ensure we don't exceed Telegram message limit and escape basic chars if needed
-                    # For now, just a clean structure.
+                    cost = result.get('total_cost_usd', 0.0)
                     msg = (
                         f"✅ *Task Succeeded*\n"
-                        f"ID: `{task_id}`\n\n"
+                        f"ID: `{task_id}`\n"
+                        f"💰 *Cost:* ${cost:.6f} USD\n\n"
                         f"🧠 *Assessment:*\n{assessment[:1000]}{'...' if len(assessment) > 1000 else ''}\n\n"
                         f"💡 *Recommendations:*\n{recommendations[:1000]}{'...' if len(recommendations) > 1000 else ''}"
                     )
