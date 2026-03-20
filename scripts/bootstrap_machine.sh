@@ -11,6 +11,7 @@ NETWORK_NAME="worker_ai-network"
 COMPOSE_WORKER_FILE="src/execution/worker/docker-compose.yml"
 COMPOSE_CONTROL_FILE="src/control/docker-compose.control.yml"
 COMPOSE_CNC_FILE="docker-compose.cnc.yml"
+COMPOSE_OBSERVABILITY_FILE="src/observability/docker-compose.observability.yml"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -155,6 +156,12 @@ verify_role_health() {
             verify_service "CNC Genesis" "container" "cnc-genesis"
             verify_service "Telegram Ingress" "container" "telegram-ingress"
             ;;
+        5) # Observability
+            verify_service "Prometheus" "url" "http://localhost:9000/-/healthy"
+            verify_service "Grafana" "url" "http://localhost:3000/api/health"
+            verify_service "Metrics Collector" "container" "obs-collector"
+            verify_service "Web Dashboard" "container" "obs-web"
+            ;;
     esac
 }
 
@@ -164,7 +171,8 @@ echo "1) Full Stack (Controller + Worker + CNC)"
 echo "2) Controller (Temporal, Qdrant, Redis, Postgres, Control Plane)"
 echo "3) Worker (Task Execution only)"
 echo "4) CNC (Command interface & Telegram Monitor)"
-echo -n -e "${YELLOW}Enter choice [1-4]: ${NC}"
+echo "5) Observability Plane (Prometheus, Grafana, Collector, Web)"
+echo -n -e "${YELLOW}Enter choice [1-5]: ${NC}"
 read -r ROLE_CHOICE
 
 # --- Networking ---
@@ -228,6 +236,15 @@ case $ROLE_CHOICE in
         
         echo -e "${BLUE}🚢 Launching CNC Tools...${NC}"
         $DOCKER_COMPOSE -f "$COMPOSE_CNC_FILE" up -d --build
+        ;;
+    5)
+        echo -e "${GREEN}Configuring Observability Node...${NC}"
+        prompt_if_empty "TEMPORAL_HOST_URL" "Enter Temporal Host URL (e.g., temporal:7233 or 192.168.100.249:7233)"
+        prompt_if_empty "QDRANT_URL" "Enter Qdrant URL (e.g., http://192.168.100.249:6333)"
+        prompt_if_empty "REDIS_URL" "Enter Redis URL (e.g., redis://192.168.100.249:6379)"
+        
+        echo -e "${BLUE}🚢 Launching Observability Services...${NC}"
+        $DOCKER_COMPOSE -f "$COMPOSE_OBSERVABILITY_FILE" up -d --build
         ;;
     *)
         echo -e "${RED}Invalid choice. Exiting.${NC}"
