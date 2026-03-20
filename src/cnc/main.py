@@ -3,6 +3,7 @@ import os
 import sys
 import asyncio
 import argparse
+import logging
 import time
 from typing import Optional
 from dotenv import load_dotenv
@@ -245,13 +246,9 @@ async def handle_list(args):
 
 
 async def main_async():
-    try:
-        from src.cnc.orchestrator.notifier import TelegramNotifier
-        notifier = TelegramNotifier()
-        if notifier.enabled:
-            notifier.send_message("🤖 *Gemini CLI Initialized*\nGenesis Node is now online and ready to accept tasks.")
-    except Exception as e:
-        print(f"Failed to send initialization notification: {e}")
+    # Startup notification kept local — Telegram channel was getting spammed on every CLI invocation
+    logger_main = logging.getLogger("CNC")
+    logger_main.info("Genesis Node CLI initialized.")
 
     # Preprocess argv so bare task strings route to 'submit'
     preprocess_argv()
