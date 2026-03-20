@@ -616,7 +616,7 @@ def get_tool_schemas() -> list[dict]:
     return [t["schema"] for t in TOOL_REGISTRY]
 
 
-def get_tool_fn(name: str) -> Optional[Callable]:
+def get_tool_fn(name: str):
     """Look up a tool function by name."""
     for t in TOOL_REGISTRY:
         if t["name"] == name:
