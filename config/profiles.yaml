@@ -71,3 +71,25 @@ infrastructure:
     startup_time_sec: 1
     type: "container"
     best_for: "heavy_compute"
+
+task_routing:
+  planning:
+    model: "anthropic/claude-opus-4-5"
+    provider: "openrouter"
+  coding:
+    model: "thudm/glm-4-plus"
+    provider: "openrouter"
+  agent_step:
+    model: "google/gemini-2.5-flash"
+    provider: "openrouter"
+  analysis:
+    model: "google/gemini-2.5-flash-lite"
+    provider: "openrouter"
+  embedding:
+    worker_model: "nomic-ai/nomic-embed-text-v1.5"
+    worker_provider: "local_sentence_transformers"
+    worker_dim: 768
+    cnc_model: "text-embedding-3-small"
+    cnc_provider: "openai"
+    cnc_dim: 1536
+    collection_suffix: "_v2"

@@ -313,12 +313,11 @@ def git_push(workspace_dir: str, path: str = ".", remote: str = "origin", branch
 def memory_search(workspace_dir: str, query: str) -> str:
     """Semantic search for past insights in Qdrant L2."""
     try:
-        import litellm as _litellm
         from src.shared.memory.hybrid_store import HybridMemoryStore
+        from src.execution.worker.embeddings import get_embedder
         store = HybridMemoryStore()
-        embed_response = _litellm.embedding(model="gemini/gemini-embedding-001", input=[query])
-        vector = embed_response.data[0]["embedding"]
-        results = store.query_l2("agent_insights", vector, limit=3)
+        vector = get_embedder().embed(query)
+        results = store.query_l2("agent_insights_v2", vector, limit=3)
         if not results:
             return "No relevant past insights found."
         entries = []
@@ -334,17 +333,16 @@ def memory_store(workspace_dir: str, content: str, tags: str = "") -> str:
     """Store a new insight into Qdrant L2."""
     try:
         import uuid
-        import litellm as _litellm
         from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
+        from src.execution.worker.embeddings import get_embedder
         store = HybridMemoryStore()
-        embed_response = _litellm.embedding(model="gemini/gemini-embedding-001", input=[content])
-        vector = embed_response.data[0]["embedding"]
+        vector = get_embedder().embed(content)
         entry = MemoryEntry(
             id=str(uuid.uuid4()),
             content=content,
             metadata={"source": "agent", "tags": tags},
         )
-        store.store_l2("agent_insights", entry, vector=vector)
+        store.store_l2("agent_insights_v2", entry, vector=vector)
         return "OK: Insight stored in L2 memory."
     except Exception as e:
         return f"Memory store failed: {e}"

@@ -31,9 +31,8 @@ from src.execution.worker.sandbox import create_workspace, cleanup_workspace
 from src.execution.worker.tools import get_tool_schemas, get_tool_fn, TOOL_REGISTRY
 from src.execution.worker.prompts import build_system_prompt
 
-# AI Provider SDKs
-import litellm
-from litellm import Router
+from src.execution.worker.model_router import ModelRouter, TaskType
+from src.execution.worker.embeddings import get_embedder
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -72,73 +71,27 @@ def load_agent_defaults() -> dict:
 
 AGENT_DEFAULTS = load_agent_defaults()
 
-# --- LiteLLM Router Setup ---
-def load_router_config():
-    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml"))
-    model_list = []
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            data = yaml.safe_load(f)
-            for m in data.get('models', []):
-                provider = m['provider'].lower()
-                if provider == "google":
-                    provider = "gemini"
-                elif provider == "local":
-                    provider = "ollama"
+# --- Model Router (config-driven, OpenRouter primary / LiteLLM for local in Phase 3) ---
+router = ModelRouter()
 
-                env_key_name = f"{provider.upper()}_API_KEY"
-                model_entry = {
-                    "model_name": m['reasoning_capability'],
-                    "litellm_params": {
-                        "model": f"{provider}/{m['id']}",
-                        "api_key": os.environ.get(env_key_name, "dummy-key")
-                    }
-                }
-                model_list.append(model_entry)
-    return model_list
-
-llm_router = Router(
-    model_list=load_router_config(),
-    allowed_fails=1,
-    cooldown_time=120,
-    routing_strategy="latency-based-routing",
-    num_retries=2,
-    set_verbose=False,
-)
-
-def generate_content_with_tools(messages: list[dict], model: str = "low") -> tuple[Any, float]:
+def generate_content_with_tools(messages: list[dict], task_type: TaskType = TaskType.AGENT_STEP) -> tuple[Any, float]:
     """
     Call LLM with tool schemas. Returns (response_message, cost_usd).
     The response_message may contain tool_calls or plain content.
     """
     tool_schemas = get_tool_schemas()
     try:
-        response = llm_router.completion(
-            model=model,
-            messages=messages,
-            tools=tool_schemas,
-            tool_choice="auto",
-        )
-        cost = litellm.completion_cost(completion_response=response) or 0.0
-        return response.choices[0].message, cost
+        return router.call_llm(messages, task_type, tool_schemas)
     except Exception as e:
-        logger.warning(f"Router failed for tool call: {e}. Trying direct fallback...")
-        fallback_models = [
-            "gemini/gemini-2.5-flash-lite",
-            "gemini/gemini-2.5-flash",
-            "openai/gpt-4o",
-        ]
-        for fallback_model in fallback_models:
+        logger.warning(f"Router failed for tool call: {e}. Trying fallback task types...")
+        fallback_types = [TaskType.ANALYSIS, TaskType.AGENT_STEP]
+        for fallback_type in fallback_types:
+            if fallback_type == task_type:
+                continue
             try:
-                response = litellm.completion(
-                    model=fallback_model,
-                    messages=messages,
-                    tools=tool_schemas,
-                    tool_choice="auto",
-                )
-                cost = litellm.completion_cost(completion_response=response) or 0.0
-                logger.info(f"Tool-call fallback succeeded with {fallback_model}")
-                return response.choices[0].message, cost
+                result = router.call_llm(messages, fallback_type, tool_schemas)
+                logger.info(f"Tool-call fallback succeeded with task_type={fallback_type}")
+                return result
             except Exception:
                 continue
         raise ValueError(f"All models failed for tool call. Last error: {e}")
@@ -167,10 +120,9 @@ class AgenticState(TypedDict):
 def _fetch_qdrant_context(task_description: str) -> str:
     """Retrieve relevant past insights from Qdrant for the agent system prompt."""
     try:
-        embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[task_description])
-        vector = embed_response.data[0]["embedding"]
+        vector = get_embedder().embed(task_description)
         start = time.time()
-        results = memory_store.query_l2("agent_insights", vector, limit=3)
+        results = memory_store.query_l2("agent_insights_v2", vector, limit=3)
         QDRANT_LATENCY.observe(time.time() - start)
         if results:
             entries = []
@@ -223,7 +175,13 @@ def agent_step(state: AgenticState) -> AgenticState:
         }
 
     try:
-        response_msg, cost = generate_content_with_tools(state["messages"], model=state["model_id"])
+        task_description = ""
+        for msg in state["messages"]:
+            if msg.get("role") == "user":
+                task_description = msg.get("content", "")
+                break
+        detected_type = router.detect_task_type(task_description)
+        response_msg, cost = generate_content_with_tools(state["messages"], task_type=detected_type)
         new_cost = state["total_cost_usd"] + cost
 
         # Heartbeat with structured progress
@@ -452,14 +410,13 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         if final_state.get("summary") and memory_store.qdrant:
             try:
                 insight = f"Task: {task_description}\nResult: {final_state['summary'][:500]}"
-                embed_response = litellm.embedding(model="gemini/gemini-embedding-001", input=[insight])
-                vector = embed_response.data[0]["embedding"]
+                vector = get_embedder().embed(insight)
                 entry = MemoryEntry(
                     id=str(uuid.uuid4()),
                     content=insight,
                     metadata={"task": task_description, "source": "agent", "tool_calls": final_state.get("tool_call_count", 0)},
                 )
-                memory_store.store_l2("agent_insights", entry, vector=vector)
+                memory_store.store_l2("agent_insights_v2", entry, vector=vector)
                 logger.info("[L2 Stored] Agent insight saved to Qdrant")
             except Exception as e:
                 logger.error(f"Failed to store agent insight in Qdrant: {e}")
