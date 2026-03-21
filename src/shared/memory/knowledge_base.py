@@ -14,8 +14,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
 
 # Embedding dimensions per provider model
-_GOOGLE_EMBED_DIM = 3072   # gemini-embedding-001
-_OPENAI_EMBED_DIM = 1536   # text-embedding-3-small
+_EMBED_DIM = 1536   # text-embedding-3-small
 
 
 class KnowledgeBaseClient:
@@ -40,45 +39,18 @@ class KnowledgeBaseClient:
                     qdrant_url = f"http://{host}:{port}"
 
         self.store = HybridMemoryStore(qdrant_url=qdrant_url)
-        self.collection_name = "knowledge_base"
+        self.collection_name = "knowledge_base_v2"
 
-        # Pick provider based on available API keys (Google preferred — free tier)
-        self._google_key = os.environ.get("GOOGLE_API_KEY")
         self._openai_key = os.environ.get("OPENAI_API_KEY")
-
-        if self._google_key:
-            self._provider = "google"
-            self._embed_dim = _GOOGLE_EMBED_DIM
-        elif self._openai_key:
-            self._provider = "openai"
-            self._embed_dim = _OPENAI_EMBED_DIM
-        else:
-            self._provider = None
-            self._embed_dim = _GOOGLE_EMBED_DIM
+        self._embed_dim = _EMBED_DIM
 
     def embed_text(self, text: str) -> list[float]:
         """Generate an embedding vector via direct HTTP API call."""
         try:
-            if self._provider == "google":
-                return self._embed_google(text)
-            elif self._provider == "openai":
-                return self._embed_openai(text)
+            return self._embed_openai(text)
         except Exception as e:
-            print(f"Error generating embedding ({self._provider}): {e}")
+            print(f"Error generating embedding (openai): {e}")
         return [0.0] * self._embed_dim
-
-    def _embed_google(self, text: str) -> list[float]:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-embedding-001:embedContent?key={self._google_key}"
-        )
-        resp = _requests.post(
-            url,
-            json={"model": "models/gemini-embedding-001", "content": {"parts": [{"text": text}]}},
-            timeout=15,
-        )
-        resp.raise_for_status()
-        return resp.json()["embedding"]["values"]
 
     def _embed_openai(self, text: str) -> list[float]:
         resp = _requests.post(
