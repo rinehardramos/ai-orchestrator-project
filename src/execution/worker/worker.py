@@ -34,6 +34,16 @@ from src.execution.worker.prompts import build_system_prompt
 from src.execution.worker.model_router import ModelRouter, TaskType
 from src.execution.worker.embeddings import get_embedder
 
+try:
+    from opik import track
+    OPIK_AVAILABLE = True
+except ImportError:
+    OPIK_AVAILABLE = False
+    def track(**kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Worker")
@@ -137,6 +147,7 @@ def _fetch_qdrant_context(task_description: str) -> str:
     return "No relevant past insights found."
 
 
+@track(name="agent_plan")
 def agent_plan(state: AgenticState) -> AgenticState:
     """Initial node: build system prompt and seed the conversation."""
     qdrant_context = _fetch_qdrant_context(
@@ -155,6 +166,7 @@ def agent_plan(state: AgenticState) -> AgenticState:
     return {"messages": messages, "progress_log": ["plan: system prompt built"]}
 
 
+@track(name="agent_step")
 def agent_step(state: AgenticState) -> AgenticState:
     """Core agent node: call LLM, get response (may include tool_calls or final text)."""
     # Budget check
@@ -223,6 +235,7 @@ def agent_step(state: AgenticState) -> AgenticState:
         }
 
 
+@track(name="tool_executor")
 def tool_executor(state: AgenticState) -> AgenticState:
     """Execute tool calls from the last assistant message and append results."""
     last_msg = state["messages"][-1]
@@ -362,6 +375,7 @@ agent_builder.add_edge("summarize", END)
 agent_graph = agent_builder.compile()
 
 
+@track(name="run_agent_pipeline")
 async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     """Run the agentic ReAct loop pipeline."""
     task_description = task_payload.get("description", "")
@@ -513,6 +527,8 @@ class AIOrchestrationWorkflow:
 # --- Worker Runtime ---
 
 async def main():
+    os.environ.setdefault("OPIK_PROJECT_NAME", "ai-orchestration")
+    
     logger.info("Starting Prometheus metrics server on port 8000...")
     try:
         start_http_server(8000)
