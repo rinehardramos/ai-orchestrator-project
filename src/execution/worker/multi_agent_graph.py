@@ -212,14 +212,21 @@ async def synthesis_node(state: OrchestratorState) -> dict:
 async def recovery_node(state: OrchestratorState) -> dict:
     """
     Self-healing node.  When synthesis detects a missing-tool failure:
-      1. Spawns a coder agent to implement the tool as Python code.
-      2. exec()s the generated code and registers it via register_dynamic_tool().
-      3. Retries the original task — the agent now has the new tool available.
+      1. Spawns a coder agent that analyzes the failure, installs any packages
+         it needs via shell_exec, writes and tests the solution, then outputs
+         new_tool.py + tool_schema.json.
+      2. Scans the generated code for missing imports and installs them.
+      3. exec()s the code and registers the tool via register_dynamic_tool().
+      4. Retries the original task — the agent now has the new tool available.
 
     Runs at most once per task (recovery_attempted flag prevents loops).
     """
     import base64
+    import re
+    import sys
+    import subprocess as _sp
     from src.execution.worker.worker import run_agent_pipeline
+    from src.execution.worker.tools import TOOL_REGISTRY, _DYNAMIC_REGISTRY
 
     failure_summary = state.get("final_summary", "")
     original_prompt = state["user_prompt"]
@@ -237,44 +244,64 @@ async def recovery_node(state: OrchestratorState) -> dict:
     except Exception:
         pass
 
-    # ── Step 1: coder agent writes the missing tool ──────────────────────────
+    # ── Build existing tool catalog for coder context ─────────────────────────
+    existing_tools = "\n".join(
+        f"  - {t['name']}: {t['schema']['function']['description']}"
+        for t in TOOL_REGISTRY
+    )
+    if _DYNAMIC_REGISTRY:
+        for dname, dentry in _DYNAMIC_REGISTRY.items():
+            desc = dentry["schema"].get("function", {}).get("description", "dynamically registered")
+            existing_tools += f"\n  - {dname} (dynamic): {desc}"
+
+    # ── Step 1: coder agent analyzes failure and builds the solution ──────────
     coder_payload = {
-        "description": f"""You are a Python tool developer for an autonomous AI agent framework.
+        "description": f"""You are a tool engineer for an autonomous AI agent framework.
 
-An agent tried to complete this task: "{original_prompt}"
-But failed because: "{failure_summary}"
+## The Problem
+An agent tried to complete this task:
+  "{original_prompt}"
 
-Your job: implement the missing tool as a standalone Python function.
+It failed because:
+  "{failure_summary}"
 
-STRICT REQUIREMENTS:
-1. Function signature: def <tool_name>(workspace_dir: str, **kwargs) -> str
-2. All file output MUST be saved inside workspace_dir
-3. Return "OK: <description>" on success, "ERROR: <reason>" on failure
-4. Available libraries: os, json, PIL (Pillow), imageio, requests, subprocess
-5. You MAY call generate_image(workspace_dir, prompt, filename="") — it already exists
-6. Write ONLY the function body (with any needed imports at the top) to a file called new_tool.py
-7. Write the tool JSON schema to tool_schema.json:
-   {{"name": "<tool_name>", "description": "<short desc>", "parameters": {{"type": "object", "properties": {{"<arg>": {{"type": "string", "description": "<desc>"}}}}}}}}
+## Already Available Tools (you can call these as building blocks)
+{existing_tools}
 
-For GIF generation — implement generate_gif(workspace_dir, prompt, num_frames="6"):
-  - Parse num_frames to int (default 6)
-  - Call generate_image(workspace_dir, prompt + f", frame {{i+1}} of {{total}}, animation pose", f"frame_{{i:02d}}.png") for each frame
-  - Open each saved frame with PIL.Image.open()
-  - Save as animated GIF: frames[0].save(gif_path, save_all=True, append_images=frames[1:], loop=0, duration=150)
-  - Return "OK: GIF saved to '<filename>' (N frames)"
+## Your Goal
+Analyze the failure, determine what capability is missing, and implement it.
+You have FULL autonomy: install packages, call existing tools, write code, test it.
 
-Write real, working, production-quality Python. No stubs, no TODOs, no placeholders.
+## What You Must Produce
+1. `new_tool.py` — a Python function that delivers the missing capability:
+   - Signature: `def <descriptive_tool_name>(workspace_dir: str, **kwargs) -> str`
+   - All output files saved inside `workspace_dir`
+   - Returns `"OK: <description>"` on success, `"ERROR: <reason>"` on failure
+   - Include all `import` statements the function needs at the top of the file
+
+2. `tool_schema.json` — OpenAI function-calling schema for the tool:
+   {{"name": "...", "description": "...", "parameters": {{"type": "object", "properties": {{...}}}}}}
+
+## Workflow
+1. Understand exactly what the original task needed that was not available
+2. Design the simplest function that delivers it
+3. Use `shell_exec` to install any packages: `pip install <package> -q`
+4. Write the function to `new_tool.py` and the schema to `tool_schema.json`
+5. Test it: `python new_tool.py` or a small inline test via `shell_exec`
+6. Fix any errors, then call `task_complete` with what you built
+
+No stubs. No TODOs. No placeholders. Ship working code.
 """,
         "specialization": "coding",
-        "max_tool_calls": 25,
-        "max_cost_usd": 0.50,
+        "max_tool_calls": 30,
+        "max_cost_usd": 1.00,
     }
 
     coder_result = await run_agent_pipeline(coder_payload, "gemini-2.5-flash")
     logger.info(f"[RECOVERY] Coder agent status: {coder_result.get('status')} | "
                 f"files: {[a['name'] for a in coder_result.get('artifact_files', [])]}")
 
-    # ── Step 2: read artifacts and register the new tool ─────────────────────
+    # ── Step 2: read artifacts ────────────────────────────────────────────────
     new_tool_code = None
     raw_schema = None
 
@@ -303,15 +330,21 @@ Write real, working, production-quality Python. No stubs, no TODOs, no placehold
             "progress_log": ["recovery: coder agent produced no tool code — giving up"],
         }
 
-    # Ensure all libraries declared available to the coder agent are actually installed
-    _CODER_DEPS = [("PIL", "Pillow"), ("imageio", "imageio"), ("requests", "requests")]
-    for _mod_name, _pip_name in _CODER_DEPS:
+    # ── Scan generated code for missing imports and install them ──────────────
+    # Map module names that differ from their pip package name
+    _PIP_NAME = {"PIL": "Pillow", "cv2": "opencv-python", "sklearn": "scikit-learn",
+                 "bs4": "beautifulsoup4", "yaml": "pyyaml", "dotenv": "python-dotenv"}
+    import_names = set(re.findall(r'^\s*(?:import|from)\s+(\w+)', new_tool_code, re.MULTILINE))
+    stdlib = getattr(sys, "stdlib_module_names", set())  # Python 3.10+; empty set on older
+    for mod_name in import_names:
+        if mod_name in stdlib or mod_name in sys.modules:
+            continue
         try:
-            __import__(_mod_name)
+            __import__(mod_name)
         except ImportError:
-            logger.info(f"[RECOVERY] Installing missing dependency '{_pip_name}' before exec...")
-            import subprocess as _sp
-            _sp.run(["pip", "install", _pip_name, "-q"], check=True)  # nosec B603,B607
+            pip_name = _PIP_NAME.get(mod_name, mod_name)
+            logger.info(f"[RECOVERY] Installing missing dependency '{pip_name}'...")
+            _sp.run(["pip", "install", pip_name, "-q"], check=True)  # nosec B603,B607
 
     # exec the tool code in a controlled namespace
     from src.execution.worker import tools as _tools_mod
