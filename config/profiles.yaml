@@ -94,14 +94,14 @@ task_routing:
     model: "gemini-3-flash"
     provider: "google"
   analysis:
-    provider: "google"
     model: "gemini-3-flash"
+    provider: "google"
   fast:
-    provider: "google"
     model: "gemini-3-flash"
+    provider: "google"
   execute:
-    provider: "google"
     model: "gemini-3-flash"
+    provider: "google"
   embeddings:
     provider: "lmstudio"
     model: "text-embedding-nomic-embed-code"
