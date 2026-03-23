@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23] — Patch 5
+
+### Changed
+- **Recovery coder agent is now fully generic** (`multi_agent_graph.py`): Removed all hardcoded GIF-specific instructions from the coder prompt. The coder agent now receives the full existing tool catalog, analyzes the failure itself, decides what to implement, uses `shell_exec` to `pip install` any packages it needs, tests its own code before writing `new_tool.py`, and iterates until it works. Tool call budget increased from 25 calls / $0.50 to 30 calls / $1.00 to give the coder room to install, test, and fix.
+- **Dynamic import scanner replaces fixed dependency list** (`multi_agent_graph.py`): The hardcoded `_CODER_DEPS = [PIL, imageio, requests]` pre-install list is replaced with a general scanner that parses `import` statements from the generated `new_tool.py` and installs any module not already in `sys.modules`. Includes a name-mapping table (`PIL→Pillow`, `cv2→opencv-python`, `sklearn→scikit-learn`, etc.) to handle packages whose import name differs from their pip name.
+
 ## [2026-03-23] — Patch 4
 
 ### Added

@@ -3,6 +3,7 @@
 ### Features
 - [x] Multi-Agent Orchestrator with dynamic task decomposition and parallel execution.
 - [x] Self-healing recovery system — detects missing-tool failures, implements the tool via coder agent, retries the original task. Includes infinite-loop guard and real-time recovery notifications to task source (Telegram/CLI/TUI).
+- [x] Generic recovery coder agent — analyzes any failure, builds whatever tool is needed (not hardcoded to GIF), installs its own dependencies via shell_exec, tests before finalizing. Dynamic import scanner handles arbitrary packages.
 - [ ] Implement advanced error recovery protocols for long-running Temporal task executions.
 - [ ] Integration with real SOTA media APIs (Luma Dream Machine, Suno v4, Sora) for `generate_video` and `generate_audio` tools.
 - [ ] Add agent "Co-Pilot" mode where agents can request human intervention for ambiguous tasks.
