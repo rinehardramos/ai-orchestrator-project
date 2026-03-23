@@ -303,6 +303,16 @@ Write real, working, production-quality Python. No stubs, no TODOs, no placehold
             "progress_log": ["recovery: coder agent produced no tool code — giving up"],
         }
 
+    # Ensure all libraries declared available to the coder agent are actually installed
+    _CODER_DEPS = [("PIL", "Pillow"), ("imageio", "imageio"), ("requests", "requests")]
+    for _mod_name, _pip_name in _CODER_DEPS:
+        try:
+            __import__(_mod_name)
+        except ImportError:
+            logger.info(f"[RECOVERY] Installing missing dependency '{_pip_name}' before exec...")
+            import subprocess as _sp
+            _sp.run(["pip", "install", _pip_name, "-q"], check=True)  # nosec B603,B607
+
     # exec the tool code in a controlled namespace
     from src.execution.worker import tools as _tools_mod
     namespace: dict = {
