@@ -193,23 +193,69 @@ class ModelRouter:
         entry = self._routing.get(task_type.value, {})
         return entry.get("provider", "openrouter")
 
+    # Reliable fallback used when the configured model is unavailable or invalid.
+    SAFE_FALLBACK_MODEL = "google/gemini-2.0-flash-001"
+
     def call_llm(self, messages: list[dict], task_type: TaskType, tools: list, specialization: str = "general") -> tuple:
         """
         Make an LLM call routed to the correct provider.
         Returns (response_message, cost_usd).
 
-        Dispatches to:
-          - _call_remote() when provider=openrouter
-          - _call_local()  when provider=lmstudio or ollama
+        Fallback chain (applied inside this method, transparent to callers):
+          1. Configured provider + model  (from profiles.yaml)
+          2. If local unavailable         → same model on OpenRouter
+          3. If model name invalid (400)  → SAFE_FALLBACK_MODEL on OpenRouter
+        Auth (401) and credit (402) errors are re-raised immediately.
         """
         provider = self.get_provider(task_type, specialization)
         model = self.get_model(task_type, specialization)
+        is_local = provider in ("lmstudio", "ollama")
 
-        if provider == "lmstudio" or provider == "ollama":
-            return self._call_local(messages, model, tools)
-        else:
-            # Default to openrouter
-            return self._call_remote(messages, model, tools)
+        # ── Attempt 1: configured provider ────────────────────────────────
+        try:
+            if is_local:
+                return self._call_local(messages, model, tools)
+            else:
+                return self._call_remote(messages, model, tools)
+        except Exception as e:
+            err = str(e)
+            # Hard errors — no fallback makes sense
+            if "401" in err or "Unauthorized" in err:
+                raise
+            if "402" in err or "Payment Required" in err or "credits" in err.lower():
+                raise
+
+            if is_local:
+                logger.warning(
+                    f"[FALLBACK] Local provider '{provider}' unavailable for model '{model}' "
+                    f"({err[:120]}). Retrying on OpenRouter."
+                )
+            else:
+                logger.warning(
+                    f"[FALLBACK] Model '{model}' failed on '{provider}' "
+                    f"({err[:120]}). Will try fallback model."
+                )
+
+        # ── Attempt 2: remote with original model (only if we came from local) ──
+        if is_local:
+            try:
+                return self._call_remote(messages, model, tools)
+            except Exception as e:
+                err = str(e)
+                if "401" in err or "Unauthorized" in err:
+                    raise
+                if "402" in err or "Payment Required" in err or "credits" in err.lower():
+                    raise
+                logger.warning(
+                    f"[FALLBACK] Remote also failed for model '{model}' "
+                    f"({err[:120]}). Falling back to safe model '{self.SAFE_FALLBACK_MODEL}'."
+                )
+
+        # ── Attempt 3: safe fallback model on OpenRouter ───────────────────
+        logger.warning(
+            f"[FALLBACK] Using safe fallback model '{self.SAFE_FALLBACK_MODEL}' on OpenRouter."
+        )
+        return self._call_remote(messages, self.SAFE_FALLBACK_MODEL, tools)
 
     def _call_remote(self, messages: list[dict], model: str, tools: list) -> tuple:
         """Call a cloud model via OpenRouter. Returns (response_message, cost_usd)."""
