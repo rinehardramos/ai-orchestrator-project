@@ -125,12 +125,12 @@ class TaskScheduler:
         logger.info(f"[ARTIFACTS] task={task_id} source={source} files={len(artifact_files)} names={[a.get('name') for a in artifact_files]}")
 
         if not artifact_files:
-            # For Telegram tasks, send an explicit notice so the user knows no file was produced
             if source == "telegram" and self.notifier:
+                agent_summary = result.get("summary", "")
+                summary_excerpt = agent_summary[:400] if agent_summary else "No summary available."
                 self.notifier.send_message(
-                    "ℹ️ *No files were generated*\n"
-                    "The agent completed the task but did not produce any output files.\n"
-                    "If you expected an image, try rephrasing: _\"Generate an image of a duck and save it.\"_"
+                    "ℹ️ *No files were generated*\n\n"
+                    f"*Agent said:*\n{summary_excerpt}"
                 )
             return
 

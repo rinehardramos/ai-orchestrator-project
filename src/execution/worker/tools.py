@@ -354,32 +354,48 @@ def task_complete(workspace_dir: str, summary: str, status: str = "success") -> 
 
 def generate_image(workspace_dir: str, prompt: str, filename: str = "") -> str:
     """Generate an image using Google Imagen and save it to the workspace."""
+    google_api_key = os.environ.get("GOOGLE_API_KEY", "")
+    if not google_api_key:
+        return "ERROR: GOOGLE_API_KEY not set — cannot generate image"
+
     try:
         from google import genai as _genai
-        google_api_key = os.environ.get("GOOGLE_API_KEY", "")
-        if not google_api_key:
-            return "ERROR: GOOGLE_API_KEY not set — cannot generate image"
+    except ImportError:
+        return "ERROR: google-genai package not installed"
 
-        client = _genai.Client(api_key=google_api_key)
-        response = client.models.generate_images(
-            model="imagen-4.0-generate-001",
-            prompt=prompt,
-            config={"number_of_images": 1},
-        )
+    client = _genai.Client(api_key=google_api_key)
 
-        if not response.generated_images:
-            return f"ERROR: No images returned for prompt: '{prompt}'"
+    # Try models in preference order — fall back if one is unavailable on this account
+    models_to_try = [
+        "imagen-4.0-generate-001",
+        "imagen-3.0-generate-001",
+        "imagen-3.0-fast-generate-001",
+    ]
+    last_error = ""
+    for model in models_to_try:
+        try:
+            response = client.models.generate_images(
+                model=model,
+                prompt=prompt,
+                config={"number_of_images": 1},
+            )
+            if not response.generated_images:
+                last_error = f"model {model} returned no images"
+                continue
 
-        image_bytes = response.generated_images[0].image.image_bytes
-        safe_stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in prompt[:30])
-        fname = filename if filename else f"{safe_stem}.png"
-        filepath = os.path.join(workspace_dir, fname)
-        with open(filepath, "wb") as f:
-            f.write(image_bytes)
+            image_bytes = response.generated_images[0].image.image_bytes
+            safe_stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in prompt[:30])
+            fname = filename if filename else f"{safe_stem}.png"
+            filepath = os.path.join(workspace_dir, fname)
+            with open(filepath, "wb") as f:
+                f.write(image_bytes)
+            return f"OK: Image saved to '{fname}' ({len(image_bytes):,} bytes) using {model}"
+        except Exception as e:
+            last_error = f"{model}: {e}"
+            logger.warning(f"[generate_image] {model} failed: {e} — trying next model")
+            continue
 
-        return f"OK: Image saved to '{fname}' ({len(image_bytes):,} bytes)"
-    except Exception as e:
-        return f"ERROR: Image generation failed: {e}"
+    return f"ERROR: All Imagen models failed. Last error: {last_error}"
 
 def generate_video(workspace_dir: str, prompt: str) -> str:
     """Stub for generating a video."""
