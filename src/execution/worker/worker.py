@@ -625,6 +625,13 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
             "specialization": specialization,
         }
 
+    # Fast path: bypass the orchestrator/planner entirely for media generation tasks.
+    # run_orchestrator calls planner_node (LLM) before reaching run_agent_pipeline,
+    # so _run_media_direct must fire here to avoid needing any LLM at all.
+    direct_result = _run_media_direct(payload)
+    if direct_result is not None:
+        return direct_result
+
     logger.info(f"[AGENT MODE] Starting Multi-Agent Orchestrator pipeline for: {payload.get('description', '')[:100]}")
     return await run_orchestrator(payload, model_id)
 
