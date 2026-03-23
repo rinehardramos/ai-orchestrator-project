@@ -74,23 +74,23 @@ infrastructure:
 
 task_routing:
   planning:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
   coding:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
   agent_step:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
   analysis:
     provider: "google"
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
   fast:
     provider: "google"
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
   execute:
     provider: "google"
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
   embeddings:
     provider: "lmstudio"
     model: "text-embedding-nomic-embed-code"
@@ -99,27 +99,27 @@ task_routing:
 
 specializations:
   general:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
     allowed_tools: ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command"]
   coding:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
     allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
   research:
-    model: "gemini-1.5-flash"
+    model: "gemini-3-flash"
     provider: "google"
     allowed_tools: ["search_web", "read_url_content", "task_complete", "write_file"]
   image_generation:
-    model: "gemini-1.5-pro"
+    model: "gemini-3-pro-image-preview"
     provider: "google"
     allowed_tools: ["generate_image", "task_complete"]
   video_generation:
-    model: "gemini-1.5-pro"
+    model: "gemini-3-pro-image-preview"
     provider: "google"
     allowed_tools: ["generate_video", "task_complete"]
   audio_generation:
-    model: "gemini-1.5-pro"
+    model: "gemini-3-pro-audio-preview"
     provider: "google"
     allowed_tools: ["generate_audio", "task_complete"]
   planner:
@@ -127,7 +127,7 @@ specializations:
     provider: "openrouter"
     allowed_tools: ["task_complete"]
   copywriting:
-    model: "gemini-1.5-pro"
+    model: "gemini-3-pro-preview"
     provider: "google"
     allowed_tools: ["write_file", "read_file", "task_complete", "submit_for_review"]
   quality_control:
