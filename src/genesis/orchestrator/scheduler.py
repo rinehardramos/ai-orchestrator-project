@@ -530,7 +530,9 @@ class TaskScheduler:
                             f"💡 *Result:*\n{brief}"
                         )
                     self.notifier.send_message(msg)
-                    self._deliver_artifacts(result, task_id)
+
+                # Always deliver artifacts regardless of notifier state
+                self._deliver_artifacts(result, task_id)
 
                 return final_status
             except Exception as e:

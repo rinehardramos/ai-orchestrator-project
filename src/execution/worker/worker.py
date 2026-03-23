@@ -526,21 +526,40 @@ def parse_task_input(input_task: str) -> tuple[str, dict | None]:
 
 # --- Temporal Activities ---
 
+def _detect_specialization(description: str) -> str:
+    """Infer specialization from plain-text task description when none is explicitly set."""
+    d = description.lower()
+    if any(w in d for w in ["image", "picture", "photo", "draw", "painting", "illustration", "portrait", "generate.*image", "visual"]):
+        return "image_generation"
+    if any(w in d for w in ["video", "animation", "film", "movie", "clip", "reel"]):
+        return "video_generation"
+    if any(w in d for w in ["audio", "music", "song", "sound", "speech", "podcast", "voice"]):
+        return "audio_generation"
+    if any(w in d for w in ["write", "article", "blog post", "slogan", "ad copy", "marketing", "copywriting"]):
+        return "copywriting"
+    if any(w in d for w in ["code", "implement", "function", "class", "script", "debug", "refactor", "programming"]):
+        return "coding"
+    if any(w in d for w in ["research", "find information", "what is", "how does", "explain", "summarize"]):
+        return "research"
+    return "general"
+
+
 @activity.defn
 async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
     from src.execution.worker.multi_agent_graph import run_orchestrator
     mode, payload = parse_task_input(input_task)
 
     if mode != "agent":
-        # Wrap plain-text tasks as agent payloads
-        logger.info(f"[AGENT MODE] Wrapping plain-text task as agent payload: {input_task[:100]}")
+        # Wrap plain-text tasks as agent payloads, detecting specialization from the text
+        specialization = _detect_specialization(input_task)
+        logger.info(f"[AGENT MODE] Wrapping plain-text task as agent payload: {input_task[:100]} (specialization={specialization})")
         payload = {
             "task_type": "agent",
             "description": input_task,
             "repo_url": "",
             "max_tool_calls": AGENT_DEFAULTS["max_tool_calls"],
             "max_cost_usd": AGENT_DEFAULTS["max_cost_usd"],
-            "specialization": "general"
+            "specialization": specialization,
         }
 
     logger.info(f"[AGENT MODE] Starting Multi-Agent Orchestrator pipeline for: {payload.get('description', '')[:100]}")
