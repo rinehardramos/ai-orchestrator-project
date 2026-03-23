@@ -144,7 +144,16 @@ class TaskScheduler:
                 logger.warning(f"[ARTIFACTS] Failed to deliver '{af.get('name')}': {e}")
 
     def _deliver_artifact_telegram(self, content: bytes, name: str, mime: str, size_kb: int):
-        """Send an artifact to Telegram. Falls back to a notice if file is too large (>50 MB)."""
+        """Send an artifact to Telegram using the appropriate media method for its type.
+
+        Routing:
+          image/*  → sendPhoto   (renders inline)
+          video/*  → sendVideo   (plays inline)
+          audio/*  → sendAudio   (plays inline)
+          everything else → sendDocument (generic file)
+
+        Files larger than Telegram's 50 MB limit get a notice instead.
+        """
         if not self.notifier:
             return
         MAX_TG_BYTES = 50 * 1024 * 1024
@@ -155,11 +164,18 @@ class TaskScheduler:
                 f"Access it via the server or request a download link."
             )
             return
+
         caption = f"{name} ({size_kb} KB)"
+
         if mime.startswith("image/"):
             ok = self.notifier.send_photo(content, caption=caption)
+        elif mime.startswith("video/"):
+            ok = self.notifier.send_video(content, name, caption=caption)
+        elif mime.startswith("audio/"):
+            ok = self.notifier.send_audio(content, name, caption=caption)
         else:
             ok = self.notifier.send_document(content, name, caption=caption)
+
         if ok:
             logger.info(f"[ARTIFACTS] Sent '{name}' ({mime}) to Telegram")
         else:
@@ -178,6 +194,26 @@ class TaskScheduler:
         abs_path = os.path.abspath(filepath)
         print(f"\n📁 [{source.upper()}] Artifact saved: {abs_path} ({size_kb} KB)")
         logger.info(f"[ARTIFACTS] Saved '{name}' to {abs_path}")
+
+    def _send_text(self, source: str, plain: str, telegram: str = None):
+        """Route a text notification to the correct output channel based on originating source.
+
+        Args:
+            source:   The source string stored at submission time ('telegram', 'cli', 'tui', 'web', …).
+            plain:    Plain-text version of the message (for CLI / TUI / logs).
+            telegram: Markdown-formatted version for Telegram.  Falls back to ``plain`` if omitted.
+        """
+        if source == "telegram":
+            if self.notifier:
+                self.notifier.send_message(telegram or plain)
+        elif source in ("cli", "tui"):
+            print(plain)
+        elif source == "web":
+            # Web interface polls SQLite / Redis — nothing to push synchronously yet.
+            logger.info(f"[WEB OUTPUT] {plain[:300]}")
+        else:
+            # Unknown / future source — degrade gracefully to stdout.
+            print(plain)
 
     def get_recent_tasks(self, limit: int = 20) -> list:
         """Return recent tasks from the local history table, newest first."""
@@ -375,8 +411,11 @@ class TaskScheduler:
             logger.warning(f"⚠️  Could not save task description to Redis: {e}")
 
         
-        if self.notifier:
-            self.notifier.send_message(f"🚀 *New Task Submitted*\nID: `{task_id}`\nDescription: {task_description}")
+        self._send_text(
+            source,
+            plain=f"🚀 Task Submitted [{task_id}]\n{task_description[:200]}",
+            telegram=f"🚀 *New Task Submitted*\nID: `{task_id}`\nDescription: {task_description[:200]}",
+        )
 
         if self.queue_url == "dummy-temporal-queue":
             logger.info("🚀 [GENESIS CNC] Delegating task to Temporal cluster on Central Node...")
@@ -406,8 +445,11 @@ class TaskScheduler:
                 return task_id
             except (Exception, asyncio.TimeoutError) as e:
                 logger.error(f"❌ Error connecting to Temporal: {e}", exc_info=True)
-                if self.notifier:
-                    self.notifier.send_message(f"⚠️ *Temporal Connection Failed*\nError: `{e}`\nFalling back to offline mode.")
+                self._send_text(
+                    source,
+                    plain=f"⚠️  Temporal connection failed — task queued offline.\nError: {e}",
+                    telegram=f"⚠️ *Temporal Connection Failed*\nError: `{e}`\nFalling back to offline mode.",
+                )
                 logger.info("Falling back to local offline queue...")
                 self._save_task_offline(task_id, task_description, analysis_result)
                 return f"QUEUED_OFFLINE_{task_id}"
@@ -450,12 +492,13 @@ class TaskScheduler:
             return task_id
 
         if self.queue_url == "dummy-temporal-queue":
+            source = self._get_task_source(task_id)
             try:
                 temp_cfg = self.config.get("temporal", {})
                 temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
                 client = await Client.connect(temporal_host)
                 handle = client.get_workflow_handle(task_id)
-                
+
                 logger.info(f"⏳ [CENTRAL NODE] Polling for worker progress on task {task_id}...")
                 last_progress = None
                 notified_running = False
@@ -467,8 +510,12 @@ class TaskScheduler:
                         break
 
                     # Notify once when worker picks up the task
-                    if not notified_running and self.notifier:
-                        self.notifier.send_message(f"⚙️ *Task Running*\nID: `{task_id}`\nWorker has picked up the task.")
+                    if not notified_running:
+                        self._send_text(
+                            source,
+                            plain=f"⚙️  Task Running [{task_id}] — Worker has picked up the task.",
+                            telegram=f"⚙️ *Task Running*\nID: `{task_id}`\nWorker has picked up the task.",
+                        )
                         notified_running = True
 
                     if desc.raw_description.pending_activities:
@@ -479,7 +526,6 @@ class TaskScheduler:
                                 payloads = act.heartbeat_details.payloads
                                 current_progress = default().payload_converter.from_payloads(payloads)[0]
                                 if current_progress != last_progress:
-                                    # Handle structured agent heartbeats
                                     display = current_progress
                                     if isinstance(current_progress, str) and current_progress.startswith("{"):
                                         try:
@@ -490,84 +536,114 @@ class TaskScheduler:
                                         except (json.JSONDecodeError, TypeError):
                                             pass
                                     logger.info(f"📈 Worker Progress: {display}")
-                                    if self.notifier and current_progress != "0%":
-                                        self.notifier.send_message(f"📈 *Progress*: {display}\nTask: `{task_id}`")
+                                    if current_progress != "0%":
+                                        self._send_text(
+                                            source,
+                                            plain=f"📈 Progress: {display}",
+                                            telegram=f"📈 *Progress*: {display}\nTask: `{task_id}`",
+                                        )
                                     last_progress = current_progress
                             except Exception:
                                 pass
 
                     await asyncio.sleep(1.0)
-                    
+
                 result = await handle.result()
                 final_status = result.get("status", "COMPLETED").upper()
                 logger.info(f"✅ [CENTRAL NODE] Worker Execution Finished with status: {final_status}")
                 self._update_task_status(task_id, final_status)
 
-                if self.notifier:
-                    cost = result.get('total_cost_usd', 0.0)
-                    if result.get('mode') == 'agent':
-                        summary = result.get('summary', 'No summary.')
-                        tool_calls = result.get('tool_call_count', 0)
-                        duration = result.get('duration_seconds', 0)
-                        msg = (
+                cost = result.get('total_cost_usd', 0.0)
+                if result.get('mode') == 'agent':
+                    summary = result.get('summary', 'No summary.')
+                    tool_calls = result.get('tool_call_count', 0)
+                    duration = result.get('duration_seconds', 0)
+                    truncated = summary[:2000] + ('...' if len(summary) > 2000 else '')
+                    self._send_text(
+                        source,
+                        plain=(
+                            f"✅ Agent Task Succeeded\n"
+                            f"ID: {task_id}\n"
+                            f"Cost: ${cost:.6f} USD  |  Tool calls: {tool_calls}  |  Duration: {duration:.1f}s\n\n"
+                            f"Summary:\n{truncated}"
+                        ),
+                        telegram=(
                             f"✅ *Agent Task Succeeded*\n"
                             f"ID: `{task_id}`\n"
                             f"💰 *Cost:* ${cost:.6f} USD\n"
                             f"🔧 *Tool Calls:* {tool_calls}\n"
                             f"⏱ *Duration:* {duration:.1f}s\n\n"
-                            f"📋 *Summary:*\n{summary[:2000]}{'...' if len(summary) > 2000 else ''}"
-                        )
-                    else:
-                        recommendations = result.get('recommendations', '')
-                        # Keep Telegram notification concise — full details available via status command
-                        brief = recommendations[:300] + '...' if len(recommendations) > 300 else recommendations
-                        description = self._get_task_description(task_id)
-                        msg = (
+                            f"📋 *Summary:*\n{truncated}"
+                        ),
+                    )
+                else:
+                    recommendations = result.get('recommendations', '')
+                    brief = recommendations[:300] + '...' if len(recommendations) > 300 else recommendations
+                    description = self._get_task_description(task_id)
+                    self._send_text(
+                        source,
+                        plain=(
+                            f"✅ Task Succeeded\n"
+                            f"ID: {task_id}\n"
+                            f"Task: {description[:200]}\n"
+                            f"Cost: ${cost:.6f} USD\n\n"
+                            f"Result:\n{brief}"
+                        ),
+                        telegram=(
                             f"✅ *Task Succeeded*\n"
                             f"ID: `{task_id}`\n"
                             f"📝 *Task:* {description[:200]}\n"
                             f"💰 *Cost:* ${cost:.6f} USD\n\n"
                             f"💡 *Result:*\n{brief}"
-                        )
-                    self.notifier.send_message(msg)
+                        ),
+                    )
 
-                # Always deliver artifacts regardless of notifier state
                 self._deliver_artifacts(result, task_id)
-
                 return final_status
+
             except Exception as e:
                 logger.error(f"❌ Error waiting for Temporal workflow: {e}", exc_info=True)
                 self._update_task_status(task_id, "FAILED")
-                if self.notifier:
-                    msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Error:*\n{e}"
-                    self.notifier.send_message(msg)
+                self._send_text(
+                    source,
+                    plain=f"❌ Task Failed [{task_id}]\nError: {e}",
+                    telegram=f"❌ *Task Failed*\nID: `{task_id}`\n\n*Error:*\n{e}",
+                )
                 return "FAILED"
             
+        source = self._get_task_source(task_id)
         start_time = time.time()
         while time.time() - start_time < timeout:
             response = self.table.get_item(Key={'task_id': task_id})
             item = response.get('Item', {})
             status = item.get('status', 'PENDING')
-            
+
             if status == 'COMPLETED':
                 result = item.get('result', 'No result detail provided.')
                 logger.info(f"✅ Task {task_id} COMPLETED.")
-                if self.notifier:
-                    msg = f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}"
-                    self.notifier.send_message(msg)
+                self._send_text(
+                    source,
+                    plain=f"✅ Task Succeeded [{task_id}]\n\nSummary:\n{result}",
+                    telegram=f"✅ *Task Succeeded*\nID: `{task_id}`\n\n*Summary:*\n{result}",
+                )
                 return status
             elif status == 'FAILED':
                 reason = item.get('error', 'Unknown error.')
                 logger.info(f"❌ Task {task_id} FAILED.")
-                if self.notifier:
-                    msg = f"❌ *Task Failed*\nID: `{task_id}`\n\n*Reason:*\n{reason}"
-                    self.notifier.send_message(msg)
+                self._send_text(
+                    source,
+                    plain=f"❌ Task Failed [{task_id}]\nReason: {reason}",
+                    telegram=f"❌ *Task Failed*\nID: `{task_id}`\n\n*Reason:*\n{reason}",
+                )
                 return status
-                
+
             logger.info(f"⌛ Task {task_id} is {status}...")
             await asyncio.sleep(10)
-        
-        if self.notifier:
-            self.notifier.send_message(f"⚠️ *Task Timeout*\nID: `{task_id}`\nTask exceeded {timeout}s.")
+
+        self._send_text(
+            source,
+            plain=f"⚠️  Task Timeout [{task_id}] — exceeded {timeout}s.",
+            telegram=f"⚠️ *Task Timeout*\nID: `{task_id}`\nTask exceeded {timeout}s.",
+        )
         return "TIMEOUT"
 

@@ -86,3 +86,47 @@ class TelegramNotifier:
         except Exception as e:
             print(f"Failed to send Telegram document: {e}")
             return False
+
+    def send_video(self, video_bytes: bytes, filename: str, caption: str = "") -> bool:
+        """Send a video to the Telegram chat (renders inline)."""
+        if not self.enabled:
+            return False
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendVideo"
+        if len(caption) > 1024:
+            caption = caption[:1020] + "..."
+        try:
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(filename)
+            mime_type = mime_type or "video/mp4"
+            response = requests.post(
+                url,
+                data={"chat_id": self.chat_id, "caption": caption, "supports_streaming": True},
+                files={"video": (filename, video_bytes, mime_type)},
+                timeout=60,
+            )
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Failed to send Telegram video: {e}")
+            return False
+
+    def send_audio(self, audio_bytes: bytes, filename: str, caption: str = "") -> bool:
+        """Send an audio file to the Telegram chat (renders as playable audio)."""
+        if not self.enabled:
+            return False
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendAudio"
+        if len(caption) > 1024:
+            caption = caption[:1020] + "..."
+        try:
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(filename)
+            mime_type = mime_type or "audio/mpeg"
+            response = requests.post(
+                url,
+                data={"chat_id": self.chat_id, "caption": caption},
+                files={"audio": (filename, audio_bytes, mime_type)},
+                timeout=60,
+            )
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Failed to send Telegram audio: {e}")
+            return False
