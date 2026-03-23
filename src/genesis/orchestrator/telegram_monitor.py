@@ -36,6 +36,14 @@ logger.setLevel(logging.INFO)
 logger.addHandler(_file_handler)
 logger.addHandler(_stream_handler)
 
+# Propagate scheduler and worker logs into the same file/stream handlers
+for _name in ("TaskScheduler", "MultiAgentGraph", "Worker"):
+    _l = logging.getLogger(_name)
+    _l.setLevel(logging.INFO)
+    _l.addHandler(_file_handler)
+    _l.addHandler(_stream_handler)
+    _l.propagate = False
+
 class TelegramMonitor:
     def __init__(self, bot_token: str, chat_id: str):
         self.bot_token = bot_token

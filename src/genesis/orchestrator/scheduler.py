@@ -121,11 +121,18 @@ class TaskScheduler:
     def _deliver_artifacts(self, result: dict, task_id: str):
         """Deliver files produced by the worker back to the originating input source."""
         artifact_files = result.get("artifact_files", [])
-        if not artifact_files:
-            return
-
         source = self._get_task_source(task_id)
-        logger.info(f"[ARTIFACTS] Delivering {len(artifact_files)} file(s) to source='{source}'")
+        logger.info(f"[ARTIFACTS] task={task_id} source={source} files={len(artifact_files)} names={[a.get('name') for a in artifact_files]}")
+
+        if not artifact_files:
+            # For Telegram tasks, send an explicit notice so the user knows no file was produced
+            if source == "telegram" and self.notifier:
+                self.notifier.send_message(
+                    "ℹ️ *No files were generated*\n"
+                    "The agent completed the task but did not produce any output files.\n"
+                    "If you expected an image, try rephrasing: _\"Generate an image of a duck and save it.\"_"
+                )
+            return
 
         for af in artifact_files:
             try:
@@ -177,11 +184,13 @@ class TaskScheduler:
             ok = self.notifier.send_document(content, name, caption=caption)
 
         if ok:
-            logger.info(f"[ARTIFACTS] Sent '{name}' ({mime}) to Telegram")
+            logger.warning(f"[ARTIFACTS] ✅ Sent '{name}' ({mime}, {size_kb} KB) to Telegram")
         else:
+            logger.warning(f"[ARTIFACTS] ❌ Failed to send '{name}' ({mime}) to Telegram")
             self.notifier.send_message(
-                f"⚠️ Could not send `{name}` ({mime}) to Telegram.\n"
-                f"The file type may not be supported. Try requesting it in a different format."
+                f"⚠️ *Could not send file to Telegram*\n"
+                f"`{name}` ({mime}, {size_kb} KB)\n"
+                f"The file was generated but delivery failed. Check bot permissions or file format."
             )
 
     def _deliver_artifact_local(self, content: bytes, name: str, task_id: str, size_kb: int, source: str):
