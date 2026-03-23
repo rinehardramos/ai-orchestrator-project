@@ -74,10 +74,10 @@ infrastructure:
 
 task_routing:
   planning:
-    model: "anthropic/claude-3.5-sonnet"
+    model: "google/gemini-2.0-flash-001"
     provider: "openrouter"
   coding:
-    model: "zhipuai/glm-4-plus"
+    model: "google/gemini-2.0-flash-001"
     provider: "openrouter"
   agent_step:
     model: "google/gemini-2.5-flash"
@@ -103,7 +103,7 @@ specializations:
     provider: "openrouter"
     allowed_tools: ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command"]
   coding:
-    model: "zhipuai/glm-4-plus"
+    model: "google/gemini-2.0-flash-001"
     provider: "openrouter"
     allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
   research:

@@ -122,9 +122,10 @@ async def subtask_worker(state: dict) -> dict:
     
     result = await run_agent_pipeline(payload, "google/gemini-2.0-flash-001")
     result_summary = result.get("summary", f"Completed {task_id}.")
-    
+
     return {
         "completed_subtasks": {task_id: result_summary},
+        "shared_artifacts": {task_id: result_summary},
         "progress_log": [f"Worker '{task_id}' finished (Cost: ${result.get('total_cost_usd', 0):.4f}). Summary: {result_summary[:100]}..."]
     }
 
@@ -171,15 +172,24 @@ def orchestrator_router(state: OrchestratorState) -> list[Send] | str:
         })]
 
     # 2. Parallel / Coordinated Strategy
+    shared_artifacts = state.get("shared_artifacts", {})
     for task in plan.subtasks:
         if task.id not in completed:
             deps_met = all(dep in completed for dep in task.dependencies)
             if deps_met:
+                upstream_context = ""
+                for dep_id in task.dependencies:
+                    artifact = shared_artifacts.get(dep_id, "")
+                    if artifact:
+                        upstream_context += f"\n\n## Output from upstream agent '{dep_id}':\n{artifact}"
+
+                enriched_description = task.description + upstream_context
+
                 sends.append(Send("subtask_worker", {
                     "subtask_id": task.id,
-                    "description": task.description,
+                    "description": enriched_description,
                     "specialization": task.specialization,
-                    "shared_artifacts": state.get("shared_artifacts", {})
+                    "shared_artifacts": shared_artifacts,
                 }))
                 
     if sends:

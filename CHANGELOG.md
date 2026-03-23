@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23] — Patch
+
+### Fixed
+- **Coordination Data Pipeline**: `subtask_worker` now writes its output to `shared_artifacts` on every completion. Previously, the dict was initialized empty and never populated, making `coordinated_team` strategy functionally identical to `parallel_isolated`.
+- **Dependency Context Injection**: `orchestrator_router` now enriches each dependent task's description with the full output from its upstream dependencies before dispatch. Downstream agents now receive real context from prior agents instead of running blind.
+- **Invalid Coding Model**: Replaced `zhipuai/glm-4-plus` (invalid OpenRouter model ID causing 400 errors on every coding call) with `google/gemini-2.0-flash-001` in `config/profiles.yaml`.
+- **Planner Model Cost**: Switched `planning` model from `anthropic/claude-3.5-sonnet` to `google/gemini-2.0-flash-001` to avoid 402 credit exhaustion on every orchestrated task.
+
 ## [2026-03-23]
 ### Added
 - **Multi-Agent Orchestrator**: Implemented a dynamic LangGraph-based orchestrator that can decompose a complex prompt into multiple specialized sub-tasks (Planning, Research, Coding, etc.).
@@ -13,7 +21,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - **Thin Genesis Client**: Offloaded task decomposition from the Genesis node to the Execution Worker, simplifying the client-side profile usage.
-- **Robust Model Routing**: Enhanced the `ModelRouter` to support automatic fallback from local (LMStudio/Ollama) to cloud (OpenRouter) providers.
+- **Robust Model Routing**: Enhanced the `ModelRouter` to support automatic task-type profile fallback (e.g., PLANNING → ANALYSIS → AGENT_STEP) when a model call fails, ensuring graceful degradation within a configured provider.
 
 ## [2026-03-20]
 ### Added
