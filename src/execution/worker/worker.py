@@ -170,6 +170,7 @@ def agent_plan(state: AgenticState) -> AgenticState:
         steps_remaining=state["max_tool_calls"] - state["tool_call_count"],
         max_steps=state["max_tool_calls"],
         qdrant_context=qdrant_context,
+        specialization=state.get("specialization", "general"),
     )
     # Prepend system message
     messages = [{"role": "system", "content": system_prompt}] + state["messages"]

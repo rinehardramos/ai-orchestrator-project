@@ -554,17 +554,22 @@ class TaskScheduler:
                 self._update_task_status(task_id, final_status)
 
                 cost = result.get('total_cost_usd', 0.0)
+                artifact_files = result.get("artifact_files", [])
+                artifact_count = len(artifact_files)
+                logger.info(f"[ARTIFACTS] Task {task_id} produced {artifact_count} artifact(s): {[a.get('name') for a in artifact_files]}")
                 if result.get('mode') == 'agent':
                     summary = result.get('summary', 'No summary.')
                     tool_calls = result.get('tool_call_count', 0)
                     duration = result.get('duration_seconds', 0)
                     truncated = summary[:2000] + ('...' if len(summary) > 2000 else '')
+                    artifact_note = f"\n📎 *Files:* {artifact_count} file(s) attached" if artifact_count else ""
                     self._send_text(
                         source,
                         plain=(
                             f"✅ Agent Task Succeeded\n"
                             f"ID: {task_id}\n"
-                            f"Cost: ${cost:.6f} USD  |  Tool calls: {tool_calls}  |  Duration: {duration:.1f}s\n\n"
+                            f"Cost: ${cost:.6f} USD  |  Tool calls: {tool_calls}  |  Duration: {duration:.1f}s\n"
+                            f"Files: {artifact_count}\n\n"
                             f"Summary:\n{truncated}"
                         ),
                         telegram=(
@@ -572,7 +577,8 @@ class TaskScheduler:
                             f"ID: `{task_id}`\n"
                             f"💰 *Cost:* ${cost:.6f} USD\n"
                             f"🔧 *Tool Calls:* {tool_calls}\n"
-                            f"⏱ *Duration:* {duration:.1f}s\n\n"
+                            f"⏱ *Duration:* {duration:.1f}s"
+                            f"{artifact_note}\n\n"
                             f"📋 *Summary:*\n{truncated}"
                         ),
                     )
