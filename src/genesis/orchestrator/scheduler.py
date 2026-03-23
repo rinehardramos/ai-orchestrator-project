@@ -539,9 +539,40 @@ class TaskScheduler:
                                     if isinstance(current_progress, str) and current_progress.startswith("{"):
                                         try:
                                             hb = json.loads(current_progress)
-                                            display = f"Step {hb.get('step', '?')}/{hb.get('max_steps', '?')} | ${hb.get('cost_usd', 0):.4f} | {hb.get('phase', '')}"
-                                            if hb.get("last_tool"):
-                                                display += f" | last: {hb['last_tool']}"
+                                            phase = hb.get("phase", "")
+                                            if phase == "recovery_analyzing":
+                                                display = "Self-healing: tool failure detected — spawning coder agent"
+                                                logger.info(f"⚠️  [RECOVERY] {display}")
+                                                self._send_text(
+                                                    source,
+                                                    plain=f"⚠️  Recovery: Task failed due to missing tool — self-healing in progress...",
+                                                    telegram=(
+                                                        f"⚠️ *Self-Healing Triggered*\n"
+                                                        f"Task: `{task_id}`\n"
+                                                        f"A required tool is missing. Spawning a coder agent to implement it..."
+                                                    ),
+                                                )
+                                                last_progress = current_progress
+                                                continue
+                                            elif phase == "recovery_retry":
+                                                tool = hb.get("tool", "new tool")
+                                                display = f"Self-healing: `{tool}` implemented — retrying original task"
+                                                logger.info(f"🔄 [RECOVERY] {display}")
+                                                self._send_text(
+                                                    source,
+                                                    plain=f"🔄  Recovery: Tool '{tool}' implemented — retrying original task...",
+                                                    telegram=(
+                                                        f"🔄 *Retrying After Recovery*\n"
+                                                        f"Task: `{task_id}`\n"
+                                                        f"New tool `{tool}` implemented and registered. Retrying the original task..."
+                                                    ),
+                                                )
+                                                last_progress = current_progress
+                                                continue
+                                            else:
+                                                display = f"Step {hb.get('step', '?')}/{hb.get('max_steps', '?')} | ${hb.get('cost_usd', 0):.4f} | {phase}"
+                                                if hb.get("last_tool"):
+                                                    display += f" | last: {hb['last_tool']}"
                                         except (json.JSONDecodeError, TypeError):
                                             pass
                                     logger.info(f"📈 Worker Progress: {display}")

@@ -11,6 +11,7 @@ from typing import TypedDict, Annotated, Any, List
 from langgraph.graph import StateGraph, START, END
 from langgraph.constants import Send
 from pydantic import BaseModel, Field
+from temporalio import activity
 
 from src.execution.worker.model_router import ModelRouter, TaskType
 from src.execution.worker.tools import get_tool_schemas
@@ -227,6 +228,15 @@ async def recovery_node(state: OrchestratorState) -> dict:
     logger.info(f"[RECOVERY] Self-healing for: {original_prompt[:80]}")
     logger.info(f"[RECOVERY] Failure context: {failure_summary[:300]}")
 
+    # Notify task source that recovery has been triggered
+    try:
+        activity.heartbeat(json.dumps({
+            "phase": "recovery_analyzing",
+            "step": 0, "max_steps": 0, "cost_usd": 0,
+        }))
+    except Exception:
+        pass
+
     # ── Step 1: coder agent writes the missing tool ──────────────────────────
     coder_payload = {
         "description": f"""You are a Python tool developer for an autonomous AI agent framework.
@@ -387,6 +397,16 @@ TOOL_REGISTRY.append({{
         logger.warning(f"[RECOVERY] Could not persist to tools.py (tool still active in-memory): {e}")
 
     # ── Step 4: retry the original task ──────────────────────────────────────
+    # Notify task source that the tool was implemented and the retry is starting
+    try:
+        activity.heartbeat(json.dumps({
+            "phase": "recovery_retry",
+            "tool": registered_name,
+            "step": 0, "max_steps": 0, "cost_usd": 0,
+        }))
+    except Exception:
+        pass
+
     logger.info(f"[RECOVERY] Tool '{registered_name}' ready. Retrying: {original_prompt[:80]}")
     retry_payload = {
         "description": original_prompt,
