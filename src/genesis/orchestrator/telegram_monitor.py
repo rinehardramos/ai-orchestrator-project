@@ -151,7 +151,7 @@ class TelegramMonitor:
             self.notifier.send_message(summary)
 
             # 2. Submit task
-            task_id = await self.scheduler.submit_task(statement, result.model_dump())
+            task_id = await self.scheduler.submit_task(statement, result.model_dump(), source="telegram")
             
             if task_id.startswith("QUEUED_OFFLINE"):
                 logger.info(f"Offline Mode detected for task {task_id}")

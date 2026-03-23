@@ -46,9 +46,11 @@ def append_list(a: list, b: list) -> list:
 
 class OrchestratorState(TypedDict):
     user_prompt: str
+    specialization: str                                         # Passed through for single_agent tasks
     execution_plan: ExecutionPlan | None
     completed_subtasks: Annotated[dict[str, str], merge_dict]  # SubTask ID -> Result Summary
     shared_artifacts: Annotated[dict[str, str], merge_dict]    # Artifact Name -> Content
+    artifact_files: Annotated[list, append_list]               # Files produced by workers
     progress_log: Annotated[list[str], append_list]
     global_cost: float
     status: str
@@ -126,6 +128,7 @@ async def subtask_worker(state: dict) -> dict:
     return {
         "completed_subtasks": {task_id: result_summary},
         "shared_artifacts": {task_id: result_summary},
+        "artifact_files": result.get("artifact_files", []),
         "progress_log": [f"Worker '{task_id}' finished (Cost: ${result.get('total_cost_usd', 0):.4f}). Summary: {result_summary[:100]}..."]
     }
 
@@ -167,7 +170,7 @@ def orchestrator_router(state: OrchestratorState) -> list[Send] | str:
         return [Send("subtask_worker", {
             "subtask_id": "main_task",
             "description": state["user_prompt"],
-            "specialization": "general",
+            "specialization": state.get("specialization", "general"),
             "shared_artifacts": state.get("shared_artifacts", {})
         })]
 
@@ -236,9 +239,11 @@ async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
 
     initial_state = {
         "user_prompt": task_description,
+        "specialization": task_payload.get("specialization", "general"),
         "execution_plan": None,
         "completed_subtasks": {},
         "shared_artifacts": {},
+        "artifact_files": [],
         "progress_log": [],
         "global_cost": 0.0,
         "status": "started",
@@ -262,4 +267,5 @@ async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
         "progress_log": final_state.get("progress_log", []),
         "duration_seconds": round(duration, 2),
         "mode": "agent",
+        "artifact_files": final_state.get("artifact_files", []),
     }

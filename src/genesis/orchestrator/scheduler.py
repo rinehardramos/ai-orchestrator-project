@@ -1,3 +1,4 @@
+import base64
 import boto3
 import uuid
 import time
@@ -70,16 +71,35 @@ class TaskScheduler:
         if self.notifier:
             self.notifier.send_message(f"📴 *Offline Mode*: Task {task_id} queued locally.")
 
-    def _record_task(self, task_id: str, description: str):
+    def _record_task(self, task_id: str, description: str, source: str = "cli"):
         """Record a submitted task in the local history table."""
         conn = sqlite3.connect(self.offline_db_path)
         c = conn.cursor()
+        # Add source column on first use (backward-compatible)
+        try:
+            c.execute("ALTER TABLE task_history ADD COLUMN source TEXT DEFAULT 'cli'")
+            conn.commit()
+        except Exception:
+            pass
         c.execute(
-            "INSERT OR REPLACE INTO task_history (task_id, description, submitted_at, status) VALUES (?, ?, ?, ?)",
-            (task_id, description, time.time(), "SUBMITTED")
+            "INSERT OR REPLACE INTO task_history (task_id, description, submitted_at, status, source) VALUES (?, ?, ?, ?, ?)",
+            (task_id, description, time.time(), "SUBMITTED", source)
         )
         conn.commit()
         conn.close()
+
+    def _get_task_source(self, task_id: str) -> str:
+        """Retrieve the source that submitted this task."""
+        conn = sqlite3.connect(self.offline_db_path)
+        c = conn.cursor()
+        try:
+            c.execute("SELECT source FROM task_history WHERE task_id=?", (task_id,))
+            row = c.fetchone()
+            return row[0] if row and row[0] else "cli"
+        except Exception:
+            return "cli"
+        finally:
+            conn.close()
 
     def _update_task_status(self, task_id: str, status: str):
         """Update the status of a task in the local history table."""
@@ -97,6 +117,67 @@ class TaskScheduler:
         row = c.fetchone()
         conn.close()
         return row[0] if row else "Unknown"
+
+    def _deliver_artifacts(self, result: dict, task_id: str):
+        """Deliver files produced by the worker back to the originating input source."""
+        artifact_files = result.get("artifact_files", [])
+        if not artifact_files:
+            return
+
+        source = self._get_task_source(task_id)
+        logger.info(f"[ARTIFACTS] Delivering {len(artifact_files)} file(s) to source='{source}'")
+
+        for af in artifact_files:
+            try:
+                content = base64.b64decode(af["content_b64"])
+                name = af.get("name", "file")
+                mime = af.get("mime_type", "application/octet-stream")
+                size_bytes = af.get("size_bytes", 0)
+                size_kb = size_bytes // 1024
+
+                if source == "telegram":
+                    self._deliver_artifact_telegram(content, name, mime, size_kb)
+                else:
+                    # CLI / TUI / API: save to output dir and print path
+                    self._deliver_artifact_local(content, name, task_id, size_kb, source)
+            except Exception as e:
+                logger.warning(f"[ARTIFACTS] Failed to deliver '{af.get('name')}': {e}")
+
+    def _deliver_artifact_telegram(self, content: bytes, name: str, mime: str, size_kb: int):
+        """Send an artifact to Telegram. Falls back to a notice if file is too large (>50 MB)."""
+        if not self.notifier:
+            return
+        MAX_TG_BYTES = 50 * 1024 * 1024
+        if len(content) > MAX_TG_BYTES:
+            self.notifier.send_message(
+                f"⚠️ *File too large for Telegram*\n`{name}` ({size_kb} KB)\n"
+                f"The file exceeds Telegram's 50 MB limit. It has been saved on the worker node.\n"
+                f"Access it via the server or request a download link."
+            )
+            return
+        caption = f"{name} ({size_kb} KB)"
+        if mime.startswith("image/"):
+            ok = self.notifier.send_photo(content, caption=caption)
+        else:
+            ok = self.notifier.send_document(content, name, caption=caption)
+        if ok:
+            logger.info(f"[ARTIFACTS] Sent '{name}' ({mime}) to Telegram")
+        else:
+            self.notifier.send_message(
+                f"⚠️ Could not send `{name}` ({mime}) to Telegram.\n"
+                f"The file type may not be supported. Try requesting it in a different format."
+            )
+
+    def _deliver_artifact_local(self, content: bytes, name: str, task_id: str, size_kb: int, source: str):
+        """Save artifact to output/ directory and print the path for CLI/TUI/API sources."""
+        out_dir = os.path.join("output", task_id)
+        os.makedirs(out_dir, exist_ok=True)
+        filepath = os.path.join(out_dir, name)
+        with open(filepath, "wb") as f:
+            f.write(content)
+        abs_path = os.path.abspath(filepath)
+        print(f"\n📁 [{source.upper()}] Artifact saved: {abs_path} ({size_kb} KB)")
+        logger.info(f"[ARTIFACTS] Saved '{name}' to {abs_path}")
 
     def get_recent_tasks(self, limit: int = 20) -> list:
         """Return recent tasks from the local history table, newest first."""
@@ -242,9 +323,9 @@ class TaskScheduler:
         })
         return await self.submit_task(agent_payload, analysis_result)
 
-    async def submit_task(self, task_description: str, analysis_result: Dict[str, Any]) -> str:
+    async def submit_task(self, task_description: str, analysis_result: Dict[str, Any], source: str = "cli") -> str:
         task_id = str(uuid.uuid4())
-        self._record_task(task_id, task_description)
+        self._record_task(task_id, task_description, source=source)
 
         # [NEW] Pre-flight Knowledge Base Check with Cache
         logger.info(f"🧠 [CNC NODE] Querying Knowledge Base for relevant past issues...")
@@ -449,7 +530,8 @@ class TaskScheduler:
                             f"💡 *Result:*\n{brief}"
                         )
                     self.notifier.send_message(msg)
-                    
+                    self._deliver_artifacts(result, task_id)
+
                 return final_status
             except Exception as e:
                 logger.error(f"❌ Error waiting for Temporal workflow: {e}", exc_info=True)

@@ -352,9 +352,34 @@ def task_complete(workspace_dir: str, summary: str, status: str = "success") -> 
     """Signal that the agent has completed its task."""
     return json.dumps({"action": "task_complete", "summary": summary, "status": status})
 
-def generate_image(workspace_dir: str, prompt: str) -> str:
-    """Stub for generating an image."""
-    return f"OK: Conceptually generated image for '{prompt}' (Feature pending dedicated stable-diffusion/flux integration)"
+def generate_image(workspace_dir: str, prompt: str, filename: str = "") -> str:
+    """Generate an image using Google Imagen and save it to the workspace."""
+    try:
+        from google import genai as _genai
+        google_api_key = os.environ.get("GOOGLE_API_KEY", "")
+        if not google_api_key:
+            return "ERROR: GOOGLE_API_KEY not set — cannot generate image"
+
+        client = _genai.Client(api_key=google_api_key)
+        response = client.models.generate_images(
+            model="imagen-4.0-generate-001",
+            prompt=prompt,
+            config={"number_of_images": 1},
+        )
+
+        if not response.generated_images:
+            return f"ERROR: No images returned for prompt: '{prompt}'"
+
+        image_bytes = response.generated_images[0].image.image_bytes
+        safe_stem = "".join(c if c.isalnum() or c in "-_" else "_" for c in prompt[:30])
+        fname = filename if filename else f"{safe_stem}.png"
+        filepath = os.path.join(workspace_dir, fname)
+        with open(filepath, "wb") as f:
+            f.write(image_bytes)
+
+        return f"OK: Image saved to '{fname}' ({len(image_bytes):,} bytes)"
+    except Exception as e:
+        return f"ERROR: Image generation failed: {e}"
 
 def generate_video(workspace_dir: str, prompt: str) -> str:
     """Stub for generating a video."""

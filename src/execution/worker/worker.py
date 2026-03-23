@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import mimetypes
 import os
 import uuid
 import json
@@ -461,6 +463,8 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
             "duration_seconds": duration,
         })
 
+        artifact_files = _collect_artifacts(workspace_dir)
+
         return {
             "status": final_state.get("status", "completed"),
             "summary": final_state.get("summary", ""),
@@ -469,9 +473,33 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
             "progress_log": final_state.get("progress_log", []),
             "duration_seconds": round(duration, 2),
             "mode": "agent",
+            "artifact_files": artifact_files,
         }
     finally:
         cleanup_workspace(workspace_dir)
+
+
+def _collect_artifacts(workspace_dir: str, max_size_bytes: int = 50 * 1024 * 1024) -> list[dict]:
+    """Read all files written to the workspace and return them as base64-encoded dicts."""
+    artifacts = []
+    if not os.path.isdir(workspace_dir):
+        return artifacts
+    for fname in sorted(os.listdir(workspace_dir)):
+        fpath = os.path.join(workspace_dir, fname)
+        if not os.path.isfile(fpath):
+            continue
+        size = os.path.getsize(fpath)
+        if size == 0 or size > max_size_bytes:
+            continue
+        mime_type, _ = mimetypes.guess_type(fname)
+        mime_type = mime_type or "application/octet-stream"
+        try:
+            with open(fpath, "rb") as f:
+                content_b64 = base64.b64encode(f.read()).decode()
+            artifacts.append({"name": fname, "content_b64": content_b64, "mime_type": mime_type, "size_bytes": size})
+        except Exception as e:
+            logger.warning(f"Could not read artifact '{fname}': {e}")
+    return artifacts
 
 
 # ──────────────────────────────────────────────

@@ -45,3 +45,44 @@ class TelegramNotifier:
                 print(f"Failed to send Telegram notification: {e}")
                 return False
         return False
+
+    def send_photo(self, image_bytes: bytes, caption: str = "") -> bool:
+        """Send a photo to the Telegram chat."""
+        if not self.enabled:
+            return False
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        if len(caption) > 1024:
+            caption = caption[:1020] + "..."
+        try:
+            response = requests.post(
+                url,
+                data={"chat_id": self.chat_id, "caption": caption},
+                files={"photo": ("image.png", image_bytes, "image/png")},
+                timeout=30,
+            )
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Failed to send Telegram photo: {e}")
+            return False
+
+    def send_document(self, file_bytes: bytes, filename: str, caption: str = "") -> bool:
+        """Send a file/document to the Telegram chat."""
+        if not self.enabled:
+            return False
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendDocument"
+        if len(caption) > 1024:
+            caption = caption[:1020] + "..."
+        try:
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(filename)
+            mime_type = mime_type or "application/octet-stream"
+            response = requests.post(
+                url,
+                data={"chat_id": self.chat_id, "caption": caption},
+                files={"document": (filename, file_bytes, mime_type)},
+                timeout=30,
+            )
+            return response.status_code == 200
+        except Exception as e:
+            print(f"Failed to send Telegram document: {e}")
+            return False
