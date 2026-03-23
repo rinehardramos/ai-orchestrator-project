@@ -16,9 +16,17 @@ from temporalio.worker import Worker, UnsandboxedWorkflowRunner
 # Langgraph
 from langgraph.graph import StateGraph, START, END
 
-# Prometheus
-from prometheus_client import start_http_server, Counter, Histogram
+# opik
 import time
+try:
+    from opik import track
+    OPIK_AVAILABLE = True
+except ImportError:
+    OPIK_AVAILABLE = False
+    def track(**kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
 
 # Local imports
 import sys
@@ -34,24 +42,11 @@ from src.execution.worker.prompts import build_system_prompt
 from src.execution.worker.model_router import ModelRouter, TaskType
 from src.execution.worker.embeddings import get_embedder
 
-try:
-    from opik import track
-    OPIK_AVAILABLE = True
-except ImportError:
-    OPIK_AVAILABLE = False
-    def track(**kwargs):
-        def decorator(fn):
-            return fn
-        return decorator
+# opik tracing moved to top
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("Worker")
-
-# --- Prometheus Metrics ---
-TASK_DURATION = Histogram("worker_task_duration_seconds", "Time spent processing a task")
-QDRANT_LATENCY = Histogram("worker_qdrant_latency_seconds", "Time spent querying Qdrant")
-AGENT_TOOL_CALLS = Counter("worker_agent_tool_calls_total", "Total agent tool calls", ["tool_name"])
 
 # --- Global Config & Memory Store ---
 config = load_settings()
@@ -84,12 +79,12 @@ AGENT_DEFAULTS = load_agent_defaults()
 # --- Model Router (config-driven, OpenRouter primary / LiteLLM for local in Phase 3) ---
 router = ModelRouter()
 
-def generate_content_with_tools(messages: list[dict], task_type: TaskType = TaskType.AGENT_STEP) -> tuple[Any, float]:
+def generate_content_with_tools(messages: list[dict], task_type: TaskType = TaskType.AGENT_STEP, specialization: str = "general") -> tuple[Any, float]:
     """
     Call LLM with tool schemas. Returns (response_message, cost_usd).
     The response_message may contain tool_calls or plain content.
     """
-    tool_schemas = get_tool_schemas()
+    tool_schemas = get_tool_schemas(specialization)
     errors = []
     
     # Try the specific task type first
@@ -134,6 +129,7 @@ class AgenticState(TypedDict):
     max_cost_usd: float
     total_cost_usd: float
     model_id: str
+    specialization: str
     artifacts: list[str]
     progress_log: list[str]
     error: str
@@ -145,9 +141,7 @@ def _fetch_qdrant_context(task_description: str) -> str:
     """Retrieve relevant past insights from Qdrant for the agent system prompt."""
     try:
         vector = get_embedder().embed(task_description)
-        start = time.time()
         results = memory_store.query_l2("agent_insights_v4", vector, limit=3)
-        QDRANT_LATENCY.observe(time.time() - start)
         if results:
             entries = []
             for r in results:
@@ -207,7 +201,11 @@ def agent_step(state: AgenticState) -> AgenticState:
                 task_description = msg.get("content", "")
                 break
         detected_type = router.detect_task_type(task_description)
-        response_msg, cost = generate_content_with_tools(state["messages"], task_type=detected_type)
+        response_msg, cost = generate_content_with_tools(
+            state["messages"],
+            task_type=detected_type,
+            specialization=state.get("specialization", "general")
+        )
         new_cost = state["total_cost_usd"] + cost
 
         # Heartbeat with structured progress
@@ -271,7 +269,6 @@ def tool_executor(state: AgenticState) -> AgenticState:
         except json.JSONDecodeError:
             args = {}
 
-        AGENT_TOOL_CALLS.labels(tool_name=fn_name).inc()
         new_count += 1
 
         tool_fn = get_tool_fn(fn_name)
@@ -400,6 +397,9 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     repo_url = task_payload.get("repo_url", "")
     max_tool_calls = task_payload.get("max_tool_calls", AGENT_DEFAULTS["max_tool_calls"])
     max_cost_usd = task_payload.get("max_cost_usd", AGENT_DEFAULTS["max_cost_usd"])
+    specialization = task_payload.get("specialization", "general")
+    
+    logger.info(f"[SPECIALIZATION] Task loaded with specialization: '{specialization}'")
 
     task_id = str(uuid.uuid4())
     workspace_dir = create_workspace(task_id)
@@ -418,6 +418,7 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
             "max_cost_usd": max_cost_usd,
             "total_cost_usd": 0.0,
             "model_id": model_id,
+            "specialization": specialization,
             "artifacts": [],
             "progress_log": [],
             "error": "",
@@ -428,15 +429,11 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         final_state = initial_state.copy()
         start_time = time.time()
 
-        # max_tool_calls * 3 accounts for plan + agent + tool_executor per tool call, plus buffer
+        # Recursion limit: max_tool_calls * 3 accounts for plan + agent + tool_executor per tool call, plus buffer
         recursion_limit = max(max_tool_calls * 3 + 10, 100)
-        async for event in agent_graph.astream(initial_state, config={"recursion_limit": recursion_limit}):
-            for node_name, node_output in event.items():
-                final_state.update(node_output)
-                logger.info(f"[AgentGraph] Node '{node_name}' completed")
+        final_state = await agent_graph.ainvoke(initial_state, config={"recursion_limit": recursion_limit})
 
         duration = time.time() - start_time
-        TASK_DURATION.observe(duration)
 
         # Store insight to L2 if we completed successfully
         if final_state.get("summary") and memory_store.qdrant:
@@ -503,10 +500,11 @@ def parse_task_input(input_task: str) -> tuple[str, dict | None]:
 
 @activity.defn
 async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
+    from src.execution.worker.multi_agent_graph import run_orchestrator
     mode, payload = parse_task_input(input_task)
 
     if mode != "agent":
-        # Wrap plain-text tasks as agent payloads — all tasks use the agentic pipeline
+        # Wrap plain-text tasks as agent payloads
         logger.info(f"[AGENT MODE] Wrapping plain-text task as agent payload: {input_task[:100]}")
         payload = {
             "task_type": "agent",
@@ -514,10 +512,12 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
             "repo_url": "",
             "max_tool_calls": AGENT_DEFAULTS["max_tool_calls"],
             "max_cost_usd": AGENT_DEFAULTS["max_cost_usd"],
+            "specialization": "general"
         }
 
-    logger.info(f"[AGENT MODE] Starting agentic pipeline for: {payload.get('description', '')[:100]}")
-    return await run_agent_pipeline(payload, model_id)
+    logger.info(f"[AGENT MODE] Starting Multi-Agent Orchestrator pipeline for: {payload.get('description', '')[:100]}")
+    return await run_orchestrator(payload, model_id)
+
 
 
 # --- Temporal Workflow ---
@@ -545,14 +545,6 @@ class AIOrchestrationWorkflow:
 # --- Worker Runtime ---
 
 async def main():
-    os.environ.setdefault("OPIK_PROJECT_NAME", "ai-orchestration")
-    
-    logger.info("Starting Prometheus metrics server on port 8000...")
-    try:
-        start_http_server(8000)
-    except Exception as e:
-        logger.error(f"Failed to start prometheus server: {e}")
-
     temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
     logger.info(f"Connecting to Temporal at {temporal_host}...")
 

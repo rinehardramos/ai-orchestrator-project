@@ -128,20 +128,21 @@ async def handle_submit(args):
         result.infra_details = {"provider": "existing_infra", "type": "container", "startup_time_sec": 1}
         result.reason = "User requested to use existing infrastructure."
 
-    # Determine the statement to send — agent mode wraps it in JSON
-    effective_statement = args.statement
+    # Determine the statement to send — all tasks use the agentic pipeline now
+    import json as _json
+    agent_payload = {
+        "task_type": "agent",
+        "description": args.statement,
+        "repo_url": getattr(args, "repo_url", ""),
+        "max_tool_calls": getattr(args, "max_tool_calls", 50),
+        "max_cost_usd": getattr(args, "max_cost", 0.50),
+        "specialization": result.specialization
+    }
+    if getattr(args, "push_branch", ""):
+        agent_payload["push_branch"] = args.push_branch
+    effective_statement = _json.dumps(agent_payload)
+
     if args.agent:
-        import json as _json
-        agent_payload = {
-            "task_type": "agent",
-            "description": args.statement,
-            "repo_url": getattr(args, "repo_url", ""),
-            "max_tool_calls": getattr(args, "max_tool_calls", 50),
-            "max_cost_usd": getattr(args, "max_cost", 0.50),
-        }
-        if getattr(args, "push_branch", ""):
-            agent_payload["push_branch"] = args.push_branch
-        effective_statement = _json.dumps(agent_payload)
         print(f"🤖 [AGENT MODE] Task will run as autonomous agent")
 
     if args.plan or not args.yolo:

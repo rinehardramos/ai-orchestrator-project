@@ -238,6 +238,7 @@ class TaskScheduler:
             "repo_url": repo_url,
             "max_tool_calls": max_tool_calls,
             "max_cost_usd": max_cost_usd,
+            "specialization": analysis_result.get("specialization", "general")
         })
         return await self.submit_task(agent_payload, analysis_result)
 

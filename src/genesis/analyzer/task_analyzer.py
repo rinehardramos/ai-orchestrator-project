@@ -43,6 +43,7 @@ class TaskRequirement(BaseModel):
     context_length: int
     requires_concurrency: bool = False
     requires_state_suspension: bool = False
+    specialization: str = "general"
 
 class AnalyzerResult(BaseModel):
     infrastructure_id: str
@@ -51,6 +52,7 @@ class AnalyzerResult(BaseModel):
     infra_details: dict
     model_details: dict
     reason: str
+    specialization: str = "general"
 
 class TaskAnalyzer:
     def __init__(self, config_path: str = "config/profiles.yaml"):
@@ -76,39 +78,17 @@ class TaskAnalyzer:
     @track(name="parse_statement")
     async def parse_statement(self, statement: str) -> TaskRequirement:
         """
-        Uses an LLM to extract structured TaskRequirements from a natural language statement.
+        Returns a default TaskRequirement. Detailed LLM-driven task decomposition
+        and specialization assignment are now offloaded to the Execution Plane (Worker).
         """
-        if not self.client:
-            # Fallback to a very basic heuristic if no API key is present
-            return TaskRequirement(
-                estimated_duration_seconds=60,
-                memory_mb=512,
-                reasoning_complexity="low",
-                context_length=1000
-            )
-
-        prompt = f"""
-        Extract task requirements from the following statement: "{statement}"
-        Return a JSON object matching this schema:
-        {{
-            "estimated_duration_seconds": int,
-            "memory_mb": int,
-            "reasoning_complexity": "low" | "medium" | "high" | "extreme",
-            "context_length": int,
-            "requires_concurrency": bool,
-            "requires_state_suspension": bool
-        }}
-        Be conservative but realistic. If not specified, use defaults: duration=60, memory=512, complexity=low, context=1000.
-        """
-        
-        # Using aio for non-blocking network call
-        response = await self.client.aio.models.generate_content(
-            model='gemini-3-flash-preview',
-            contents=prompt,
-            config={'response_mime_type': 'application/json'}
+        # Return default heuristic immediately to keep Genesis as a fast, thin client.
+        return TaskRequirement(
+            estimated_duration_seconds=60,
+            memory_mb=512,
+            reasoning_complexity="medium", # Default to medium, Planner node will decide actual needs
+            context_length=1000,
+            specialization="general" # Worker Planner will override this
         )
-        data = json.loads(response.text)
-        return TaskRequirement(**data)
 
     def select_model(self, task: TaskRequirement) -> dict:
         complexity_tiers = {"low": 1, "medium": 2, "high": 3, "extreme": 4}
@@ -190,5 +170,6 @@ class TaskAnalyzer:
             estimated_cost=infra_cost + model_cost,
             infra_details=selected_infra,
             model_details=selected_model,
-            reason=f"Routing to tier '{selected_model['reasoning_capability']}' using infra {selected_infra['id']}."
+            reason=f"Routing to tier '{selected_model['reasoning_capability']}' using infra {selected_infra['id']}.",
+            specialization=task.specialization
         )

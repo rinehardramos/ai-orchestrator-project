@@ -114,17 +114,15 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
 }
 
 
-def _load_task_routing() -> dict:
-    """Load the task_routing block from config/profiles.yaml."""
+def _load_yaml_config() -> dict:
+    """Load config/profiles.yaml."""
     config_path = os.path.abspath(
         os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml")
     )
-    with open(config_path, "r") as f:
-        data = yaml.safe_load(f)
-    routing = data.get("task_routing", {})
-    if not routing:
-        logger.warning("No task_routing found in profiles.yaml — using safe defaults")
-    return routing
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f) or {}
+    return {}
 
 
 class ModelRouter:
@@ -143,7 +141,9 @@ class ModelRouter:
             pass
         _configure_opik()
         
-        self._routing = _load_task_routing()
+        config_data = _load_yaml_config()
+        self._routing = config_data.get("task_routing", {})
+        self._specializations = config_data.get("specializations", {})
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
             logger.warning("OPENROUTER_API_KEY not set — OpenRouter calls will fail")
@@ -165,11 +165,15 @@ class ModelRouter:
         except Exception as e:
             logger.warning(f"[OPIK] Failed to wrap client: {e}")
 
-    def get_model(self, task_type: TaskType) -> str:
+    def get_model(self, task_type: TaskType, specialization: str = "general") -> str:
         """
-        Return the model string for a task type.
-        Example: get_model(TaskType.CODING) → "thudm/glm-4-plus"
+        Return the model string for a task type. Specific specializations override generic types.
         """
+        if specialization and specialization != "general":
+            spec_conf = self._specializations.get(specialization, {})
+            if "model" in spec_conf:
+                return spec_conf["model"]
+
         entry = self._routing.get(task_type.value, {})
         model = entry.get("model")
         if not model:
@@ -177,25 +181,29 @@ class ModelRouter:
             return "google/gemini-2.5-flash"
         return model
 
-    def get_provider(self, task_type: TaskType) -> str:
+    def get_provider(self, task_type: TaskType, specialization: str = "general") -> str:
         """
-        Return the provider string for a task type.
-        Returns 'remote' or 'local'.
+        Return the provider string for a task type. Missing or generic types rely on defaults.
         """
+        if specialization and specialization != "general":
+            spec_conf = self._specializations.get(specialization, {})
+            if "provider" in spec_conf:
+                return spec_conf["provider"]
+
         entry = self._routing.get(task_type.value, {})
         return entry.get("provider", "openrouter")
 
-    def call_llm(self, messages: list[dict], task_type: TaskType, tools: list) -> tuple:
+    def call_llm(self, messages: list[dict], task_type: TaskType, tools: list, specialization: str = "general") -> tuple:
         """
         Make an LLM call routed to the correct provider.
         Returns (response_message, cost_usd).
 
         Dispatches to:
-          - _call_remote() when provider=remote
-          - _call_local()  when provider=local
+          - _call_remote() when provider=openrouter
+          - _call_local()  when provider=lmstudio or ollama
         """
-        provider = self.get_provider(task_type)
-        model = self.get_model(task_type)
+        provider = self.get_provider(task_type, specialization)
+        model = self.get_model(task_type, specialization)
 
         if provider == "lmstudio" or provider == "ollama":
             return self._call_local(messages, model, tools)

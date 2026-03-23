@@ -96,3 +96,41 @@ task_routing:
     model: "text-embedding-nomic-embed-code"
     dim: 3584
     collection_suffix: "_v4"
+
+specializations:
+  general:
+    model: "google/gemini-2.0-flash-001"
+    provider: "openrouter"
+    allowed_tools: ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command"]
+  coding:
+    model: "zhipuai/glm-4-plus"
+    provider: "openrouter"
+    allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
+  research:
+    model: "anthropic/claude-3.5-sonnet"
+    provider: "openrouter"
+    allowed_tools: ["search_web", "read_url_content", "task_complete", "write_file"]
+  image_generation:
+    model: "google/gemini-2.0-flash-001"
+    provider: "openrouter"
+    allowed_tools: ["generate_image", "task_complete"]
+  video_generation:
+    model: "google/gemini-2.0-flash-001"
+    provider: "openrouter"
+    allowed_tools: ["generate_video", "task_complete"]
+  audio_generation:
+    model: "google/gemini-2.0-flash-001"
+    provider: "openrouter"
+    allowed_tools: ["generate_audio", "task_complete"]
+  planner:
+    model: "anthropic/claude-3.5-sonnet"
+    provider: "openrouter"
+    allowed_tools: ["task_complete"]
+  copywriting:
+    model: "anthropic/claude-3.5-sonnet"
+    provider: "openrouter"
+    allowed_tools: ["write_file", "read_file", "task_complete", "submit_for_review"]
+  quality_control:
+    model: "anthropic/claude-3.5-sonnet"
+    provider: "openrouter"
+    allowed_tools: ["read_file", "task_complete", "delegate_task"]

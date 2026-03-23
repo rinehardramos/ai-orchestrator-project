@@ -352,6 +352,73 @@ def task_complete(workspace_dir: str, summary: str, status: str = "success") -> 
     """Signal that the agent has completed its task."""
     return json.dumps({"action": "task_complete", "summary": summary, "status": status})
 
+def generate_image(workspace_dir: str, prompt: str) -> str:
+    """Stub for generating an image."""
+    return f"OK: Conceptually generated image for '{prompt}' (Feature pending dedicated stable-diffusion/flux integration)"
+
+def generate_video(workspace_dir: str, prompt: str) -> str:
+    """Stub for generating a video."""
+    return f"OK: Conceptually generated video for '{prompt}' (Feature pending Sora/Luma/Runway integration)"
+
+def generate_audio(workspace_dir: str, prompt: str) -> str:
+    """Stub for generating audio."""
+    return f"OK: Conceptually generated audio for '{prompt}' (Feature pending Suno/Udio/ElevenLabs integration)"
+
+def search_web(workspace_dir: str, query: str) -> str:
+    """Search the web using DuckDuckGo."""
+    try:
+        from ddgs import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=5))
+            if not results:
+                return "No results found."
+            formatted = []
+            for r in results:
+                formatted.append(f"Title: {r['title']}\nURL: {r['href']}\nSnippet: {r['body']}")
+            return "\n\n---\n\n".join(formatted)
+    except Exception as e:
+        return f"ERROR: Web search failed: {e}"
+
+def read_url_content(workspace_dir: str, url: str) -> str:
+    """Fetch and parse content from a URL."""
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+        response = requests.get(url, timeout=15, headers={"User-Agent": "AI-Orchestrator/1.0"})
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.extract()
+            
+        text = soup.get_text(separator="\n")
+        # Clean up whitespace
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = "\n".join(chunk for chunk in chunks if chunk)
+        
+        if len(text) > 20000:
+            text = text[:20000] + "\n... [truncated]"
+        return text
+    except Exception as e:
+        return f"ERROR: Could not read URL: {e}"
+def submit_for_review(workspace_dir: str, artifact_path: str, notes: str = "") -> str:
+    """Submit an artifact for review by a Quality Control agent."""
+    return json.dumps({
+        "action": "submit_for_review",
+        "artifact_path": artifact_path,
+        "notes": notes
+    })
+
+def delegate_task(workspace_dir: str, task_description: str, specialization: str = "general") -> str:
+    """Delegate a sub-task to another specialized agent."""
+    return json.dumps({
+        "action": "delegate_task",
+        "task_description": task_description,
+        "specialization": specialization
+    })
+
 
 # ── Tool Registry ──
 
@@ -606,11 +673,157 @@ TOOL_REGISTRY: list[dict] = [
             },
         },
     },
+    {
+        "name": "generate_image",
+        "fn": generate_image,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "generate_image",
+                "description": "Generate an image via AI model and save to workspace.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Image generation prompt"},
+                    },
+                    "required": ["prompt"],
+                },
+            },
+        },
+    },
+    {
+        "name": "generate_video",
+        "fn": generate_video,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "generate_video",
+                "description": "Generate a video via AI model.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Video generation prompt"},
+                    },
+                    "required": ["prompt"],
+                },
+            },
+        },
+    },
+    {
+        "name": "generate_audio",
+        "fn": generate_audio,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "generate_audio",
+                "description": "Generate audio/music via AI model.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "prompt": {"type": "string", "description": "Audio generation prompt"},
+                    },
+                    "required": ["prompt"],
+                },
+            },
+        },
+    },
+    {
+        "name": "search_web",
+        "fn": search_web,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "search_web",
+                "description": "Search the live web for information using DuckDuckGo.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    },
+    {
+        "name": "read_url_content",
+        "fn": read_url_content,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "read_url_content",
+                "description": "Read the main text content of a webpage.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": {"type": "string", "description": "Full URL to fetch (must start with http/https)"},
+                    },
+                    "required": ["url"],
+                },
+            },
+        },
+    },
+    {
+        "name": "submit_for_review",
+        "fn": submit_for_review,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "submit_for_review",
+                "description": "Submit an artifact for review by a Quality Control agent.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "artifact_path": {"type": "string", "description": "Path to the artifact to review"},
+                        "notes": {"type": "string", "description": "Review notes or specific feedback requested", "default": ""},
+                    },
+                    "required": ["artifact_path"],
+                },
+            },
+        },
+    },
+    {
+        "name": "delegate_task",
+        "fn": delegate_task,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "delegate_task",
+                "description": "Delegate a sub-task to another specialized agent.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "task_description": {"type": "string", "description": "Description of the task to delegate"},
+                        "specialization": {"type": "string", "description": "Specialization required for the task", "default": "general"},
+                    },
+                    "required": ["task_description"],
+                },
+            },
+        },
+    },
 ]
 
 
-def get_tool_schemas() -> list[dict]:
-    """Return the list of tool schemas for the LiteLLM tools parameter."""
+def get_allowed_tools(specialization: str) -> list[str] | None:
+    try:
+        import yaml
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+        profiles_path = os.path.join(project_root, "config/profiles.yaml")
+        if os.path.exists(profiles_path):
+            with open(profiles_path, "r") as f:
+                data = yaml.safe_load(f)
+                specs = data.get("specializations", {})
+                if specialization in specs:
+                    return specs[specialization].get("allowed_tools", None)
+    except Exception as e:
+        logger.warning(f"Could not load specializations config: {e}")
+    return None
+
+def get_tool_schemas(specialization: str = "general") -> list[dict]:
+    """Return the list of tool schemas for the LiteLLM tools parameter, optionally filtered by specialization."""
+    allowed = get_allowed_tools(specialization)
+    if allowed is not None:
+        return [t["schema"] for t in TOOL_REGISTRY if t["name"] in allowed]
     return [t["schema"] for t in TOOL_REGISTRY]
 
 

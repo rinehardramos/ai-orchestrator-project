@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23]
+### Added
+- **Multi-Agent Orchestrator**: Implemented a dynamic LangGraph-based orchestrator that can decompose a complex prompt into multiple specialized sub-tasks (Planning, Research, Coding, etc.).
+- **Planner Node**: Added a dedicated "Architect" node that analyzes task complexity and generates an `ExecutionPlan` with dependency management.
+- **Dynamic Routing (Send API)**: Leveraged LangGraph's `Send` API to spawn parallel agent nodes dynamically based on the execution plan.
+- **Media Generation Tools**: Integrated `search_web` (DuckDuckGo), `read_url_content`, and stubs for `generate_video` and `generate_audio` (Luma/Sora/Suno ready).
+- **Consolidated Observability**: Migrated all worker and agent telemetry to **Opik** for deep hierarchical tracing, decommissioning the redundant Prometheus metrics server.
+- **Project License**: Added the **MIT License** to the project root for open-source compliance.
+
+### Changed
+- **Thin Genesis Client**: Offloaded task decomposition from the Genesis node to the Execution Worker, simplifying the client-side profile usage.
+- **Robust Model Routing**: Enhanced the `ModelRouter` to support automatic fallback from local (LMStudio/Ollama) to cloud (OpenRouter) providers.
+
 ## [2026-03-20]
 ### Added
 - **Unified Bootstrap Script**: Created `scripts/bootstrap_machine.sh`, a one-stop-shop for configuring and verifying machine roles (Controller, Worker, CNC, or Full Stack). Includes automated dependency checks, role-based .env generation, and terminal-friendly interactive setup.
