@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23] — Patch 4
+
+### Added
+- **Self-healing recovery system** (`multi_agent_graph.py`, `tools.py`): When `synthesis_node` detects a tool-capability failure (e.g., "GIF generation is not supported"), the orchestrator automatically spawns a coder agent to implement the missing tool as Python code, `exec()`s it at runtime, registers it via `register_dynamic_tool()`, persists it to `tools.py` for restart survival, then retries the original task with the new tool available.
+- **Dynamic tool registry** (`tools.py`): Added `_DYNAMIC_REGISTRY` dict and `register_dynamic_tool(name, fn, schema)`. `get_tool_schemas()` and `get_tool_fn()` now include dynamically registered tools, making new tools immediately available to all agents without restarting the worker.
+- **Recovery notifications** (`multi_agent_graph.py`, `scheduler.py`): The worker emits Temporal heartbeats at two recovery milestones — `phase=recovery_analyzing` (tool failure detected, coder agent spawned) and `phase=recovery_retry` (new tool implemented, original task retrying). The scheduler detects these phases and sends targeted messages to the task source (Telegram/CLI/TUI) instead of the generic progress update:
+  - `⚠️ Self-Healing Triggered — A required tool is missing. Spawning a coder agent...`
+  - `🔄 Retrying After Recovery — New tool implemented and registered. Retrying...`
+
+### Fixed
+- **Infinite recovery loop**: If recovery runs and the retry still fails with the same tool-failure pattern, `synthesis_node` now returns `status="failed"` with a `[RECOVERY EXHAUSTED]` message and the `after_synthesis` router exits to `END` immediately. Previously it would incorrectly mark the task as `"completed"` while the failure persisted.
+
 ## [2026-03-23] — Patch 3
 
 ### Fixed

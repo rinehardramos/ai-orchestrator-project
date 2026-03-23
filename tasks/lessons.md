@@ -22,6 +22,12 @@ _Every time the user corrects a mistake, documents a bug, or provides a new para
 - **Never bypass the orchestrator pipeline**: Any fast-path that calls tools or LLMs before `run_orchestrator` violates the architecture and breaks `parallel_isolated` and `coordinated_team` strategies. All execution must flow through `planner_node → orchestrator_router → subtask_worker`.
 - **Genesis node must not run worker processes**: The genesis (CNC) node is task delegation only. A native `worker.py` process running on the genesis node will race the Docker container for Temporal tasks and process them with stale in-memory config, producing incorrect results silently.
 
+## Self-Healing & Dynamic Tool Registration
+- **Recovery loops need an explicit exit condition, not just a boolean gate**: `recovery_attempted=True` prevents re-entering the recovery node, but if the retry still fails with the same pattern, `synthesis_node` must explicitly return `status="failed"` — not `"completed"`. Silently marking a failed retry as completed hides the failure and misleads the caller.
+- **Emit heartbeats at every major phase boundary, not just agent steps**: Recovery milestones (`recovery_analyzing`, `recovery_retry`) are as important to communicate as LLM call progress. The scheduler's heartbeat loop is already polling — use it. Custom phase names give the scheduler the signal it needs to send targeted, meaningful messages instead of generic "📈 Progress" lines.
+- **Dynamic tool registration must be visible to both schemas and dispatch**: Adding a tool to `_DYNAMIC_REGISTRY` is only half the job. `get_tool_schemas()` must include it (so the LLM sees it in its context) AND `get_tool_fn()` must resolve it (so the tool dispatcher can call it). Both lookups must check the registry.
+- **Persist generated tools via volume-mounted files, not in-memory only**: `exec()`-registered tools are lost on container restart. Appending the function and `TOOL_REGISTRY` entry to `tools.py` via the volume-mounted path makes the fix durable without image rebuilds.
+
 ## Ongoing Rules
 - **Simple Over Complex**: "Senior developer standards. Minimal Impact. Changes should only touch what's necessary."
 - **Self-Sufficiency**: "When given a bug report: just fix it. Don't ask for hand-holding. Go fix failing CI tests without being told how."
