@@ -197,7 +197,6 @@ class ModelRouter:
         """
         Call a local model via a standard OpenAI client pointed to local endpoint.
         """
-        # Load local API base from settings
         config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
         api_base = "http://127.0.0.1:1234/v1"
         if os.path.exists(config_path):
@@ -215,7 +214,15 @@ class ModelRouter:
             api_key="local-dummy-key"
         )
         
-        # Strip litellm/openai prefixes if included accidentally
+        try:
+            from opik.integrations.openai import track_openai
+            local_client = track_openai(
+                local_client,
+                project_name=os.environ.get("OPIK_PROJECT_NAME", "ai-orchestration")
+            )
+        except Exception:
+            pass
+        
         if model.startswith("openai/"):
             model = model.replace("openai/", "")
             
@@ -225,7 +232,6 @@ class ModelRouter:
             tools=tools,
             tool_choice="auto",
         )
-        # Cost is 0 for purely local inference
         return response.choices[0].message, 0.0
 
     def detect_task_type(self, description: str) -> TaskType:

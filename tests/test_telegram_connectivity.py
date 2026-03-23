@@ -2,7 +2,7 @@ import os
 import pytest
 import requests
 from dotenv import load_dotenv
-from src.cnc.orchestrator.notifier import TelegramNotifier
+from src.genesis.orchestrator.notifier import TelegramNotifier
 
 @pytest.fixture(autouse=True)
 def setup_env():

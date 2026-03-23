@@ -3,11 +3,11 @@ import sqlite3
 import os
 import json
 from unittest.mock import patch, MagicMock, AsyncMock
-from src.cnc.orchestrator.scheduler import TaskScheduler
+from src.genesis.orchestrator.scheduler import TaskScheduler
 
 @pytest.fixture
 def mock_scheduler(tmpdir):
-    with patch("src.cnc.orchestrator.scheduler.load_settings") as mock_settings:
+    with patch("src.genesis.orchestrator.scheduler.load_settings") as mock_settings:
         mock_settings.return_value = {}
         # We patch sqlite3 connect to use a temporary DB for tests
         scheduler = TaskScheduler("dummy-temporal-queue", "dummy-table")
@@ -84,7 +84,7 @@ async def test_flush_offline_queue_empty(mock_scheduler):
     mock_client.start_workflow.assert_not_called()
 
 
-@patch("src.cnc.orchestrator.scheduler.TaskScheduler.check_connectivity")
+@patch("src.genesis.orchestrator.scheduler.TaskScheduler.check_connectivity")
 def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
     # Setup mock KB
     mock_scheduler.preflight_cache = {}
@@ -99,7 +99,7 @@ def test_submit_task_preflight_cache(mock_check_conn, mock_scheduler):
         # We need to patch input to automatically reply 'y' to proceed anyway
         with patch("builtins.input", return_value="y"):
             # We also need to patch Temporal Client to avoid actual connection
-            with patch("src.cnc.orchestrator.scheduler.Client.connect", new_callable=AsyncMock) as mock_connect:
+            with patch("src.genesis.orchestrator.scheduler.Client.connect", new_callable=AsyncMock) as mock_connect:
                 mock_client = AsyncMock()
                 mock_connect.return_value = mock_client
                 

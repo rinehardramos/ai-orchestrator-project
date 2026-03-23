@@ -15,7 +15,7 @@ logger = logging.getLogger("TaskScheduler")
 
 # Local imports
 try:
-    from src.cnc.orchestrator.notifier import TelegramNotifier
+    from src.genesis.orchestrator.notifier import TelegramNotifier
 except ImportError:
     TelegramNotifier = None
 

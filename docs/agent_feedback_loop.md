@@ -24,15 +24,15 @@ Outcome: Success / Failure
 Next agent encounters similar problem → retrieves this fix
 ```
 
-### Step 1: Pre-flight Check (CNC Node)
+### Step 1: Pre-flight Check (Genesis Node)
 
-Before submitting a task to the Temporal queue, the Genesis Node's scheduler (`src/cnc/orchestrator/scheduler.py`) performs a semantic search against Qdrant:
+Before submitting a task to the Temporal queue, the Genesis Node's scheduler (`src/genesis/orchestrator/scheduler.py`) performs a semantic search against Qdrant:
 
 ```python
 results = kb_client.search("agent_insights", task_description, top_k=3)
 ```
 
-If relevant past failures are found, the CNC node:
+If relevant past failures are found, the Genesis node:
 - Displays a warning to the user (interactive CLI)
 - Sends a Telegram alert (headless mode)
 - The user can then decide to proceed, abort, or modify the task
@@ -85,13 +85,13 @@ Since all workers share the same Qdrant instance on the Control Plane:
 Agents communicate task status through two channels:
 
 ### 1. CLI Output (Interactive)
-The CNC node's CLI displays:
+The Genesis node's CLI displays:
 - Pre-flight warnings with historical failure details
 - Task submission confirmation and Temporal workflow ID
 - Final result (stdout/stderr from the worker)
 
 ### 2. Telegram Notifications (Headless / Remote)
-The `TelegramNotifier` (`src/cnc/orchestrator/telegram_monitor.py`) sends messages for:
+The `TelegramNotifier` (`src/genesis/orchestrator/telegram_monitor.py`) sends messages for:
 
 | Event | Message |
 |:------|:--------|

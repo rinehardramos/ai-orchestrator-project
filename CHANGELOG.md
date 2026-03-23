@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 - Updated config to use `gemini-3-flash-preview`.
 - Ensured correct LiteLLM provider prefixing in the worker.
 - Added missing `prometheus-client` dependency.
-- Fixed AWS CLI architecture parsing in `Dockerfile.cnc` and disabled Trivy exit on vulnerabilities.
+- Fixed AWS CLI architecture parsing in `Dockerfile.genesis` and disabled Trivy exit on vulnerabilities.
 - Resolved Pulumi `ModuleNotFoundError` by installing CLI and CNC dependencies.
 - Resolved macOS Docker keychain issue by disabling `credsStore` in `~/.docker/config.json`.
 - Fixed Redis subscriber loop and WebSocket protocol in the Observability plane.

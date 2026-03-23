@@ -5,7 +5,7 @@
 # Fields:
 #   name  - Human-readable identifier
 #   host  - IP or hostname (use 'localhost' for the Genesis/CNC node)
-#   role  - cnc | control | execution
+#   role  - genesis | control | execution
 #   user  - SSH username (optional, defaults to current user)
 #   key   - SSH private key path (optional, uses default SSH config if omitted)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -13,7 +13,7 @@
 nodes:
   - name: genesis
     host: localhost
-    role: cnc
+    role: genesis
     project_dir: /home/pi/Projects/ai-orchestration-project
 
   - name: worker-main

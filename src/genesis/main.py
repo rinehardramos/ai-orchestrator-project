@@ -14,11 +14,11 @@ load_dotenv()
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from src.cnc.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
-from src.cnc.cli import show_plan
-from src.cnc.iac.pulumi_wrapper import provision_worker, destroy_worker
-from src.cnc.orchestrator.scheduler import TaskScheduler
-from src.cnc.utils.system_monitor import SystemMonitor
+from src.genesis.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
+from src.genesis.cli import show_plan
+from src.genesis.iac.pulumi_wrapper import provision_worker, destroy_worker
+from src.genesis.orchestrator.scheduler import TaskScheduler
+from src.genesis.utils.system_monitor import SystemMonitor
 
 monitor = SystemMonitor(threshold_percent=90.0)
 
@@ -154,7 +154,7 @@ async def handle_submit(args):
                 await execute_task_async(result, effective_statement, wait=args.wait)
                 break
             elif choice == 'r':
-                from src.cnc.cli import build_task
+                from src.genesis.cli import build_task
                 manual_task = build_task()
                 manual_result = analyzer.analyze(manual_task)
                 show_plan(manual_result)

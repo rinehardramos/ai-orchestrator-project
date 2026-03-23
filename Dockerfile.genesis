@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────
-# CNC / Genesis Node Dockerfile
+# Genesis Node Dockerfile
 # Responsibility: Provision infrastructure (Pulumi/AWS), parse intents, schedule tasks.
 # This is the ONLY Dockerfile that should have IaC tools.
 # ─────────────────────────────────────────────
@@ -21,12 +21,12 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
     && ./aws/install \
     && rm -rf awscliv2.zip ./aws
 
-# Install Terraform (CNC-only IaC tool)
+# Install Terraform (Genesis-only IaC tool)
 RUN curl -fsSL https://apt.releases.hashicorp.com/gpg | gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/hashicorp.list \
     && apt-get update && apt-get install -y terraform
 
-# Install Pulumi (CNC-only IaC tool)
+# Install Pulumi (Genesis-only IaC tool)
 RUN curl -fsSL https://get.pulumi.com | sh
 ENV PATH=$PATH:/root/.pulumi/bin
 
@@ -41,9 +41,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY requirements.cnc.txt .
-RUN pip install --no-cache-dir -r requirements.cnc.txt
+COPY requirements.genesis.txt .
+RUN pip install --no-cache-dir -r requirements.genesis.txt
 
 COPY . .
 
-CMD ["python", "src/cnc/main.py"]
+CMD ["python", "src/genesis/main.py"]

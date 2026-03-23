@@ -4,7 +4,6 @@ import uuid
 import yaml
 import re
 
-# Ensure we can import from src
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 
 from src.shared.memory.hybrid_store import HybridMemoryStore, MemoryEntry
@@ -13,20 +12,44 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), '.env'))
 
+try:
+    from opik import track
+    OPIK_AVAILABLE = True
+except ImportError:
+    OPIK_AVAILABLE = False
+    def track(**kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+def _configure_opik():
+    import logging
+    logger = logging.getLogger("KnowledgeBase")
+    url_override = os.environ.get("OPIK_URL_OVERRIDE")
+    if url_override and OPIK_AVAILABLE:
+        try:
+            import opik
+            opik.configure(use_local=True, url=url_override)
+            logger.info(f"[OPIK] Configured for self-hosted at '{url_override}'")
+        except Exception as e:
+            logger.warning(f"[OPIK] Configuration failed: {e}")
+
+_configure_opik()
+
 # Embedding dimensions per provider model
-_EMBED_DIM = 1536   # text-embedding-3-small
+_EMBED_DIM = 3584   # nomic-embed-code
 
 
 class KnowledgeBaseClient:
     """
-    Lightweight embedding client for the CNC (Genesis) node.
-    Uses direct HTTP calls to embedding APIs — no heavy ML libraries required.
-    Supported providers: Google (text-embedding-004), OpenAI (text-embedding-3-small).
+    Shared embedding client for all agents (worker, genesis, control).
+    Uses direct HTTP calls to local LMStudio embedding endpoint.
+    All agents use the same embedding model for vector compatibility in Qdrant.
     """
 
     def __init__(self, settings_path=None):
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         if settings_path is None:
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             settings_path = os.path.join(project_root, "config/settings.yaml")
 
         qdrant_url = os.environ.get("QDRANT_URL")
@@ -39,11 +62,36 @@ class KnowledgeBaseClient:
                     qdrant_url = f"http://{host}:{port}"
 
         self.store = HybridMemoryStore(qdrant_url=qdrant_url)
-        self.collection_name = "knowledge_base_v2"
+        self.collection_name = "knowledge_base_v3"
 
-        self._openai_key = os.environ.get("OPENAI_API_KEY")
+        self._openai_key = os.environ.get("OPENAI_API_KEY", "dummy")
+        
+        # Load embedding settings from profiles.yaml
+        profiles_path = os.path.join(project_root, "config/profiles.yaml")
+        provider = "openai"
+        self._embed_model = "nomic-embed-code"
         self._embed_dim = _EMBED_DIM
+        self._api_base = "https://api.openai.com/v1"
+        
+        if os.path.exists(profiles_path):
+            with open(profiles_path, 'r') as f:
+                prof = yaml.safe_load(f)
+                emb = prof.get("task_routing", {}).get("embedding", {})
+                provider = emb.get("provider", "local")
+                self._embed_model = emb.get("model", "nomic-embed-code")
+                self._embed_dim = emb.get("dim", _EMBED_DIM)
+        
+        if provider == "local":
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r') as f:
+                    settings = yaml.safe_load(f)
+                    env = settings.get("active_environment", "primary")
+                    lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
+                    if lmstudio:
+                        self._api_base = f"http://{lmstudio.get('host', '127.0.0.1')}:{lmstudio.get('port', 1234)}/v1"
+                        self._openai_key = "lmstudio"
 
+    @track(name="embed_text")
     def embed_text(self, text: str) -> list[float]:
         """Generate an embedding vector via direct HTTP API call."""
         try:
@@ -54,9 +102,9 @@ class KnowledgeBaseClient:
 
     def _embed_openai(self, text: str) -> list[float]:
         resp = _requests.post(
-            "https://api.openai.com/v1/embeddings",
+            f"{self._api_base}/embeddings",
             headers={"Authorization": f"Bearer {self._openai_key}"},
-            json={"model": "text-embedding-3-small", "input": text},
+            json={"model": self._embed_model, "input": text},
             timeout=15,
         )
         resp.raise_for_status()
@@ -106,7 +154,7 @@ class KnowledgeBaseClient:
         
         relevant_issues = []
         for res in results:
-            if res.score > 0.7: # Threshold for relevance
+            if res.score > 0.3: # Threshold for relevance (lowered for nomic-embed-text-v2-moe)
                 payload = res.payload or {}
                 
                 # ── Boost Score On Retrieval ──

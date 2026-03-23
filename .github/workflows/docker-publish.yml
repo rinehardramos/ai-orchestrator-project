@@ -38,7 +38,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           if [ -f requirements.worker.txt ]; then pip install -r requirements.worker.txt; fi
           if [ -f requirements.observability.txt ]; then pip install -r requirements.observability.txt; fi
-          if [ -f requirements.cnc.txt ]; then pip install -r requirements.cnc.txt; fi
+          if [ -f requirements.genesis.txt ]; then pip install -r requirements.genesis.txt; fi
 
       - name: Lint with flake8
         run: |
@@ -76,9 +76,9 @@ jobs:
     strategy:
       matrix:
         component:
-          - name: cnc
-            file: Dockerfile.cnc
-            image_suffix: cnc
+          - name: genesis
+            file: Dockerfile.genesis
+            image_suffix: genesis
           - name: control
             file: src/control/Dockerfile.control
             image_suffix: control

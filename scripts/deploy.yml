@@ -15,7 +15,7 @@
 #     --limit worker-main
 #
 # Variables:
-#   plane        (str,  default: all)    — cnc | control | execution | all | observability
+#   plane        (str,  default: all)    — genesis | control | execution | all | observability
 #   target_hosts (str)                   — manual host limit override
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -101,8 +101,8 @@
         plane_config: >-
           {% if plane == 'all' %}
           {
-            "services": "ai-worker collector web dispatcher selector cnc",
-            "files": ["src/execution/worker/docker-compose.yml", "src/observability/docker-compose.observability.yml", "src/control/docker-compose.control.yml", "docker-compose.cnc.yml"]
+            "services": "ai-worker collector web dispatcher selector genesis",
+            "files": ["src/execution/worker/docker-compose.yml", "src/observability/docker-compose.observability.yml", "src/control/docker-compose.control.yml", "docker-compose.genesis.yml"]
           }
           {% elif plane == 'execution' %}
           {
@@ -119,10 +119,10 @@
             "services": "dispatcher selector",
             "files": ["src/control/docker-compose.control.yml"]
           }
-          {% elif plane == 'cnc' %}
+          {% elif plane == 'genesis' %}
           {
-            "services": "cnc",
-            "files": ["docker-compose.cnc.yml"]
+            "services": "genesis",
+            "files": ["docker-compose.genesis.yml"]
           }
           {% else %}
           {"services": "", "files": []}
@@ -143,12 +143,12 @@
       when: (plane_config | from_json).services | length > 0
       tags: [build, reload]
 
-    - name: Restart Telegram Monitor service (CNC Plane)
+    - name: Restart Telegram Monitor service (Genesis Plane)
       become: true
       systemd:
         name: telegram-monitor
         state: restarted
-      when: plane in ['all', 'cnc'] and ansible_os_family != 'Darwin'
+      when: plane in ['all', 'genesis'] and ansible_os_family != 'Darwin'
       tags: [reload]
 
     # ── Verify ───────────────────────────────────────────────────────────────

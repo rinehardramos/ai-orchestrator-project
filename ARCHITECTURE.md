@@ -7,12 +7,12 @@ This document describes the three-plane architecture of the AI Orchestration sys
 ```mermaid
 graph TD
     subgraph "Genesis Node (CNC)"
-        Main[src/cnc/main.py]
-        CLI[src/cnc/cli.py] --> Scheduler[src/cnc/orchestrator/scheduler.py]
+        Main[src/genesis/main.py]
+        CLI[src/genesis/cli.py] --> Scheduler[src/genesis/orchestrator/scheduler.py]
         Scheduler --> KB_Client_CNC[src/shared/memory/knowledge_base.py]
         Scheduler --> OfflineDB[(Offline SQLite DB)]
         Scheduler --> Notifier[Telegram Notifier]
-        Backup[src/cnc/orchestrator/backup_manager.py] --> SystemBackups[(Local Backups)]
+        Backup[src/genesis/orchestrator/backup_manager.py] --> SystemBackups[(Local Backups)]
     end
 
     subgraph "Control Plane (Remote Central Node)"
@@ -79,7 +79,7 @@ graph TD
 ### 3. Execution Plane (Worker Node)
 *   **Role:** High-Privilege Execution.
 *   **Worker:** A containerized agent that executes tasks. It is **Data-Driven**, meaning it does not have hardcoded logic. Instead, it dynamically loads its task definitions from `config/jobs.yaml`.
-*   **Execution Guardrail:** Like the CNC node, the worker performs its own internal KB lookup before starting a subprocess, ensuring that even if the CNC pre-flight is bypassed, the execution remains context-aware.
+*   **Execution Guardrail:** Like the Genesis node, the worker performs its own internal KB lookup before starting a subprocess, ensuring that even if the CNC pre-flight is bypassed, the execution remains context-aware.
 *   **Horizontal Scaling:** Multiple workers can run simultaneously — all are stateless and share the same Temporal task queue. Add machines by pointing them at the Control Plane (see `docs/cluster_expansion.md`).
 
 ---
@@ -101,7 +101,7 @@ graph LR
 
 ### How It Works
 
-1. **During Execution**: Every worker queries Qdrant (`agent_insights` collection) via semantic search before starting a task. If a similar task has failed before, the warning surfaces to the CNC node's pre-flight check and can be surfaced to the user.
+1. **During Execution**: Every worker queries Qdrant (`agent_insights` collection) via semantic search before starting a task. If a similar task has failed before, the warning surfaces to the Genesis node's pre-flight check and can be surfaced to the user.
 
 2. **After Resolution**: When a complex bug or architectural blocker is resolved, the resolving agent embeds a `MemoryEntry` into Qdrant using `KnowledgeBaseClient`. This entry includes:
    - The symptom / traceback
@@ -122,7 +122,7 @@ Agents report status back through two channels:
 | **CLI (stdout)** | Interactive sessions | Task result, warnings, pre-flight alerts |
 | **Telegram Notifier** | All modes (headless-friendly) | Submitted, running, complete, failed, blocked |
 
-The Telegram notifier (`src/cnc/orchestrator/telegram_monitor.py`) allows the system to operate fully headless on a Raspberry Pi while the user receives real-time updates on their phone.
+The Telegram notifier (`src/genesis/orchestrator/telegram_monitor.py`) allows the system to operate fully headless on a Raspberry Pi while the user receives real-time updates on their phone.
 
 ---
 

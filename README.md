@@ -92,7 +92,7 @@ The Genesis Node can be controlled remotely via Telegram. This is ideal for head
 
 - **Start Monitor**: 
   ```bash
-  python3 src/cnc/orchestrator/telegram_monitor.py
+  python3 src/genesis/orchestrator/telegram_monitor.py
   ```
 - **Install Background Service**:
   Run the setup script and follow the prompts to install the `systemd` service:
@@ -100,7 +100,7 @@ The Genesis Node can be controlled remotely via Telegram. This is ideal for head
   ./scripts/setup.sh
   ```
 - **Commands**:
-  - `/status`: Check if the CNC node is online.
+  - `/status`: Check if the Genesis node is online.
   - `/start`: Welcome message and instructions.
   - `<Any Text>`: Treat as a task statement for the AI to analyze and execute.
 - **Monitoring Logs**:
@@ -113,8 +113,8 @@ The Genesis Node can be controlled remotely via Telegram. This is ideal for head
 To apply changes made to the codebase, follow these steps based on the component modified:
 
 ### **1. Genesis Node Logic (Python)**
-If you modify files in `src/cnc/` (like `orchestrator/` or `analyzer/`):
-- No explicit reload is needed. Simply run `./main.py` or `python3 src/cnc/cli.py` again.
+If you modify files in `src/genesis/` (like `orchestrator/` or `analyzer/`):
+- No explicit reload is needed. Simply run `./main.py` or `python3 src/genesis/cli.py` again.
 
 ### **2. Remote Worker Node**
 If you modify `src/execution/worker/worker.py` or the worker's environment:
@@ -128,8 +128,8 @@ If you modify `src/execution/worker/worker.py` or the worker's environment:
 
 The project is organized into three "planes" to clearly separate responsibilities:
 
-- **Genesis Plane (`src/cnc/`)**: 
-  - `main.py`: Entry point for the Genesis CNC Node.
+- **Genesis Plane (`src/genesis/`)**: 
+  - `main.py`: Entry point for the Genesis Genesis Node.
   - `analyzer/`: Intent parsing and infrastructure selection (via LiteLLM).
   - `iac/`: Pulumi SSH/Command orchestration for remote provisioning.
   - `orchestrator/`: Temporal client and task scheduler.

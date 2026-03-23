@@ -50,7 +50,7 @@ class TaskAnalyzer:
     def __init__(self, config_path: str = "config/profiles.yaml"):
         # Resolve config path relative to project root
         if not os.path.isabs(config_path):
-            # src/cnc/analyzer/agent.py -> src/cnc/analyzer -> src/cnc -> src -> project_root
+            # src/genesis/analyzer/task_analyzer.py -> src/genesis/analyzer -> src/genesis -> src -> project_root
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
             config_path = os.path.join(project_root, config_path)
             

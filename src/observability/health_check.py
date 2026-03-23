@@ -73,7 +73,7 @@ def load_nodes() -> list[dict]:
         with open(NODES_FILE) as f:
             return yaml.safe_load(f).get("nodes", [])
     except Exception:
-        return [{"name": "local", "host": "localhost", "role": "cnc"}]
+        return [{"name": "local", "host": "localhost", "role": "genesis"}]
 
 
 async def probe_nodes(nodes: list[dict]) -> list[dict]:

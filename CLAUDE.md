@@ -3,16 +3,16 @@
 This system uses a three-plane architecture. You are currently operating on the **Genesis Node (CNC)**.
 
 **CRITICAL RULES:**
-1. **CNC Node (Local):** This machine is NOT a worker node. Its role is task delegation and infrastructure provisioning. Do not run any application execution, shell execution, or verification tasks directly on this machine except for performing code changes to the repository.
+1. **Genesis Node (Local):** This machine is NOT a worker node. Its role is task delegation and infrastructure provisioning. Do not run any application execution, shell execution, or verification tasks directly on this machine except for performing code changes to the repository.
 2. **Worker Node (Remote):** All jobs (e.g., executing terraform, pulumi, cdk, or application code) MUST be sent to the remote worker node via the Temporal queue.
-3. **Task Delegation:** Use the Temporal scheduler (`src/cnc/orchestrator/scheduler.py`) to delegate tasks.
+3. **Task Delegation:** Use the Temporal scheduler (`src/genesis/orchestrator/scheduler.py`) to delegate tasks.
 
 ## System Topology
 
 ```mermaid
 graph TD
     subgraph "Genesis Node (CNC) - YOU ARE HERE"
-        CLI[src/cnc/cli.py] --> Scheduler[src/cnc/orchestrator/scheduler.py]
+        CLI[src/genesis/cli.py] --> Scheduler[src/genesis/orchestrator/scheduler.py]
         Scheduler --> KB_Client_CNC[src/shared/memory/knowledge_base.py]
         Scheduler --> OfflineDB[(Offline SQLite DB)]
         Scheduler --> Notifier[Telegram Notifier]

@@ -6,7 +6,7 @@ from pydantic import ValidationError
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from src.cnc.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
+from src.genesis.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
 
 def get_input_with_default(prompt, default):
     val = input(f"{prompt} [{default}]: ").strip()

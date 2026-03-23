@@ -3,13 +3,13 @@
 This knowledge base documents repeated operations, common pitfalls, and their resolutions to prevent recurring mistakes in the AI Orchestration Project.
 
 ## 1. Task Delegation and Node Architecture
-- **Issue:** Attempting to run shell commands or create application code directly on the CNC (Genesis) node.
+- **Issue:** Attempting to run shell commands or create application code directly on the Genesis (Genesis) node.
 - **Root Cause:** Bypassing the architectural rule that jobs (except repository code changes) should be triggered on worker nodes.
 - **Resolution:** Use the Temporal scheduler (`src/orchestrator/scheduler.py`) to delegate tasks to the remote worker node queue (`ai-orchestration-queue`).
 
 ## 2. Remote Worker Interaction and Docker
-- **Issue:** Running `docker ps` or `docker-compose` locally on the CNC node to find/manage the worker.
-- **Root Cause:** The worker node runs remotely (e.g., at `192.168.100.249`), and the CNC node only delegates via Temporal.
+- **Issue:** Running `docker ps` or `docker-compose` locally on the Genesis node to find/manage the worker.
+- **Root Cause:** The worker node runs remotely (e.g., at `192.168.100.249`), and the Genesis node only delegates via Temporal.
 - **Resolution:** Access the worker via SSH. Use `docker compose` (modern syntax) instead of `docker-compose` on the remote node.
 - **Issue:** `docker compose` command not found during remote SSH execution.
 - **Resolution:** Ensure the PATH is explicitly set in the SSH command (e.g., `PATH=$PATH:/usr/local/bin:/usr/bin docker compose ...`).
@@ -36,7 +36,7 @@ This knowledge base documents repeated operations, common pitfalls, and their re
   Alternatively, ensure the Genesis node environment variables are set to bypass the credential helper during deployment.
 
   ## 6. Multi-Environment Support
-  - **Feature:** The CNC node can interface with multiple control planes and remote workers.
+  - **Feature:** The Genesis node can interface with multiple control planes and remote workers.
   - **Configuration:** Restructured `config/settings.yaml` to support named environments under the `environments` key. Use `active_environment` to set the default.
   - **Usage:** Use the `--env [name]` flag in `main.py` to switch environments at runtime.
   - **Pitfall:** If a new environment is added but not selected via `--env` or `active_environment`, the system may fallback to legacy top-level settings if they still exist.

@@ -14,7 +14,7 @@ Your architecture smartly decouples the user interface from heavy execution:
 
 ### 1. Optimization & Performance
 *   🔲 **Tiered State Resumption:** Implement Temporal Data Converters to automatically compress or upload large Langgraph state payloads to L3 storage (S3) and only pass the S3 reference pointer through Temporal's event history.
-*   ✅ **Pre-flight Caching on CNC:** Fast-expiring LRU cache on the Raspberry Pi for frequent tasks (`src/cnc/orchestrator/scheduler.py`).
+*   ✅ **Pre-flight Caching on CNC:** Fast-expiring LRU cache on the Raspberry Pi for frequent tasks (`src/genesis/orchestrator/scheduler.py`).
 *   🔲 **Persistent Connections:** Ensure the Pi maintains persistent gRPC connections to the Temporal Server rather than opening new connections per CLI command.
 
 ### 2. Cost Reduction
@@ -28,12 +28,12 @@ Your architecture smartly decouples the user interface from heavy execution:
 *   🔲 **Ephemeral Sandbox Execution:** Wrap subprocess execution in lightweight, ephemeral microVMs (like Firecracker) or strongly isolated sandboxes (like gVisor).
 
 ### 4. User Experience (UX)
-*   🔲 **Real-time Streaming via Temporal Queries:** Implement Temporal Queries or an asynchronous WebSocket stream so the CNC node can pull and display intermediate Langgraph steps.
+*   🔲 **Real-time Streaming via Temporal Queries:** Implement Temporal Queries or an asynchronous WebSocket stream so the Genesis node can pull and display intermediate Langgraph steps.
 *   ✅ **Interactive Pre-flight Resolution:** CLI prompts interactively when warnings are detected from KB pre-flight check.
 *   ✅ **Local Queuing for Offline Mode:** Tasks submitted while offline are queued in SQLite (`offline_queue.db`) and auto-flushed on reconnect.
 
 ### 5. Data Safety & Monitoring
-*   ✅ **Automated Backups:** `BackupManager` (`src/cnc/orchestrator/backup_manager.py`) orchestrates Qdrant and Temporal Postgres snapshots.
+*   ✅ **Automated Backups:** `BackupManager` (`src/genesis/orchestrator/backup_manager.py`) orchestrates Qdrant and Temporal Postgres snapshots.
 *   ✅ **Telegram Notifications:** `TelegramNotifier` sends real-time job status (submitted, running, complete, failed, blocked) to a configured Telegram channel.
 
 ### 6. Multi-Model & Unified LLM Access

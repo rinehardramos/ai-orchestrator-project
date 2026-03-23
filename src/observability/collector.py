@@ -35,7 +35,7 @@ def load_nodes() -> list[dict]:
         with open(NODES_FILE) as f:
             return yaml.safe_load(f).get("nodes", [])
     except Exception:
-        return [{"name": "local", "host": "localhost", "role": "cnc"}]
+        return [{"name": "local", "host": "localhost", "role": "genesis"}]
 
 
 def tcp_reachable(host: str, port: int, timeout: float = 2.0) -> bool:

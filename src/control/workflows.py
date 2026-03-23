@@ -3,7 +3,7 @@ from temporalio import workflow
 from typing import Any, Dict
 
 # Import LangGraph Logic (to be implemented next)
-# from src.cnc.orchestrator.graph import run_agent_graph
+# from src.genesis.orchestrator.graph import run_agent_graph
 
 @workflow.defn
 class AIOrchestrationWorkflow:
