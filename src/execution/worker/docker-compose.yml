@@ -75,6 +75,8 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - AGENT_DEFAULT_REPO=${AGENT_DEFAULT_REPO:-ssh://git@github.com/rinehardramos/workspaces.git}
+      - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
+      - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
       - PYTHONUNBUFFERED=1
     volumes:
       - ../../../src:/app/src

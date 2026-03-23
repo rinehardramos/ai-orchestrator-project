@@ -1,9 +1,34 @@
 import yaml
 import os
 import json
+import logging
 from google import genai
 from pydantic import BaseModel, Field
 from typing import List, Optional
+
+logger = logging.getLogger("TaskAnalyzer")
+
+try:
+    from opik import track
+    OPIK_AVAILABLE = True
+except ImportError:
+    OPIK_AVAILABLE = False
+    def track(**kwargs):
+        def decorator(fn):
+            return fn
+        return decorator
+
+def _configure_opik():
+    url_override = os.environ.get("OPIK_URL_OVERRIDE")
+    if url_override and OPIK_AVAILABLE:
+        try:
+            import opik
+            opik.configure(use_local=True, url=url_override)
+            logger.info(f"[OPIK] Configured for self-hosted at '{url_override}'")
+        except Exception as e:
+            logger.warning(f"[OPIK] Configuration failed: {e}")
+
+_configure_opik()
 
 class TaskRequirement(BaseModel):
     estimated_duration_seconds: int
@@ -41,6 +66,7 @@ class TaskAnalyzer:
         else:
             self.client = None
 
+    @track(name="parse_statement")
     async def parse_statement(self, statement: str) -> TaskRequirement:
         """
         Uses an LLM to extract structured TaskRequirements from a natural language statement.

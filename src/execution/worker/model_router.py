@@ -28,7 +28,10 @@ def _configure_opik():
       - OPIK_PROJECT_NAME: Project name for trace grouping (default: ai-orchestration)
       - OPIK_URL_OVERRIDE: URL for self-hosted Opik server
     
-    If OPIK_API_KEY is not set, Opik runs in disabled mode (no tracing).
+    Priority:
+      1. Self-hosted: OPIK_URL_OVERRIDE (no API key needed)
+      2. Comet cloud: OPIK_API_KEY
+      3. Local mode: Falls back to local if nothing configured
     """
     try:
         import opik
@@ -38,20 +41,20 @@ def _configure_opik():
         project_name = os.environ.get("OPIK_PROJECT_NAME", "ai-orchestration")
         url_override = os.environ.get("OPIK_URL_OVERRIDE")
         
-        if api_key:
+        if url_override:
+            opik.configure(use_local=True, url=url_override)
+            logger.info(f"[OPIK] Configured for self-hosted at '{url_override}' project '{project_name}'")
+        elif api_key:
             config_kwargs = {
                 "api_key": api_key,
                 "workspace": workspace,
                 "project_name": project_name,
             }
-            if url_override:
-                config_kwargs["url_override"] = url_override
-            
             opik.configure(**config_kwargs)
-            logger.info(f"[OPIK] Configured for workspace '{workspace}' project '{project_name}'")
+            logger.info(f"[OPIK] Configured for Comet cloud workspace '{workspace}' project '{project_name}'")
         else:
             opik.configure(use_local=True)
-            logger.info("[OPIK] Running in local mode (no API key set)")
+            logger.info("[OPIK] Running in local mode (no URL or API key set)")
     except ImportError:
         logger.warning("[OPIK] opik package not installed — tracing disabled")
     except Exception as e:
@@ -66,6 +69,8 @@ class TaskType(str, Enum):
     CODING     = "coding"
     AGENT_STEP = "agent_step"
     ANALYSIS   = "analysis"
+    FAST       = "fast"
+    EXECUTE    = "execute"
 
 
 # Words in the task description that indicate a CODING task
@@ -111,8 +116,8 @@ class ModelRouter:
     Routes LLM calls to the correct model and provider based on task type.
     All model names and providers come from config/profiles.yaml.
 
-    Phase 1: provider=openrouter → OpenAI SDK pointed at https://openrouter.ai/api/v1
-    Phase 3: provider=litellm   → litellm.completion() for local vLLM / Ollama
+    Phase 1: provider=remote → OpenAI SDK pointed at https://openrouter.ai/api/v1
+    Phase 3: provider=local  → OpenAI SDK pointed to local LMStudio/Ollama API
     """
 
     def __init__(self):
@@ -153,10 +158,10 @@ class ModelRouter:
     def get_provider(self, task_type: TaskType) -> str:
         """
         Return the provider string for a task type.
-        Returns 'openrouter' or 'litellm'.
+        Returns 'remote' or 'local'.
         """
         entry = self._routing.get(task_type.value, {})
-        return entry.get("provider", "openrouter")
+        return entry.get("provider", "remote")
 
     def call_llm(self, messages: list[dict], task_type: TaskType, tools: list) -> tuple:
         """
@@ -164,20 +169,19 @@ class ModelRouter:
         Returns (response_message, cost_usd).
 
         Dispatches to:
-          - _call_openrouter() when provider=openrouter
-          - _call_litellm()    when provider=litellm (Phase 3)
+          - _call_remote() when provider=remote
+          - _call_local()  when provider=local
         """
         provider = self.get_provider(task_type)
         model = self.get_model(task_type)
 
-        if provider == "litellm":
-            # Phase 3: local model via LiteLLM → vLLM
-            return self._call_litellm(messages, model, tools)
+        if provider == "local":
+            return self._call_local(messages, model, tools)
         else:
-            # Phase 1 default: OpenRouter
-            return self._call_openrouter(messages, model, tools)
+            # Default to remote
+            return self._call_remote(messages, model, tools)
 
-    def _call_openrouter(self, messages: list[dict], model: str, tools: list) -> tuple:
+    def _call_remote(self, messages: list[dict], model: str, tools: list) -> tuple:
         """Call a cloud model via OpenRouter. Returns (response_message, cost_usd)."""
         response = self._openrouter_client.chat.completions.create(
             model=model,
@@ -189,20 +193,40 @@ class ModelRouter:
         cost = self.compute_cost(model, usage.prompt_tokens, usage.completion_tokens)
         return response.choices[0].message, cost
 
-    def _call_litellm(self, messages: list[dict], model: str, tools: list) -> tuple:
+    def _call_local(self, messages: list[dict], model: str, tools: list) -> tuple:
         """
-        Call a local model via LiteLLM (vLLM / Ollama).
-        Phase 3 — LiteLLM is kept in requirements.worker.txt for this purpose.
+        Call a local model via a standard OpenAI client pointed to local endpoint.
         """
-        import litellm
-        response = litellm.completion(
+        # Load local API base from settings
+        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
+        api_base = "http://127.0.0.1:1234/v1"
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                settings = yaml.safe_load(f)
+                env = settings.get("active_environment", "primary")
+                lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
+                if lmstudio:
+                    host = lmstudio.get("host", "127.0.0.1")
+                    port = lmstudio.get("port", 1234)
+                    api_base = f"http://{host}:{port}/v1"
+        
+        local_client = OpenAI(
+            base_url=api_base,
+            api_key="local-dummy-key"
+        )
+        
+        # Strip litellm/openai prefixes if included accidentally
+        if model.startswith("openai/"):
+            model = model.replace("openai/", "")
+            
+        response = local_client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
             tool_choice="auto",
         )
-        cost = litellm.completion_cost(completion_response=response) or 0.0
-        return response.choices[0].message, cost
+        # Cost is 0 for purely local inference
+        return response.choices[0].message, 0.0
 
     def detect_task_type(self, description: str) -> TaskType:
         """

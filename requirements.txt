@@ -16,6 +16,7 @@ litellm
 google-genai
 qdrant-client
 pydantic
+opik>=1.0.0
 
 # --- Utilities ---
 httpx

@@ -17,24 +17,13 @@ environments:
     redis:
       host: "192.168.100.249"
       port: 6379
-
-  worker-100:
-    remote_worker:
-      host: "localhost"
-      port: 2222
-      user: "aswang"
-      ssh_key_path: "/home/pi/.ssh/id_ed25519"
-      project_dir: "ai-orchestration-worker"
-    # Use the same control plane hosted on .249
-    temporal:
+    lmstudio:
       host: "192.168.100.249"
-      port: 7233
-    qdrant:
+      port: 1234
+    opik:
       host: "192.168.100.249"
-      port: 6333
-    redis:
-      host: "192.168.100.249"
-      port: 6379
+      port: 8080
+      ui_port: 5173
 
   worker-sigbin:
     remote_worker:
@@ -53,3 +42,10 @@ environments:
     redis:
       host: "192.168.100.249"
       port: 6379
+    lmstudio:
+      host: "192.168.100.249"
+      port: 1234
+    opik:
+      host: "192.168.100.249"
+      port: 8080
+      ui_port: 5173
