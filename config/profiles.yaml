@@ -1,19 +1,4 @@
 models:
-  # --- Gemini 3 (Primary) ---
-  - id: "gemini-3-flash"
-    provider: "google"
-    cost_per_1k_tokens: 0.00005
-    context_window: 1000000
-    reasoning_capability: "medium"
-    speed: "ultra_fast"
-  - id: "gemini-3-pro-preview"
-    provider: "google"
-    cost_per_1k_tokens: 0.0012
-    context_window: 2000000
-    reasoning_capability: "high"
-    speed: "fast"
-  
-  # --- Legacy / Specialized Gemini ---
   - id: "gemini-2.5-flash-lite"
     provider: "google"
     cost_per_1k_tokens: 0.00001
@@ -26,8 +11,6 @@ models:
     context_window: 1000000
     reasoning_capability: "medium"
     speed: "very_fast"
-  
-  # --- Other Cloud Providers ---
   - id: "gpt-4o"
     provider: "openai"
     cost_per_1k_tokens: 0.005
@@ -40,8 +23,6 @@ models:
     context_window: 200000
     reasoning_capability: "high"
     speed: "fast"
-  
-  # --- Local / Self-Hosted ---
   - id: "llama-3.1-8b-local"
     provider: "lmstudio"
     cost_per_1k_tokens: 0.0
@@ -50,14 +31,6 @@ models:
     speed: "fast"
 
 infrastructure:
-  - id: "local_server_docker"
-    provider: "local_network"
-    cost_per_minute: 0.0
-    max_duration_minutes: 10080 # 1 week
-    max_memory_mb: 131072 # 128GB
-    startup_time_sec: 5
-    type: "container"
-    best_for: "heavy_local_tasks"
   - id: "gcp_cloud_run_function"
     provider: "gcp"
     cost_per_minute: 0.00002
@@ -74,6 +47,22 @@ infrastructure:
     startup_time_sec: 0.2
     type: "serverless_function"
     best_for: "stateful_burst"
+  - id: "aws_ec2_spot_t4g"
+    provider: "aws"
+    cost_per_minute: 0.00007
+    max_duration_minutes: 43200 # basically unbounded but ephemeral
+    max_memory_mb: 65536
+    startup_time_sec: 45
+    type: "vm"
+    best_for: "heavy_compute"
+  - id: "local_server_docker"
+    provider: "local_network"
+    cost_per_minute: 0.0
+    max_duration_minutes: 10080 # 1 week
+    max_memory_mb: 131072 # 128GB (assuming a beefy local server)
+    startup_time_sec: 5
+    type: "container"
+    best_for: "heavy_local_tasks"
   - id: "existing_server"
     provider: "existing_infra"
     cost_per_minute: 0.0
@@ -85,23 +74,23 @@ infrastructure:
 
 task_routing:
   planning:
-    model: "gemini-3-flash"
+    model: "gemini-2.5-flash"
     provider: "google"
   coding:
-    model: "gemini-3-flash"
+    model: "gemini-2.5-flash"
     provider: "google"
   agent_step:
-    model: "gemini-3-flash"
+    model: "gemini-2.5-flash"
     provider: "google"
   analysis:
-    model: "gemini-3-flash"
     provider: "google"
+    model: "gemini-2.5-flash"
   fast:
-    model: "gemini-3-flash"
     provider: "google"
+    model: "gemini-2.5-flash-lite"
   execute:
-    model: "gemini-3-flash"
     provider: "google"
+    model: "gemini-2.5-flash"
   embeddings:
     provider: "lmstudio"
     model: "text-embedding-nomic-embed-code"
@@ -109,39 +98,39 @@ task_routing:
     collection_suffix: "_v4"
 
 specializations:
-  audio_generation:
-    model: "gemini-3-pro-audio-preview"
-    provider: "google"
-    allowed_tools: ["generate_audio", "task_complete"]
-  coding:
-    model: "gemini-3-flash"
-    provider: "google"
-    allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
-  copywriting:
-    model: "gemini-3-pro-preview"
-    provider: "google"
-    allowed_tools: ["write_file", "read_file", "task_complete", "submit_for_review"]
   general:
-    model: "gemini-3-flash"
+    model: "gemini-2.5-flash"
     provider: "google"
     allowed_tools: ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command"]
-  image_generation:
-    model: "gemini-3-pro-image-preview"
+  coding:
+    model: "gemini-2.5-flash"
     provider: "google"
-    allowed_tools: ["generate_image", "task_complete"]
-  planner:
-    model: "zhipuai/glm-5-pro"
-    provider: "openrouter"
-    allowed_tools: ["task_complete"]
-  quality_control:
-    model: "zhipuai/glm-5-pro"
-    provider: "openrouter"
-    allowed_tools: ["read_file", "task_complete", "delegate_task"]
+    allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
   research:
-    model: "gemini-3-flash"
+    model: "gemini-2.5-flash"
     provider: "google"
     allowed_tools: ["search_web", "read_url_content", "task_complete", "write_file"]
+  image_generation:
+    model: "gemini-2.5-flash"
+    provider: "google"
+    allowed_tools: ["generate_image", "task_complete"]
   video_generation:
-    model: "gemini-3-pro-image-preview"
+    model: "gemini-2.5-flash"
     provider: "google"
     allowed_tools: ["generate_video", "task_complete"]
+  audio_generation:
+    model: "gemini-2.5-flash"
+    provider: "google"
+    allowed_tools: ["generate_audio", "task_complete"]
+  planner:
+    model: "gemini-2.5-flash"
+    provider: "google"
+    allowed_tools: ["task_complete"]
+  copywriting:
+    model: "gemini-2.5-flash"
+    provider: "google"
+    allowed_tools: ["write_file", "read_file", "task_complete", "submit_for_review"]
+  quality_control:
+    model: "gemini-2.5-flash"
+    provider: "google"
+    allowed_tools: ["read_file", "task_complete", "delegate_task"]

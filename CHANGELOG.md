@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23] — Patch 3
+
+### Fixed
+- **Invalid model IDs in profiles.yaml**: All `gemini-3-*` model IDs (`gemini-3-flash`, `gemini-3-pro-preview`, `gemini-3-pro-image-preview`, `gemini-3-pro-audio-preview`) were non-existent, causing every LLM call to 404. Replaced with `gemini-2.5-flash` (all task_routing + specializations) and `gemini-2.5-flash-lite` (fast task type). The `planner` and `quality_control` specializations were also pointing to `zhipuai/glm-5-pro` on OpenRouter (no key available); migrated to Google native.
+- **SAFE_FALLBACK_MODEL routed through OpenRouter**: The fallback model (`google/gemini-2.0-flash-001`) was being called via `_call_remote` (OpenRouter), which fails without `OPENROUTER_API_KEY`. Changed `SAFE_FALLBACK_MODEL` to `gemini-2.5-flash-lite` and the fallback call to `_call_google`, keeping the entire fallback chain Google-native.
+- **`_call_google` did not support function calling**: The Google native client implementation ignored the `tools` parameter entirely and always returned `tool_calls=None`. Agents received tool schemas in the system prompt but the API never saw them, so models hallucinated tool results as text instead of actually calling tools. Rewrote `_call_google` to: (1) convert OpenAI-format tool schemas to Google `FunctionDeclaration` format, (2) pass them via `GenerateContentConfig`, (3) parse `function_call` parts from the response and map them back to the OpenAI `tool_calls` interface. Tool results (`role: tool`) are now correctly re-encoded as `function_response` parts.
+- **`_run_media_direct` bypass violated architecture**: A fast-path function in `worker.py` bypassed the full `run_orchestrator` → `planner_node` → `orchestrator_router` → `subtask_worker` pipeline for image/video/audio tasks. Removed entirely — all tasks, including media generation, flow through the complete multi-agent orchestrator.
+- **Stale native worker process on genesis node**: A background `worker.py` Python process was running directly on the genesis (CNC) node, competing with the Docker worker container for Temporal tasks. The genesis node must not run execution workers per the architectural mandate.
+- **Planner over-decomposing single-step tasks**: The planner prompt's `single_agent` example was too narrow ("Tell me a joke"), so any task with file I/O was classified as `coordinated_team`. Added explicit decision rules: `single_agent` is the default for any task one agent can complete in a single session; `coordinated_team` requires the output of one agent to be a required input for another.
+- **Stale entries in `_COST_PER_1M_TOKENS`**: Removed invalid `gemini-3-*` pricing entries; added `gemini-2.5-flash` and `gemini-2.5-flash-lite`.
+
+### Added
+- **E2E live test suite** (`tests/test_e2e_live.py`): Submits tasks through the full Temporal pipeline (genesis → Temporal → worker → result) and validates all four modes — `single_agent`, `parallel_isolated`, `coordinated_team`, and media (`image_generation`). Verifies strategy selection, artifact file production, and cost tracking.
+
 ## [2026-03-23] — Patch 2
 
 ### Added

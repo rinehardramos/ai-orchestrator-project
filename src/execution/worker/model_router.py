@@ -9,6 +9,8 @@ Supported providers:
 Phase 2: Opik observability — all LLM calls are traced automatically via track_openai wrapper.
 """
 import os
+import uuid
+import json
 import yaml
 import logging
 from enum import Enum
@@ -117,11 +119,9 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
     "anthropic/claude-sonnet-4-6":    3.00,
     "google/gemini-2.5-flash":        0.15,
     "google/gemini-2.5-flash-lite":   0.075,
+    "gemini-2.5-flash":               0.15,
+    "gemini-2.5-flash-lite":          0.075,
     "gemini-2.0-flash":               0.10,
-    "gemini-3-flash":                 0.05,
-    "gemini-3-pro-preview":           1.20,
-    "gemini-3-pro-image-preview":     2.50,
-    "gemini-3-pro-audio-preview":     1.50,
     "zhipuai/glm-5-pro":              0.50,
     "default":                        1.00,
 }
@@ -219,7 +219,8 @@ class ModelRouter:
         return entry.get("provider", "openrouter")
 
     # Reliable fallback used when the configured model is unavailable or invalid.
-    SAFE_FALLBACK_MODEL = "google/gemini-2.0-flash-001"
+    # Must be a Google-native model so it routes through _call_google, not OpenRouter.
+    SAFE_FALLBACK_MODEL = "gemini-2.5-flash-lite"
 
     def call_llm(self, messages: list[dict], task_type: TaskType, tools: list, specialization: str = "general") -> tuple:
         """
@@ -279,11 +280,11 @@ class ModelRouter:
                     f"({err[:120]}). Falling back to safe model '{self.SAFE_FALLBACK_MODEL}'."
                 )
 
-        # ── Attempt 3: safe fallback model on OpenRouter ───────────────────
+        # ── Attempt 3: safe fallback model via Google native client ───────────
         logger.warning(
-            f"[FALLBACK] Using safe fallback model '{self.SAFE_FALLBACK_MODEL}' on OpenRouter."
+            f"[FALLBACK] Using safe fallback model '{self.SAFE_FALLBACK_MODEL}' on Google."
         )
-        return self._call_remote(messages, self.SAFE_FALLBACK_MODEL, tools)
+        return self._call_google(messages, self.SAFE_FALLBACK_MODEL, tools)
 
     def _call_remote(self, messages: list[dict], model: str, tools: list) -> tuple:
         """Call a cloud model via OpenRouter. Returns (response_message, cost_usd)."""
@@ -341,6 +342,8 @@ class ModelRouter:
     def _call_google(self, messages: list[dict], model: str, tools: list) -> tuple:
         """
         Call a Google model directly via the native google-genai SDK.
+        Supports function calling: converts OpenAI-format tool schemas to Google format
+        and maps function_call responses back to the OpenAI tool_calls interface.
         Falls back to OpenRouter if the native client is unavailable.
         """
         if not self._google_client:
@@ -353,18 +356,80 @@ class ModelRouter:
         for m in messages:
             role = m.get("role", "user")
             content = m.get("content", "")
+            msg_tool_calls = m.get("tool_calls", [])
+
             if role == "system":
                 system_instruction = content
             elif role == "assistant":
-                contents.append(types.Content(role="model", parts=[types.Part(text=content or "")]))
+                parts = []
+                if content:
+                    parts.append(types.Part(text=content))
+                # Re-encode assistant tool call turns as function_call parts
+                for tc in (msg_tool_calls or []):
+                    try:
+                        fn_args = json.loads(tc["function"]["arguments"]) if isinstance(tc["function"]["arguments"], str) else tc["function"]["arguments"]
+                    except (json.JSONDecodeError, KeyError):
+                        fn_args = {}
+                    parts.append(types.Part(
+                        function_call=types.FunctionCall(
+                            name=tc["function"]["name"],
+                            args=fn_args,
+                        )
+                    ))
+                if parts:
+                    contents.append(types.Content(role="model", parts=parts))
+            elif role == "tool":
+                # Tool result turns → function_response parts
+                tool_call_id = m.get("tool_call_id", "")
+                try:
+                    result_data = json.loads(content) if content else {}
+                    if not isinstance(result_data, dict):
+                        result_data = {"output": content}
+                except (json.JSONDecodeError, TypeError):
+                    result_data = {"output": content or ""}
+                # Find the function name from prior assistant message
+                fn_name = tool_call_id  # fallback; will be overridden if resolvable
+                for prior in reversed(contents):
+                    for p in (prior.parts or []):
+                        if hasattr(p, "function_call") and p.function_call:
+                            fn_name = p.function_call.name
+                            break
+                    else:
+                        continue
+                    break
+                contents.append(types.Content(role="user", parts=[
+                    types.Part(function_response=types.FunctionResponse(
+                        name=fn_name,
+                        response=result_data,
+                    ))
+                ]))
             else:
                 contents.append(types.Content(role="user", parts=[types.Part(text=content or "")]))
+
+        # Convert OpenAI tool schemas → Google FunctionDeclaration list
+        google_tools = None
+        if tools:
+            fn_decls = []
+            for t in tools:
+                if t.get("type") != "function":
+                    continue
+                fn = t["function"]
+                params = fn.get("parameters", {})
+                fn_decls.append(types.FunctionDeclaration(
+                    name=fn["name"],
+                    description=fn.get("description", ""),
+                    parameters=params if params else None,
+                ))
+            if fn_decls:
+                google_tools = [types.Tool(function_declarations=fn_decls)]
 
         config_kwargs: dict = {}
         if system_instruction:
             config_kwargs["system_instruction"] = system_instruction
+        if google_tools:
+            config_kwargs["tools"] = google_tools
 
-        # Strip provider prefix if present (genai uses bare model IDs)
+        # Strip provider prefix (genai uses bare model IDs)
         bare_model = model.replace("google/", "")
 
         response = self._google_client.models.generate_content(
@@ -373,21 +438,51 @@ class ModelRouter:
             config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
         )
 
-        text = response.text or ""
-        # Approximate token cost
+        # Token cost
         usage = response.usage_metadata
         prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
         completion_tokens = getattr(usage, "candidates_token_count", 0) or 0
         cost = self.compute_cost(bare_model, prompt_tokens, completion_tokens)
 
-        # Wrap in an object that matches the OpenAI message interface callers expect
+        # Parse the response — may be text, function calls, or both
+        text_parts = []
+        tool_call_parts = []
+
+        candidate = response.candidates[0] if response.candidates else None
+        if candidate and candidate.content and candidate.content.parts:
+            for part in candidate.content.parts:
+                if hasattr(part, "function_call") and part.function_call and part.function_call.name:
+                    tool_call_parts.append(part.function_call)
+                elif hasattr(part, "text") and part.text:
+                    text_parts.append(part.text)
+
+        text = "".join(text_parts)
+
+        # Build an object that matches the OpenAI message interface
         class _Msg:
-            def __init__(self, text):
+            def __init__(self, text, tool_calls):
                 self.content = text
-                self.tool_calls = None
+                self.tool_calls = tool_calls or None
                 self.role = "assistant"
 
-        return _Msg(text), cost
+        class _FunctionCall:
+            def __init__(self, name, arguments_str):
+                self.name = name
+                self.arguments = arguments_str
+
+        class _ToolCall:
+            def __init__(self, id_, fn):
+                self.id = id_
+                self.type = "function"
+                self.function = fn
+
+        openai_tool_calls = []
+        for fc in tool_call_parts:
+            args_str = json.dumps(dict(fc.args)) if fc.args else "{}"
+            tc_id = f"call_{uuid.uuid4().hex[:16]}"
+            openai_tool_calls.append(_ToolCall(tc_id, _FunctionCall(fc.name, args_str)))
+
+        return _Msg(text, openai_tool_calls if openai_tool_calls else None), cost
 
     def detect_task_type(self, description: str) -> TaskType:
         """

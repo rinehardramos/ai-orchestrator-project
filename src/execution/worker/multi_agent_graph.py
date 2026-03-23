@@ -66,15 +66,33 @@ async def planner_node(state: OrchestratorState) -> dict:
     """
     prompt = f"""
     You are the Lead Architect for an AI Orchestration system.
-    Analyze the following user request and break it down into an ExecutionPlan.
-    
+    Analyze the following user request and select the most efficient ExecutionPlan.
+
     User Request: "{state['user_prompt']}"
-    
+
+    ## Strategy Selection Rules (choose the SIMPLEST that fits):
+
+    **single_agent** — Use this by default for any task a single agent can complete in one session.
+    This includes tasks that involve multiple steps, reading, writing files, saving results, or doing
+    research and then writing. A single agent handles all of that naturally.
+    Examples: "Tell me a joke", "Write a haiku and save it", "Find a fact about the Moon and save it to a file",
+    "Generate an image of a duck", "Write code that sorts a list".
+
+    **parallel_isolated** — Use ONLY when the request explicitly asks for multiple INDEPENDENT outputs
+    that can be produced simultaneously with no shared context between them.
+    Examples: "Generate an image of a cat AND write a poem about dogs (these are unrelated)",
+    "Write summaries of three different articles at the same time".
+
+    **coordinated_team** — Use ONLY when the task genuinely requires different specialized agents
+    and the output of one agent is a required INPUT for the next agent to do its job.
+    Examples: "Research the market for EVs, then write an investor report based on that research",
+    "Generate a logo image, then write ad copy that references the specific logo design".
+
+    ## Key Rule:
+    If a task can be done by one agent (even if it has multiple steps), use single_agent.
+    Do NOT split into multiple agents just because a task has two steps like "find X and save it."
+
     Available Specializations: "general", "coding", "research", "image_generation", "video_generation", "audio_generation", "copywriting", "quality_control".
-    
-    If the task is simple (e.g., "Tell me a joke"), strategy="single_agent".
-    If it requires multiple independent actions (e.g., "Generate an image of a dog AND write a poem"), strategy="parallel_isolated".
-    If it requires sequential collaboration (e.g., "Launch a marketing campaign"), strategy="coordinated_team".
     """
     
     try:

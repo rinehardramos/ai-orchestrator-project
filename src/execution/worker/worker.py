@@ -393,63 +393,6 @@ agent_builder.add_edge("summarize", END)
 agent_graph = agent_builder.compile()
 
 
-def _run_media_direct(task_payload: dict) -> dict | None:
-    """
-    Fast path for media generation tasks.
-
-    Bypasses the full agent loop and calls the generation tool directly.
-    Returns a completed result dict if successful, or None to fall through
-    to the normal agent loop.
-    """
-    from src.execution.worker.tools import generate_image, generate_video, generate_audio
-
-    specialization = task_payload.get("specialization", "general")
-    description = task_payload.get("description", "")
-
-    DIRECT_TOOLS = {
-        "image_generation": generate_image,
-        "video_generation": generate_video,
-        "audio_generation": generate_audio,
-    }
-
-    tool_fn = DIRECT_TOOLS.get(specialization)
-    if tool_fn is None:
-        return None
-
-    task_id = str(uuid.uuid4())
-    workspace_dir = create_workspace(task_id)
-    start_time = time.time()
-    try:
-        logger.info(f"[DIRECT] {specialization} fast-path for: {description[:80]}")
-        result_str = tool_fn(workspace_dir, description)
-        logger.info(f"[DIRECT] tool result: {result_str[:200]}")
-
-        if result_str.startswith("ERROR") or result_str.startswith("OK: Conceptually"):
-            # Tool failed or is a stub — fall through to agent loop
-            logger.warning(f"[DIRECT] fast-path failed ({result_str[:100]}), falling back to agent")
-            cleanup_workspace(workspace_dir)
-            return None
-
-        artifact_files = _collect_artifacts(workspace_dir)
-        duration = round(time.time() - start_time, 2)
-        return {
-            "status": "completed",
-            "summary": result_str,
-            "total_cost_usd": 0.0,
-            "tool_call_count": 1,
-            "progress_log": [f"direct: {specialization} tool called"],
-            "duration_seconds": duration,
-            "mode": "agent",
-            "artifact_files": artifact_files,
-        }
-    except Exception as e:
-        logger.error(f"[DIRECT] fast-path exception: {e}")
-        cleanup_workspace(workspace_dir)
-        return None
-    finally:
-        cleanup_workspace(workspace_dir)
-
-
 @track(name="run_agent_pipeline")
 async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     """Run the agentic ReAct loop pipeline."""
@@ -460,11 +403,6 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     specialization = task_payload.get("specialization", "general")
 
     logger.info(f"[SPECIALIZATION] Task loaded with specialization: '{specialization}'")
-
-    # Fast path: media generation tasks go directly to the tool, no LLM needed
-    direct_result = _run_media_direct(task_payload)
-    if direct_result is not None:
-        return direct_result
 
     task_id = str(uuid.uuid4())
     workspace_dir = create_workspace(task_id)
@@ -624,13 +562,6 @@ async def execute_langgraph_agent(input_task: str, model_id: str, provider: str)
             "max_cost_usd": AGENT_DEFAULTS["max_cost_usd"],
             "specialization": specialization,
         }
-
-    # Fast path: bypass the orchestrator/planner entirely for media generation tasks.
-    # run_orchestrator calls planner_node (LLM) before reaching run_agent_pipeline,
-    # so _run_media_direct must fire here to avoid needing any LLM at all.
-    direct_result = _run_media_direct(payload)
-    if direct_result is not None:
-        return direct_result
 
     logger.info(f"[AGENT MODE] Starting Multi-Agent Orchestrator pipeline for: {payload.get('description', '')[:100]}")
     return await run_orchestrator(payload, model_id)
