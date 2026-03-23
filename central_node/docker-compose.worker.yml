@@ -14,9 +14,16 @@ services:
     volumes:
       - ../src:/app/src
       - ../config:/app/config
+    networks:
+      - ai-network
     restart: always
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  ai-network:
+    external: true
+    name: worker_ai-network
