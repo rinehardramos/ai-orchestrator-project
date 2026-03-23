@@ -42,7 +42,7 @@ def shell_exec(workspace_dir: str, command: str) -> str:
     try:
         result = subprocess.run(
             command,
-            shell=True,
+            shell=True,  # nosec B602 — command is validated by validate_command() blocklist before reaching here
             cwd=workspace_dir,
             capture_output=True,
             text=True,

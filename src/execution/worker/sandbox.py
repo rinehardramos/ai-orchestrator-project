@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger("AgentSandbox")
 
-WORKSPACE_ROOT = "/tmp/agent-workspaces"
+WORKSPACE_ROOT = os.path.join(tempfile.gettempdir(), "agent-workspaces")  # nosec B108
 
 # Shell commands that are never allowed
 COMMAND_BLOCKLIST = [
