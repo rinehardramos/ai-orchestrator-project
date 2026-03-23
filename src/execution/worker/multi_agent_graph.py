@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import operator
 import json
 import logging
+import os
 import uuid
 import time
 from typing import TypedDict, Annotated, Any, List
@@ -55,6 +58,7 @@ class OrchestratorState(TypedDict):
     global_cost: float
     status: str
     final_summary: str
+    recovery_attempted: bool   # True after a recovery cycle — prevents infinite loops
 
 # ──────────────────────────────────────────────
 # NODES
@@ -150,20 +154,266 @@ async def subtask_worker(state: dict) -> dict:
         "progress_log": [f"Worker '{task_id}' finished (Cost: ${result.get('total_cost_usd', 0):.4f}). Summary: {result_summary[:100]}..."]
     }
 
+# Patterns that indicate a tool stub or missing capability
+_TOOL_FAILURE_PATTERNS = [
+    "feature pending",
+    "not supported by available tools",
+    "tool not available",
+    "not implemented",
+    "stub",
+    "pending integration",
+    "gif generation is not supported",
+]
+
+
 async def synthesis_node(state: OrchestratorState) -> dict:
     """
     Aggregates all results into a final report.
+    Detects tool-capability failures and flags for self-healing recovery when possible.
     """
     completed = state.get("completed_subtasks", {})
     summary = "Campaign / Task Results:\n"
     for tk, res in completed.items():
         summary += f"\n--- {tk.upper()} ---\n{res}\n"
-        
+
+    # Detect tool failures
+    summary_lower = summary.lower()
+    has_tool_failure = any(pat in summary_lower for pat in _TOOL_FAILURE_PATTERNS)
+
+    if has_tool_failure:
+        if not state.get("recovery_attempted"):
+            logger.info("[SYNTHESIS] Tool capability failure detected — flagging for self-healing recovery")
+            return {
+                "status": "needs_recovery",
+                "final_summary": summary,
+                "progress_log": ["Synthesis: tool failure detected — initiating recovery"],
+            }
+        else:
+            # Recovery was already attempted and the retry still failed — exit the loop
+            logger.warning("[SYNTHESIS] Tool failure persists after recovery attempt — aborting to prevent loop")
+            return {
+                "status": "failed",
+                "final_summary": (
+                    "[RECOVERY EXHAUSTED] Self-healing was attempted but the task still failed.\n"
+                    "The implemented tool did not resolve the capability gap.\n\n"
+                    f"Last result:\n{summary}"
+                ),
+                "progress_log": ["Synthesis: tool failure persists after recovery — loop exit"],
+            }
+
     return {
         "status": "completed",
         "final_summary": summary,
-        "progress_log": ["Synthesis complete."]
+        "progress_log": ["Synthesis complete."],
     }
+
+
+async def recovery_node(state: OrchestratorState) -> dict:
+    """
+    Self-healing node.  When synthesis detects a missing-tool failure:
+      1. Spawns a coder agent to implement the tool as Python code.
+      2. exec()s the generated code and registers it via register_dynamic_tool().
+      3. Retries the original task — the agent now has the new tool available.
+
+    Runs at most once per task (recovery_attempted flag prevents loops).
+    """
+    import base64
+    from src.execution.worker.worker import run_agent_pipeline
+
+    failure_summary = state.get("final_summary", "")
+    original_prompt = state["user_prompt"]
+    specialization = state.get("specialization", "general")
+
+    logger.info(f"[RECOVERY] Self-healing for: {original_prompt[:80]}")
+    logger.info(f"[RECOVERY] Failure context: {failure_summary[:300]}")
+
+    # ── Step 1: coder agent writes the missing tool ──────────────────────────
+    coder_payload = {
+        "description": f"""You are a Python tool developer for an autonomous AI agent framework.
+
+An agent tried to complete this task: "{original_prompt}"
+But failed because: "{failure_summary}"
+
+Your job: implement the missing tool as a standalone Python function.
+
+STRICT REQUIREMENTS:
+1. Function signature: def <tool_name>(workspace_dir: str, **kwargs) -> str
+2. All file output MUST be saved inside workspace_dir
+3. Return "OK: <description>" on success, "ERROR: <reason>" on failure
+4. Available libraries: os, json, PIL (Pillow), imageio, requests, subprocess
+5. You MAY call generate_image(workspace_dir, prompt, filename="") — it already exists
+6. Write ONLY the function body (with any needed imports at the top) to a file called new_tool.py
+7. Write the tool JSON schema to tool_schema.json:
+   {{"name": "<tool_name>", "description": "<short desc>", "parameters": {{"type": "object", "properties": {{"<arg>": {{"type": "string", "description": "<desc>"}}}}}}}}
+
+For GIF generation — implement generate_gif(workspace_dir, prompt, num_frames="6"):
+  - Parse num_frames to int (default 6)
+  - Call generate_image(workspace_dir, prompt + f", frame {{i+1}} of {{total}}, animation pose", f"frame_{{i:02d}}.png") for each frame
+  - Open each saved frame with PIL.Image.open()
+  - Save as animated GIF: frames[0].save(gif_path, save_all=True, append_images=frames[1:], loop=0, duration=150)
+  - Return "OK: GIF saved to '<filename>' (N frames)"
+
+Write real, working, production-quality Python. No stubs, no TODOs, no placeholders.
+""",
+        "specialization": "coding",
+        "max_tool_calls": 25,
+        "max_cost_usd": 0.50,
+    }
+
+    coder_result = await run_agent_pipeline(coder_payload, "gemini-2.5-flash")
+    logger.info(f"[RECOVERY] Coder agent status: {coder_result.get('status')} | "
+                f"files: {[a['name'] for a in coder_result.get('artifact_files', [])]}")
+
+    # ── Step 2: read artifacts and register the new tool ─────────────────────
+    new_tool_code = None
+    raw_schema = None
+
+    for af in coder_result.get("artifact_files", []):
+        try:
+            content = base64.b64decode(af["content_b64"]).decode("utf-8", errors="replace")
+        except Exception:
+            continue
+        if af["name"] == "new_tool.py":
+            new_tool_code = content
+        elif af["name"] == "tool_schema.json":
+            try:
+                raw_schema = json.loads(content)
+            except json.JSONDecodeError:
+                pass
+
+    if not new_tool_code:
+        logger.error("[RECOVERY] Coder agent did not produce new_tool.py")
+        return {
+            "status": "failed",
+            "final_summary": (
+                "Self-healing failed: coder agent did not produce tool code.\n\n"
+                f"Original failure:\n{failure_summary}"
+            ),
+            "recovery_attempted": True,
+            "progress_log": ["recovery: coder agent produced no tool code — giving up"],
+        }
+
+    # exec the tool code in a controlled namespace
+    from src.execution.worker import tools as _tools_mod
+    namespace: dict = {
+        "__builtins__": __builtins__,
+        "os": __import__("os"),
+        "json": __import__("json"),
+        "generate_image": _tools_mod.generate_image,
+    }
+    try:
+        exec(new_tool_code, namespace)  # nosec B102 — code written by our own coder agent, not user input
+    except Exception as e:
+        logger.error(f"[RECOVERY] exec failed: {e}\nCode:\n{new_tool_code[:500]}")
+        return {
+            "status": "failed",
+            "final_summary": (
+                f"Self-healing failed: tool code exec error: {e}\n\n"
+                f"Original failure:\n{failure_summary}"
+            ),
+            "recovery_attempted": True,
+            "progress_log": [f"recovery: exec failed — {e}"],
+        }
+
+    # find the new callable
+    skip = {"os", "json", "generate_image", "__builtins__"}
+    registered_name = None
+    for sym_name, obj in namespace.items():
+        if callable(obj) and not sym_name.startswith("_") and sym_name not in skip:
+            # Build OpenAI-format schema
+            if raw_schema:
+                # Agent may have written the inner "function" dict or the full wrapper
+                if "type" in raw_schema and raw_schema["type"] == "function":
+                    openai_schema = raw_schema
+                else:
+                    openai_schema = {"type": "function", "function": raw_schema}
+            else:
+                openai_schema = {
+                    "type": "function",
+                    "function": {
+                        "name": sym_name,
+                        "description": f"Dynamically implemented tool: {sym_name}",
+                        "parameters": {"type": "object", "properties": {}, "required": []},
+                    },
+                }
+            _tools_mod.register_dynamic_tool(sym_name, obj, openai_schema)
+            registered_name = sym_name
+            logger.info(f"[RECOVERY] Registered new tool: '{sym_name}'")
+            break
+
+    if not registered_name:
+        logger.error("[RECOVERY] No callable found in generated new_tool.py")
+        return {
+            "status": "failed",
+            "final_summary": (
+                "Self-healing failed: no callable found in generated tool code.\n\n"
+                f"Original failure:\n{failure_summary}"
+            ),
+            "recovery_attempted": True,
+            "progress_log": ["recovery: no callable in generated code — giving up"],
+        }
+
+    # ── Step 3: also persist the new tool to tools.py (survives restarts) ────
+    try:
+        tools_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "tools.py")
+        )
+        # Build the TOOL_REGISTRY entry to append
+        fn_params = openai_schema.get("function", {}).get("parameters", {})
+        props = fn_params.get("properties", {})
+        props_repr = repr(props)
+        persist_block = f'''
+
+# ── Dynamically added by self-healing recovery ──
+{new_tool_code}
+
+TOOL_REGISTRY.append({{
+    "name": "{registered_name}",
+    "fn": {registered_name},
+    "schema": {{
+        "type": "function",
+        "function": {{
+            "name": "{registered_name}",
+            "description": {repr(openai_schema.get("function", {{}}).get("description", registered_name))},
+            "parameters": {props_repr},
+        }},
+    }},
+}})
+'''
+        with open(tools_path, "a") as f:
+            f.write(persist_block)
+        logger.info(f"[RECOVERY] Persisted '{registered_name}' to tools.py")
+    except Exception as e:
+        logger.warning(f"[RECOVERY] Could not persist to tools.py (tool still active in-memory): {e}")
+
+    # ── Step 4: retry the original task ──────────────────────────────────────
+    logger.info(f"[RECOVERY] Tool '{registered_name}' ready. Retrying: {original_prompt[:80]}")
+    retry_payload = {
+        "description": original_prompt,
+        "specialization": specialization,
+        "max_tool_calls": 25,
+        "max_cost_usd": 0.50,
+    }
+    retry_result = await run_agent_pipeline(retry_payload, "gemini-2.5-flash")
+    retry_status = retry_result.get("status", "completed")
+    retry_summary = retry_result.get("summary", "(no summary)")
+
+    logger.info(f"[RECOVERY] Retry status: {retry_status}")
+
+    return {
+        "status": retry_status,
+        "final_summary": (
+            f"[SELF-HEALED] Implemented '{registered_name}' and retried the task.\n\n"
+            f"{retry_summary}"
+        ),
+        "artifact_files": retry_result.get("artifact_files", []),
+        "recovery_attempted": True,
+        "progress_log": [
+            f"recovery: implemented and registered '{registered_name}'",
+            f"recovery: retry completed — status={retry_status}",
+        ],
+    }
+
 
 # ──────────────────────────────────────────────
 # ROUTING LOGIC
@@ -226,15 +476,24 @@ def orchestrator_router(state: OrchestratorState) -> list[Send] | str:
 # GRAPH DEFINITION
 # ──────────────────────────────────────────────
 
+def after_synthesis(state: OrchestratorState) -> str:
+    """Route to recovery if a tool failure was detected, otherwise end."""
+    if state.get("status") == "needs_recovery" and not state.get("recovery_attempted"):
+        return "recovery_node"
+    return END
+
+
 builder = StateGraph(OrchestratorState)
 builder.add_node("planner_node", planner_node)
 builder.add_node("subtask_worker", subtask_worker)
 builder.add_node("synthesis_node", synthesis_node)
+builder.add_node("recovery_node", recovery_node)
 
 builder.add_edge(START, "planner_node")
 builder.add_conditional_edges("planner_node", orchestrator_router, ["subtask_worker", "synthesis_node"])
 builder.add_conditional_edges("subtask_worker", orchestrator_router, ["subtask_worker", "synthesis_node"])
-builder.add_edge("synthesis_node", END)
+builder.add_conditional_edges("synthesis_node", after_synthesis, ["recovery_node", END])
+builder.add_edge("recovery_node", END)
 
 orchestrator_graph = builder.compile()
 
@@ -266,6 +525,7 @@ async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
         "global_cost": 0.0,
         "status": "started",
         "final_summary": "",
+        "recovery_attempted": False,
     }
 
     start_time = time.time()

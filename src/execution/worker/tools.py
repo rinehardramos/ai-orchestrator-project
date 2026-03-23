@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Tool registry for the autonomous agent worker.
 
@@ -860,17 +862,39 @@ def get_allowed_tools(specialization: str) -> list[str] | None:
         logger.warning(f"Could not load specializations config: {e}")
     return None
 
+
+# ── Dynamic Tool Registry (self-healing: tools registered at runtime) ──
+
+_DYNAMIC_REGISTRY: dict[str, dict] = {}  # name → {fn, schema}
+
+
+def register_dynamic_tool(name: str, fn, schema: dict):
+    """
+    Register a tool at runtime.  Called by the self-healing recovery system after
+    it implements a previously-missing capability.  The tool becomes immediately
+    available to all future agent calls in this worker process.
+    """
+    _DYNAMIC_REGISTRY[name] = {"fn": fn, "schema": schema}
+    logger.info(f"[DYNAMIC TOOL] Registered '{name}' — now available to all agents")
+
+
 def get_tool_schemas(specialization: str = "general") -> list[dict]:
-    """Return the list of tool schemas for the LiteLLM tools parameter, optionally filtered by specialization."""
+    """Return tool schemas filtered by specialization, plus any dynamically registered tools."""
     allowed = get_allowed_tools(specialization)
     if allowed is not None:
-        return [t["schema"] for t in TOOL_REGISTRY if t["name"] in allowed]
-    return [t["schema"] for t in TOOL_REGISTRY]
+        base = [t["schema"] for t in TOOL_REGISTRY if t["name"] in allowed]
+    else:
+        base = [t["schema"] for t in TOOL_REGISTRY]
+    # Always append dynamic tools (they are available regardless of specialization)
+    dynamic = [entry["schema"] for entry in _DYNAMIC_REGISTRY.values()]
+    return base + dynamic
 
 
 def get_tool_fn(name: str):
-    """Look up a tool function by name."""
+    """Look up a tool function by name — checks static registry first, then dynamic."""
     for t in TOOL_REGISTRY:
         if t["name"] == name:
             return t["fn"]
+    if name in _DYNAMIC_REGISTRY:
+        return _DYNAMIC_REGISTRY[name]["fn"]
     return None
