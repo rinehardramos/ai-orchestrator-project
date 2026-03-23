@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2026-03-23] — Patch 2
+
+### Added
+- **Native Google Provider**: `ModelRouter` now supports `provider: google` in `profiles.yaml`, routing calls through the `google-genai` SDK directly (bypasses OpenRouter for native Gemini access). Falls back to OpenRouter automatically if the native client is unavailable.
+- **Pricing Table**: Added cost entries for `gemini-2.0-flash`, `gemini-3-*` variants, and `zhipuai/glm-5-pro` to `_COST_PER_1M_TOKENS`.
+
+### Changed
+- **Model Router Fallback**: `call_llm` now contains a 3-step fallback chain entirely within the router, transparent to callers:
+  1. Configured provider + model
+  2. If local unavailable → same model on OpenRouter
+  3. If model name invalid (400/404) → `SAFE_FALLBACK_MODEL` (`google/gemini-2.0-flash-001`) on OpenRouter
+  Auth (401) and credit (402) errors are still re-raised immediately.
+
 ## [2026-03-23] — Patch
 
 ### Fixed

@@ -14,6 +14,13 @@ import logging
 from enum import Enum
 from openai import OpenAI
 
+try:
+    from google import genai
+    from google.genai import types
+except ImportError:
+    genai = None
+    types = None
+
 logger = logging.getLogger("ModelRouter")
 
 try:
@@ -110,6 +117,12 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
     "anthropic/claude-sonnet-4-6":    3.00,
     "google/gemini-2.5-flash":        0.15,
     "google/gemini-2.5-flash-lite":   0.075,
+    "gemini-2.0-flash":               0.10,
+    "gemini-3-flash":                 0.05,
+    "gemini-3-pro-preview":           1.20,
+    "gemini-3-pro-image-preview":     2.50,
+    "gemini-3-pro-audio-preview":     1.50,
+    "zhipuai/glm-5-pro":              0.50,
     "default":                        1.00,
 }
 
@@ -152,6 +165,18 @@ class ModelRouter:
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "missing-key",
         )
+        
+        # Native Google Client
+        google_api_key = os.environ.get("GOOGLE_API_KEY", "")
+        if genai and google_api_key:
+            self._google_client = genai.Client(api_key=google_api_key)
+            logger.info("[GOOGLE] Native client initialized")
+        else:
+            self._google_client = None
+            if not google_api_key:
+                logger.warning("GOOGLE_API_KEY not set — native Google calls will fail")
+            if not genai:
+                logger.warning("google-genai package not installed — native Google calls will fail")
         
         try:
             from opik.integrations.openai import track_openai
@@ -213,9 +238,12 @@ class ModelRouter:
 
         # ── Attempt 1: configured provider ────────────────────────────────
         try:
-            if is_local:
+            if provider == "lmstudio" or provider == "ollama":
                 return self._call_local(messages, model, tools)
+            elif provider == "google":
+                return self._call_google(messages, model, tools)
             else:
+                # Default to openrouter
                 return self._call_remote(messages, model, tools)
         except Exception as e:
             err = str(e)
@@ -309,6 +337,57 @@ class ModelRouter:
             tool_choice="auto",
         )
         return response.choices[0].message, 0.0
+
+    def _call_google(self, messages: list[dict], model: str, tools: list) -> tuple:
+        """
+        Call a Google model directly via the native google-genai SDK.
+        Falls back to OpenRouter if the native client is unavailable.
+        """
+        if not self._google_client:
+            logger.warning("[GOOGLE] Native client unavailable — routing through OpenRouter instead.")
+            return self._call_remote(messages, f"google/{model}" if not model.startswith("google/") else model, tools)
+
+        # Convert OpenAI-style messages to google-genai Contents
+        contents = []
+        system_instruction = None
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "system":
+                system_instruction = content
+            elif role == "assistant":
+                contents.append(types.Content(role="model", parts=[types.Part(text=content or "")]))
+            else:
+                contents.append(types.Content(role="user", parts=[types.Part(text=content or "")]))
+
+        config_kwargs: dict = {}
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+
+        # Strip provider prefix if present (genai uses bare model IDs)
+        bare_model = model.replace("google/", "")
+
+        response = self._google_client.models.generate_content(
+            model=bare_model,
+            contents=contents,
+            config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
+        )
+
+        text = response.text or ""
+        # Approximate token cost
+        usage = response.usage_metadata
+        prompt_tokens = getattr(usage, "prompt_token_count", 0) or 0
+        completion_tokens = getattr(usage, "candidates_token_count", 0) or 0
+        cost = self.compute_cost(bare_model, prompt_tokens, completion_tokens)
+
+        # Wrap in an object that matches the OpenAI message interface callers expect
+        class _Msg:
+            def __init__(self, text):
+                self.content = text
+                self.tool_calls = None
+                self.role = "assistant"
+
+        return _Msg(text), cost
 
     def detect_task_type(self, description: str) -> TaskType:
         """

@@ -74,23 +74,23 @@ infrastructure:
 
 task_routing:
   planning:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-flash"
+    provider: "google"
   coding:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-flash"
+    provider: "google"
   agent_step:
-    model: "google/gemini-2.5-flash"
-    provider: "lmstudio"
+    model: "gemini-3-flash"
+    provider: "google"
   analysis:
-    provider: "openrouter"
-    model: "google/gemini-2.0-flash-001"
+    provider: "google"
+    model: "gemini-3-flash"
   fast:
-    provider: "openrouter"
-    model: "google/gemini-2.0-flash-001"
+    provider: "google"
+    model: "gemini-3-flash"
   execute:
-    provider: "openrouter"
-    model: "google/gemini-2.0-flash-001"
+    provider: "google"
+    model: "gemini-3-flash"
   embeddings:
     provider: "lmstudio"
     model: "text-embedding-nomic-embed-code"
@@ -99,38 +99,38 @@ task_routing:
 
 specializations:
   general:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-flash"
+    provider: "google"
     allowed_tools: ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command"]
   coding:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-flash"
+    provider: "google"
     allowed_tools: ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]
   research:
-    model: "anthropic/claude-3.5-sonnet"
-    provider: "openrouter"
+    model: "gemini-3-flash"
+    provider: "google"
     allowed_tools: ["search_web", "read_url_content", "task_complete", "write_file"]
   image_generation:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-pro-image-preview"
+    provider: "google"
     allowed_tools: ["generate_image", "task_complete"]
   video_generation:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-pro-image-preview"
+    provider: "google"
     allowed_tools: ["generate_video", "task_complete"]
   audio_generation:
-    model: "google/gemini-2.0-flash-001"
-    provider: "openrouter"
+    model: "gemini-3-pro-audio-preview"
+    provider: "google"
     allowed_tools: ["generate_audio", "task_complete"]
   planner:
-    model: "anthropic/claude-3.5-sonnet"
+    model: "zhipuai/glm-5-pro"
     provider: "openrouter"
     allowed_tools: ["task_complete"]
   copywriting:
-    model: "anthropic/claude-3.5-sonnet"
-    provider: "openrouter"
+    model: "gemini-3-pro-preview"
+    provider: "google"
     allowed_tools: ["write_file", "read_file", "task_complete", "submit_for_review"]
   quality_control:
-    model: "anthropic/claude-3.5-sonnet"
+    model: "zhipuai/glm-5-pro"
     provider: "openrouter"
     allowed_tools: ["read_file", "task_complete", "delegate_task"]
