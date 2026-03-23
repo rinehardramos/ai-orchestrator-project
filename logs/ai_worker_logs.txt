@@ -1,21 +1,7 @@
-ai-worker-1  | Task exception was never retrieved
-ai-worker-1  | future: <Task finished name='Task-14' coro=<BaseApiClient.aclose() done, defined at /usr/local/lib/python3.11/site-packages/google/genai/_api_client.py:1962> exception=AttributeError("'BaseApiClient' object has no attribute '_async_httpx_client'")>
-ai-worker-1  | Traceback (most recent call last):
-ai-worker-1  |   File "/usr/local/lib/python3.11/site-packages/google/genai/_api_client.py", line 1967, in aclose
-ai-worker-1  |     await self._async_httpx_client.aclose()
-ai-worker-1  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-ai-worker-1  | AttributeError: 'BaseApiClient' object has no attribute '_async_httpx_client'
-ai-worker-1  | Task exception was never retrieved
-ai-worker-1  | future: <Task finished name='Task-14' coro=<BaseApiClient.aclose() done, defined at /usr/local/lib/python3.11/site-packages/google/genai/_api_client.py:1962> exception=AttributeError("'BaseApiClient' object has no attribute '_async_httpx_client'")>
-ai-worker-1  | Traceback (most recent call last):
-ai-worker-1  |   File "/usr/local/lib/python3.11/site-packages/google/genai/_api_client.py", line 1967, in aclose
-ai-worker-1  |     await self._async_httpx_client.aclose()
-ai-worker-1  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-ai-worker-1  | AttributeError: 'BaseApiClient' object has no attribute '_async_httpx_client'
-ai-worker-1  | Task exception was never retrieved
-ai-worker-1  | future: <Task finished name='Task-14' coro=<BaseApiClient.aclose() done, defined at /usr/local/lib/python3.11/site-packages/google/genai/_api_client.py:1962> exception=AttributeError("'BaseApiClient' object has no attribute '_async_httpx_client'")>
-ai-worker-1  | Traceback (most recent call last):
-ai-worker-1  |   File "/usr/local/lib/python3.11/site-packages/google/genai/_api_client.py", line 1967, in aclose
-ai-worker-1  |     await self._async_httpx_client.aclose()
-ai-worker-1  |           ^^^^^^^^^^^^^^^^^^^^^^^^
-ai-worker-1  | AttributeError: 'BaseApiClient' object has no attribute '_async_httpx_client'
+Traceback (most recent call last):
+  File "/Users/rinehardramos/Projects/ai-orchestrator-project/src/execution/worker/worker.py", line 31, in <module>
+    from src.execution.worker.tools import get_tool_schemas, get_tool_fn, TOOL_REGISTRY
+  File "/Users/rinehardramos/Projects/ai-orchestrator-project/src/execution/worker/tools.py", line 619, in <module>
+    def get_tool_fn(name: str) -> Optional[Callable]:
+                                  ^^^^^^^^
+NameError: name 'Optional' is not defined

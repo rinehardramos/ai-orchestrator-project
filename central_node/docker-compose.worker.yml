@@ -9,6 +9,7 @@ services:
       - REDIS_URL=${REDIS_URL:-redis://192.168.100.249:6379}
       - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://192.168.100.249:8080}
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PYTHONUNBUFFERED=1
     restart: always
     logging:

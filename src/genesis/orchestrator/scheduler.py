@@ -138,7 +138,10 @@ class TaskScheduler:
 
             if desc.status == WorkflowExecutionStatus.COMPLETED:
                 try:
-                    detail["result"] = await handle.result()
+                    res = await handle.result()
+                    detail["result"] = res
+                    if isinstance(res, dict) and "status" in res:
+                        detail["status"] = res["status"].upper()
                 except Exception:
                     pass
 
@@ -414,8 +417,9 @@ class TaskScheduler:
                     await asyncio.sleep(1.0)
                     
                 result = await handle.result()
-                logger.info(f"✅ [CENTRAL NODE] Worker Execution Complete.")
-                self._update_task_status(task_id, "COMPLETED")
+                final_status = result.get("status", "COMPLETED").upper()
+                logger.info(f"✅ [CENTRAL NODE] Worker Execution Finished with status: {final_status}")
+                self._update_task_status(task_id, final_status)
 
                 if self.notifier:
                     cost = result.get('total_cost_usd', 0.0)
@@ -445,7 +449,7 @@ class TaskScheduler:
                         )
                     self.notifier.send_message(msg)
                     
-                return "COMPLETED"
+                return final_status
             except Exception as e:
                 logger.error(f"❌ Error waiting for Temporal workflow: {e}", exc_info=True)
                 self._update_task_status(task_id, "FAILED")

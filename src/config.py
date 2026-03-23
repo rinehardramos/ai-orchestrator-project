@@ -56,4 +56,13 @@ def load_settings(env_name: str = None):
         if "qdrant" not in config: config["qdrant"] = {}
         config["qdrant"]["host"] = os.environ.get("QDRANT_HOST")
 
+    # Opik (Self-hosted Observability)
+    if "opik" in config:
+        host = config["opik"].get("host", "localhost")
+        port = config["opik"].get("ui_port", 5173)
+        # Construct base url for the Opik proxy (Nginx handles /api/ and routes to backend:8080)
+        opik_url = f"http://{host}:{port}/api"
+        os.environ["OPIK_URL_OVERRIDE"] = opik_url
+        os.environ.setdefault("OPIK_PROJECT_NAME", "ai-orchestration")
+
     return config

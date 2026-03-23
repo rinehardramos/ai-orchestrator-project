@@ -19,6 +19,12 @@ except ImportError:
         return decorator
 
 def _configure_opik():
+    try:
+        from src.config import load_settings
+        load_settings()
+    except Exception:
+        pass
+        
     url_override = os.environ.get("OPIK_URL_OVERRIDE")
     if url_override and OPIK_AVAILABLE:
         try:
@@ -28,7 +34,7 @@ def _configure_opik():
         except Exception as e:
             logger.warning(f"[OPIK] Configuration failed: {e}")
 
-_configure_opik()
+# _configure_opik will be called in __init__
 
 class TaskRequirement(BaseModel):
     estimated_duration_seconds: int
@@ -48,6 +54,7 @@ class AnalyzerResult(BaseModel):
 
 class TaskAnalyzer:
     def __init__(self, config_path: str = "config/profiles.yaml"):
+        _configure_opik()
         # Resolve config path relative to project root
         if not os.path.isabs(config_path):
             # src/genesis/analyzer/task_analyzer.py -> src/genesis/analyzer -> src/genesis -> src -> project_root

@@ -14,13 +14,16 @@ load_dotenv()
 # Ensure we're in the project root
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
-from src.genesis.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement, AnalyzerResult
+from src.config import load_settings
+load_settings()
+
+from src.genesis.analyzer.task_analyzer import TaskAnalyzer, AnalyzerResult
 from src.genesis.cli import show_plan
 from src.genesis.iac.pulumi_wrapper import provision_worker, destroy_worker
 from src.genesis.orchestrator.scheduler import TaskScheduler
 from src.genesis.utils.system_monitor import SystemMonitor
 
-monitor = SystemMonitor(threshold_percent=90.0)
+monitor = SystemMonitor(threshold_percent=99.0)
 
 
 def preprocess_argv():

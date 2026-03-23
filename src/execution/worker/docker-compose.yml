@@ -66,14 +66,12 @@ services:
       context: ../../../
       dockerfile: src/execution/worker/Dockerfile.worker
     container_name: ai-worker
+    env_file:
+      - ../../../.env
     environment:
       - TEMPORAL_HOST_URL=temporal:7233
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
       - AGENT_DEFAULT_REPO=${AGENT_DEFAULT_REPO:-ssh://git@github.com/rinehardramos/workspaces.git}
       - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}

@@ -222,6 +222,17 @@ async def provision_worker(stack_name: str, project_name: str, infra_id: str, ta
     """
     env_name = os.environ.get("SELECTED_ENV")
     program = create_pulumi_program(infra_id, task_env, env_name)
+
+    if infra_id == "existing_server":
+        print(f"[{stack_name}] Using existing server, bypassing Pulumi provisioning.")
+        class DummyOutput:
+            def __init__(self, value):
+                self.value = value
+        return {
+            "queue_url": DummyOutput("dummy-temporal-queue"),
+            "table_name": DummyOutput("dummy-qdrant-db"),
+            "container_id": DummyOutput("existing-server-id")
+        }
     
     stack = auto.create_or_select_stack(
         stack_name=stack_name,

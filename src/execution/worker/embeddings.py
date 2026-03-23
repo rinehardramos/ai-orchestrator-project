@@ -29,7 +29,7 @@ def _load_embedding_config() -> dict:
     )
     with open(config_path, "r") as f:
         data = yaml.safe_load(f)
-    return data.get("task_routing", {}).get("embedding", {})
+    return data.get("task_routing", {}).get("embeddings", {})
 
 
 def get_embedder() -> "SentenceTransformerEmbedder":
@@ -57,9 +57,9 @@ class SentenceTransformerEmbedder:
             return
             
         cfg = _load_embedding_config()
-        self.provider = cfg.get("provider", "local")
+        self.provider = cfg.get("provider", "lmstudio")
         
-        if self.provider == "local":
+        if self.provider in ["local", "lmstudio", "ollama"]:
             # Load URL from settings
             settings_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
             self.api_base = "http://127.0.0.1:1234/v1"
@@ -91,7 +91,7 @@ class SentenceTransformerEmbedder:
         """Return a normalized embedding vector for a single string."""
         self._ensure_loaded()
         
-        if getattr(self, "provider", "") == "local":
+        if getattr(self, "provider", "") in ["local", "lmstudio", "ollama"]:
             import requests
             resp = requests.post(
                 f"{self.api_base}/embeddings",
@@ -108,7 +108,7 @@ class SentenceTransformerEmbedder:
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
         """Return normalized embedding vectors for a list of strings (more efficient than looping)."""
         self._ensure_loaded()
-        if getattr(self, "provider", "") == "lmstudio":
+        if getattr(self, "provider", "") in ["local", "lmstudio", "ollama"]:
             import requests
             resp = requests.post(
                 f"{self.api_base}/embeddings",

@@ -90,21 +90,35 @@ def generate_content_with_tools(messages: list[dict], task_type: TaskType = Task
     The response_message may contain tool_calls or plain content.
     """
     tool_schemas = get_tool_schemas()
+    errors = []
+    
+    # Try the specific task type first
     try:
         return router.call_llm(messages, task_type, tool_schemas)
     except Exception as e:
-        logger.warning(f"Router failed for tool call: {e}. Trying fallback task types...")
+        errors.append(f"{task_type.value}: {str(e)}")
+        logger.warning(f"Router failed for primary task_type '{task_type.value}': {e}")
+        
+        # If it's an Auth error (401), don't bother with local fallbacks as they likely won't help or will use wrong model
+        if "401" in str(e) or "Unauthorized" in str(e):
+            raise ValueError(f"Authentication failed for {task_type.value}. Please check your API keys. Error: {e}")
+
+        # Fallback logic
         fallback_types = [TaskType.ANALYSIS, TaskType.AGENT_STEP]
         for fallback_type in fallback_types:
             if fallback_type == task_type:
                 continue
             try:
+                logger.info(f"Attempting fallback to task_type={fallback_type.value}...")
                 result = router.call_llm(messages, fallback_type, tool_schemas)
-                logger.info(f"Tool-call fallback succeeded with task_type={fallback_type}")
+                logger.info(f"Tool-call fallback succeeded with task_type={fallback_type.value}")
                 return result
-            except Exception:
+            except Exception as fe:
+                errors.append(f"{fallback_type.value}: {str(fe)}")
                 continue
-        raise ValueError(f"All models failed for tool call. Last error: {e}")
+        
+        error_summary = " | ".join(errors)
+        raise ValueError(f"All models failed for tool call. History: {error_summary}")
 
 
 
@@ -132,7 +146,7 @@ def _fetch_qdrant_context(task_description: str) -> str:
     try:
         vector = get_embedder().embed(task_description)
         start = time.time()
-        results = memory_store.query_l2("agent_insights_v2", vector, limit=3)
+        results = memory_store.query_l2("agent_insights_v4", vector, limit=3)
         QDRANT_LATENCY.observe(time.time() - start)
         if results:
             entries = []
@@ -340,10 +354,14 @@ def summarize(state: AgenticState) -> AgenticState:
     if not summary:
         summary = "Agent completed without producing a summary."
 
+    status = "completed"
+    if state.get("status") == "error" or state.get("error"):
+        status = "failed"
+
     return {
-        "status": "completed",
+        "status": status,
         "summary": summary,
-        "progress_log": state["progress_log"] + ["summarize: done"],
+        "progress_log": state["progress_log"] + [f"summarize: {status}"],
     }
 
 
@@ -430,7 +448,7 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
                     content=insight,
                     metadata={"task": task_description, "source": "agent", "tool_calls": final_state.get("tool_call_count", 0)},
                 )
-                memory_store.store_l2("agent_insights_v2", entry, vector=vector)
+                memory_store.store_l2("agent_insights_v4", entry, vector=vector)
                 logger.info("[L2 Stored] Agent insight saved to Qdrant")
             except Exception as e:
                 logger.error(f"Failed to store agent insight in Qdrant: {e}")

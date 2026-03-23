@@ -21,7 +21,7 @@ async def apply_belief_decay() -> dict:
     if not memory_store.qdrant:
         return {"status": "skipped", "reason": "Qdrant not configured"}
         
-    collections_to_decay = ["agent_insights_v2", "knowledge_base_v2"]
+    collections_to_decay = ["agent_insights_v4", "knowledge_base_v4"]
     total_decayed = 0
     
     for collection_name in collections_to_decay:

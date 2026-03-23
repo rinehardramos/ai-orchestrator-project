@@ -16,6 +16,12 @@ from openai import OpenAI
 
 logger = logging.getLogger("ModelRouter")
 
+try:
+    from src.config import load_settings
+except ImportError:
+    # If used as a standalone script or in sub-package without sys.path setup
+    pass
+
 
 def _configure_opik():
     """
@@ -86,6 +92,16 @@ _PLANNING_KEYWORDS = {
     "choose", "evaluate", "assess", "review", "compare",
 }
 
+# Words that indicate a FAST/FLASH task
+_FAST_KEYWORDS = {
+    "fast", "flash", "quick", "speed", "instant", "brief",
+}
+
+# Words that indicate an EXECUTE task
+_EXECUTE_KEYWORDS = {
+    "execute", "run", "perform", "do", "action", "command",
+}
+
 # Approximate cost per 1 million tokens (prompt + completion combined).
 # Update these values if pricing changes — do not hardcode costs elsewhere.
 _COST_PER_1M_TOKENS: dict[str, float] = {
@@ -116,11 +132,17 @@ class ModelRouter:
     Routes LLM calls to the correct model and provider based on task type.
     All model names and providers come from config/profiles.yaml.
 
-    Phase 1: provider=remote → OpenAI SDK pointed at https://openrouter.ai/api/v1
-    Phase 3: provider=local  → OpenAI SDK pointed to local LMStudio/Ollama API
+    Phase 1: provider=openrouter → OpenAI SDK pointed at https://openrouter.ai/api/v1
+    Phase 3: provider=lmstudio   → OpenAI SDK pointed to local LMStudio/Ollama API
     """
 
     def __init__(self):
+        try:
+            load_settings()
+        except Exception:
+            pass
+        _configure_opik()
+        
         self._routing = _load_task_routing()
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
@@ -161,7 +183,7 @@ class ModelRouter:
         Returns 'remote' or 'local'.
         """
         entry = self._routing.get(task_type.value, {})
-        return entry.get("provider", "remote")
+        return entry.get("provider", "openrouter")
 
     def call_llm(self, messages: list[dict], task_type: TaskType, tools: list) -> tuple:
         """
@@ -175,10 +197,10 @@ class ModelRouter:
         provider = self.get_provider(task_type)
         model = self.get_model(task_type)
 
-        if provider == "local":
+        if provider == "lmstudio" or provider == "ollama":
             return self._call_local(messages, model, tools)
         else:
-            # Default to remote
+            # Default to openrouter
             return self._call_remote(messages, model, tools)
 
     def _call_remote(self, messages: list[dict], model: str, tools: list) -> tuple:
@@ -244,6 +266,10 @@ class ModelRouter:
             return TaskType.CODING
         if words & _PLANNING_KEYWORDS:
             return TaskType.PLANNING
+        if words & _EXECUTE_KEYWORDS:
+            return TaskType.EXECUTE
+        if words & _FAST_KEYWORDS:
+            return TaskType.FAST
         return TaskType.AGENT_STEP
 
     def compute_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:

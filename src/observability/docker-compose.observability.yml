@@ -112,6 +112,7 @@ services:
         condition: service_completed_successfully
     networks:
       - ai-network
+    restart: always
 
   minio:
     image: minio/minio:RELEASE.2025-03-12T18-04-18Z

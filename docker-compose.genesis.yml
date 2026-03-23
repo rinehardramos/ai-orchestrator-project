@@ -30,21 +30,21 @@ services:
       - ai-network
     restart: unless-stopped
 
-  # ── Telegram Ingress Service ──────────────────────────────────────────────
+  # ── Telegram Monitor Service ──────────────────────────────────────────────
   # Monitors Telegram for instructions and sends them to the Control Plane.
-  telegram-ingress:
+  telegram-monitor:
     build:
       context: .
       dockerfile: Dockerfile.genesis
-    container_name: telegram-ingress
+    container_name: telegram-monitor
     command: ["python", "src/genesis/orchestrator/telegram_monitor.py"]
+    env_file:
+      - .env
     environment:
       - TEMPORAL_HOST=${TEMPORAL_HOST:-temporal}
       - QDRANT_HOST=${QDRANT_HOST:-qdrant}
       - REDIS_HOST=${REDIS_HOST:-redis}
-      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - PYTHONPATH=/app
     volumes:
       - .:/app
     networks:

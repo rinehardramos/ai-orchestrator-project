@@ -24,7 +24,7 @@ models:
     reasoning_capability: "high"
     speed: "fast"
   - id: "llama-3.1-8b-local"
-    provider: "local"
+    provider: "lmstudio"
     cost_per_1k_tokens: 0.0
     context_window: 128000
     reasoning_capability: "low"
@@ -74,25 +74,25 @@ infrastructure:
 
 task_routing:
   planning:
-    model: "anthropic/claude-opus-4-5"
-    provider: "remote"
+    model: "anthropic/claude-3.5-sonnet"
+    provider: "openrouter"
   coding:
-    model: "thudm/glm-4-plus"
-    provider: "remote"
+    model: "zhipuai/glm-4-plus"
+    provider: "openrouter"
   agent_step:
     model: "google/gemini-2.5-flash"
-    provider: "local"
+    provider: "lmstudio"
   analysis:
-    model: "google/gemini-2.5-flash-lite"
-    provider: "remote"
+    provider: "openrouter"
+    model: "google/gemini-2.0-flash-001"
   fast:
-    model: "google/gemini-2.5-flash"
-    provider: "local"
+    provider: "openrouter"
+    model: "google/gemini-2.0-flash-001"
   execute:
-    model: "google/gemini-2.5-flash"
-    provider: "local"
-  embedding:
-    model: "text-embedding-nomic-embed-text-v2-moe"
-    provider: "local"
-    dim: 768
-    collection_suffix: "_v3"
+    provider: "openrouter"
+    model: "google/gemini-2.0-flash-001"
+  embeddings:
+    provider: "lmstudio"
+    model: "text-embedding-nomic-embed-code"
+    dim: 3584
+    collection_suffix: "_v4"

@@ -25,6 +25,13 @@ except ImportError:
 def _configure_opik():
     import logging
     logger = logging.getLogger("KnowledgeBase")
+    
+    try:
+        from src.config import load_settings
+        load_settings()
+    except Exception:
+        pass
+        
     url_override = os.environ.get("OPIK_URL_OVERRIDE")
     if url_override and OPIK_AVAILABLE:
         try:
@@ -34,7 +41,7 @@ def _configure_opik():
         except Exception as e:
             logger.warning(f"[OPIK] Configuration failed: {e}")
 
-_configure_opik()
+# _configure_opik will be called in __init__
 
 # Embedding dimensions per provider model
 _EMBED_DIM = 3584   # nomic-embed-code
@@ -48,6 +55,7 @@ class KnowledgeBaseClient:
     """
 
     def __init__(self, settings_path=None):
+        _configure_opik()
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
         if settings_path is None:
             settings_path = os.path.join(project_root, "config/settings.yaml")
@@ -62,7 +70,7 @@ class KnowledgeBaseClient:
                     qdrant_url = f"http://{host}:{port}"
 
         self.store = HybridMemoryStore(qdrant_url=qdrant_url)
-        self.collection_name = "knowledge_base_v3"
+        self.collection_name = "knowledge_base_v4"
 
         self._openai_key = os.environ.get("OPENAI_API_KEY", "dummy")
         
@@ -76,12 +84,12 @@ class KnowledgeBaseClient:
         if os.path.exists(profiles_path):
             with open(profiles_path, 'r') as f:
                 prof = yaml.safe_load(f)
-                emb = prof.get("task_routing", {}).get("embedding", {})
+                emb = prof.get("task_routing", {}).get("embeddings", {})
                 provider = emb.get("provider", "local")
-                self._embed_model = emb.get("model", "nomic-embed-code")
+                self._embed_model = emb.get("model", "text-embedding-nomic-embed-code")
                 self._embed_dim = emb.get("dim", _EMBED_DIM)
         
-        if provider == "local":
+        if provider == "local" or provider == "lmstudio" or provider == "ollama":
             if os.path.exists(settings_path):
                 with open(settings_path, 'r') as f:
                     settings = yaml.safe_load(f)
