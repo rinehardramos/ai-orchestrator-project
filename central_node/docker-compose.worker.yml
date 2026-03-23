@@ -11,10 +11,12 @@ services:
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PYTHONUNBUFFERED=1
+    volumes:
+      - ../src:/app/src
+      - ../config:/app/config
     restart: always
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-
