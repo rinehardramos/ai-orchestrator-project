@@ -1,5 +1,14 @@
 active_environment: "primary"
 
+genesis:
+  diagnostic:
+    provider: "openrouter"
+    model: "anthropic/claude-3.5-sonnet"
+    fallback_model: "openai/gpt-4o"
+    max_iterations: 3
+    verify_delay_sec: 5
+    timeout_sec: 120
+
 environments:
   primary:
     remote_worker:
