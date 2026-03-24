@@ -56,6 +56,10 @@ def load_settings(env_name: str = None):
         if "qdrant" not in config: config["qdrant"] = {}
         config["qdrant"]["host"] = os.environ.get("QDRANT_HOST")
 
+    if os.environ.get("REDIS_HOST"):
+        if "redis" not in config: config["redis"] = {}
+        config["redis"]["host"] = os.environ.get("REDIS_HOST")
+
     # Opik (Self-hosted Observability)
     if "opik" in config:
         host = config["opik"].get("host", "localhost")

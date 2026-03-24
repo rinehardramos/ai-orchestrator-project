@@ -14,3 +14,6 @@ __pycache__/
 # Runtime logs
 logs/
 venv/
+data/
+logs/telegram_monitor.log
+data/tg_last_update_id.txt
