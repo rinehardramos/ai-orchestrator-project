@@ -33,3 +33,8 @@ bandit
 ansible-lint
 fastapi
 uvicorn
+sse-starlette
+
+# --- Tool plugin system ---
+asyncpg           # async Postgres driver for tool config DB
+cryptography      # AES-256-GCM credential encryption

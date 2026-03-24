@@ -1,0 +1,78 @@
+tool_builder:
+  model: claude-opus-4-6
+  max_retries: 2
+  tools_catalog_path: src/tools_catalog
+  tools_config_path: config/tools.yaml
+tools:
+  http_server:
+    enabled: false
+    type: api
+    listen: true
+    node: genesis
+    module: src.tools_catalog.api.http_server
+    config:
+      host: 127.0.0.1
+      port: 8000
+      api_key: ${HTTP_API_KEY}
+      redis_url: ${REDIS_URL}
+  telegram:
+    enabled: true
+    type: chat
+    listen: true
+    node: both
+    module: src.tools_catalog.chat.telegram
+    config:
+      bot_token: ${TELEGRAM_BOT_TOKEN}
+      chat_id: ${TELEGRAM_CHAT_ID}
+  shell:
+    enabled: true
+    type: code
+    listen: false
+    node: worker
+    module: src.tools_catalog.code.shell
+    config:
+      timeout_seconds: 120
+  filesystem:
+    enabled: true
+    type: code
+    listen: false
+    node: worker
+    module: src.tools_catalog.code.filesystem
+    config: {}
+  web:
+    enabled: true
+    type: code
+    listen: false
+    node: worker
+    module: src.tools_catalog.code.web
+    config: {}
+  git:
+    enabled: true
+    type: code
+    listen: false
+    node: worker
+    module: src.tools_catalog.code.git
+    config: {}
+  image:
+    enabled: true
+    type: media
+    listen: false
+    node: worker
+    module: src.tools_catalog.media.image
+    config: {}
+  http_client:
+    enabled: false
+    type: webhook
+    listen: false
+    node: worker
+    module: src.tools_catalog.webhook.http_client
+    config: {}
+  google_drive:
+    enabled: false
+    type: mcp
+    listen: false
+    node: worker
+    module: src.plugins.mcp_bridge
+    config:
+      transport: stdio
+      command: npx -y @modelcontextprotocol/server-gdrive
