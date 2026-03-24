@@ -38,3 +38,6 @@ sse-starlette
 # --- Tool plugin system ---
 asyncpg           # async Postgres driver for tool config DB
 cryptography      # AES-256-GCM credential encryption
+
+# --- Scheduler ---
+croniter          # Cron expression parsing
