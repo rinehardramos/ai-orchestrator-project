@@ -5,7 +5,7 @@ tool_builder:
   tools_config_path: config/tools.yaml
 tools:
   http_server:
-    enabled: false
+    enabled: true
     type: api
     listen: true
     node: genesis
@@ -61,7 +61,7 @@ tools:
     module: src.tools_catalog.media.image
     config: {}
   http_client:
-    enabled: false
+    enabled: true
     type: webhook
     listen: false
     node: worker

@@ -97,14 +97,14 @@ Each story lists inputs (reads), outputs (creates), and interface contract.
 ### Wave 2 — Depends on Wave 1
 
 #### Story 1.4 — Admin router + base template
-- [ ] **Files:** `src/web/admin.py`, `src/web/templates/base.html`
+- [x] **Files:** `src/web/admin.py`, `src/web/templates/base.html`
 - **Imports:** `tools_router` from 1.1, `config_router` from 1.2, `status_router` from 1.3
 - **Exports:** `create_admin_router()` → FastAPI `APIRouter` with all sub-routers + UI page routes
 - **`admin.py`:** defines `/ui/`, `/ui/tools`, `/ui/tools/new`, `/ui/tools/{name}`, `/ui/models`, `/ui/settings` routes that render Jinja2 templates
 - **`base.html`:** Tailwind CDN (`<script src="https://cdn.tailwindcss.com">`), HTMX CDN (`<script src="https://unpkg.com/htmx.org@2.0.4">`), dark sidebar nav (Dashboard, Tools, Models, Settings), `{% block content %}`, toast div
 
 #### Story 3.1 — http_server tool (task submission + SSE)
-- [ ] **Files:** `src/tools_catalog/api/__init__.py`, `src/tools_catalog/api/http_server.py`
+- [x] **Files:** `src/tools_catalog/api/__init__.py`, `src/tools_catalog/api/http_server.py`
 - **Reads:** `src/plugins/base.py`, `src/web/admin.py` (mounts admin router)
 - **Exports:** `tool_class = HttpServerTool`
 - **Config:** `{host, port, api_key, redis_url}`
@@ -122,27 +122,27 @@ Each story lists inputs (reads), outputs (creates), and interface contract.
 ### Wave 3 — Depends on Wave 2 (all pages are independent of each other)
 
 #### Story 1.5 — Dashboard page
-- [ ] **File:** `src/web/templates/dashboard.html`
+- [x] **File:** `src/web/templates/dashboard.html`
 - Extends `base.html`. Cards: tool counts (total/enabled/listeners/disabled). Health dots via `hx-get="/api/status"`. Quick action buttons.
 
 #### Story 1.6 — Tool list page
-- [ ] **File:** `src/web/templates/tools/list.html`
+- [x] **File:** `src/web/templates/tools/list.html`
 - Extends `base.html`. Table of tools. Enabled toggle via HTMX PATCH. Delete with confirm. Clone link. "Add Tool" button.
 
 #### Story 1.7 — Tool add/edit form page
-- [ ] **File:** `src/web/templates/tools/form.html`
+- [x] **File:** `src/web/templates/tools/form.html`
 - Extends `base.html`. Reused for new + edit. Dynamic key-value config/credential rows. HTMX submit to `/api/tools`.
 
 #### Story 1.8 — Model routing page
-- [ ] **File:** `src/web/templates/models/routing.html`
+- [x] **File:** `src/web/templates/models/routing.html`
 - Extends `base.html`. Routing table with model/provider dropdowns. Specialization collapsibles with allowed_tools checkboxes. Save via HTMX PUT.
 
 #### Story 1.9 — Settings page (agent defaults, infra, cluster)
-- [ ] **File:** `src/web/templates/settings/general.html`
+- [x] **File:** `src/web/templates/settings/general.html`
 - Extends `base.html`. Three tabs: Agent Defaults (number inputs), Infrastructure (env dropdown + host/port fields), Cluster Nodes (table + health check).
 
 #### Story 1.10 — Enable tools in tools.yaml + smoke test
-- [ ] Enable `http_server` in `config/tools.yaml`
+- [x] Enable `http_server` in `config/tools.yaml`
 - Verify: `curl http://localhost:8000/ui/` renders, `/api/tools` returns JSON, `/api/status` returns health
 
 ---

@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">Model Routing</h1>
+
+    <div class="space-y-6">
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Task Routing</h2>
+            <div id="routing-table" class="space-y-4"></div>
+            <button onclick="saveRouting()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Routing</button>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Specializations</h2>
+            <div id="specializations-list" class="space-y-4"></div>
+            <button onclick="saveSpecializations()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Specializations</button>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
+            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Available Models</h2>
+            <div id="models-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let models = [];
+    let routing = {};
+    let specializations = {};
+
+    async function loadAll() {
+        const [modelsResp, routingResp, specsResp] = await Promise.all([
+            fetch('/api/config/models'),
+            fetch('/api/config/routing'),
+            fetch('/api/config/specializations')
+        ]);
+        models = await modelsResp.json();
+        routing = await routingResp.json();
+        specializations = await specsResp.json();
+        
+        renderRouting();
+        renderSpecializations();
+        renderModels();
+    }
+
+    function renderRouting() {
+        const container = document.getElementById('routing-table');
+        container.innerHTML = Object.entries(routing).map(([task, config]) => `
+            <div class="flex items-center gap-4">
+                <label class="w-32 text-sm font-medium text-gray-700 dark:text-gray-300">${task}</label>
+                <select class="routing-model flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" data-task="${task}">
+                    ${models.map(m => `<option value="${m.id}" ${config.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
+                </select>
+            </div>
+        `).join('');
+    }
+
+    function renderSpecializations() {
+        const container = document.getElementById('specializations-list');
+        container.innerHTML = Object.entries(specializations).map(([name, config]) => `
+            <details class="border dark:border-gray-700 rounded-md">
+                <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900">${name}</summary>
+                <div class="p-4 space-y-2">
+                    <div class="flex items-center gap-4">
+                        <label class="w-24 text-sm text-gray-600 dark:text-gray-400">Model:</label>
+                        <select class="spec-model rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" data-spec="${name}">
+                            ${models.map(m => `<option value="${m.id}" ${config.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Allowed Tools:</label>
+                        <input type="text" class="spec-tools w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
+                               data-spec="${name}" value="${(config.allowed_tools || []).join(', ')}">
+                    </div>
+                </div>
+            </details>
+        `).join('');
+    }
+
+    function renderModels() {
+        const container = document.getElementById('models-list');
+        container.innerHTML = models.map(m => `
+            <div class="border dark:border-gray-700 rounded-md p-4">
+                <div class="font-medium text-gray-900 dark:text-white">${m.id}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">${m.provider} | ${m.reasoning_capability} | ${m.speed}</div>
+            </div>
+        `).join('');
+    }
+
+    async function saveRouting() {
+        const newRouting = {};
+        document.querySelectorAll('.routing-model').forEach(sel => {
+            newRouting[sel.dataset.task] = {
+                model: sel.value,
+                provider: models.find(m => m.id === sel.value)?.provider || 'google'
+            };
+        });
+        await fetch('/api/config/routing', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ routing: newRouting })
+        });
+        alert('Routing saved');
+    }
+
+    async function saveSpecializations() {
+        const newSpecs = {};
+        Object.keys(specializations).forEach(name => {
+            const modelSel = document.querySelector(`.spec-model[data-spec="${name}"]`);
+            const toolsInput = document.querySelector(`.spec-tools[data-spec="${name}"]`);
+            newSpecs[name] = {
+                model: modelSel.value,
+                provider: models.find(m => m.id === modelSel.value)?.provider || 'google',
+                allowed_tools: toolsInput.value.split(',').map(t => t.trim()).filter(t => t)
+            };
+        });
+        await fetch('/api/config/specializations', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ specializations: newSpecs })
+        });
+        alert('Specializations saved');
+    }
+
+    document.addEventListener('DOMContentLoaded', loadAll);
+</script>
+{% endblock %}

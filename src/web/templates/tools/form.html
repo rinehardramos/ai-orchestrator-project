@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
+        {% if tool_name %}Edit Tool: {{ tool_name }}{% else %}Add New Tool{% endif %}
+    </h1>
+
+    <form id="tool-form" class="space-y-6 bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name</label>
+                <input type="text" name="name" id="name" required
+                       class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                       {% if tool_name %}value="{{ tool_name }}" readonly{% endif %}>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Type</label>
+                <input type="text" name="type" id="type" required
+                       class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Module</label>
+                <input type="text" name="module" id="module" required placeholder="src.tools_catalog.code.shell"
+                       class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Node</label>
+                <select name="node" id="node"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+                    <option value="both">both</option>
+                    <option value="genesis">genesis</option>
+                    <option value="worker">worker</option>
+                </select>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" name="listen" id="listen" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                <label for="listen" class="ml-2 block text-sm text-gray-900 dark:text-gray-300">Listen (always-on source)</label>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" name="enabled" id="enabled" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                <label for="enabled" class="ml-2 block text-sm text-gray-900 dark:text-gray-300">Enabled</label>
+            </div>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+            <textarea name="description" id="description" rows="2"
+                      class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"></textarea>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Config</label>
+            <div id="config-rows" class="space-y-2"></div>
+            <button type="button" onclick="addConfigRow('config-rows')"
+                    class="mt-2 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-900">+ Add Config</button>
+        </div>
+
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Credentials</label>
+            <div id="credential-rows" class="space-y-2"></div>
+            <button type="button" onclick="addConfigRow('credential-rows')"
+                    class="mt-2 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-900">+ Add Credential</button>
+        </div>
+
+        <div class="flex justify-end gap-3">
+            <a href="/ui/tools" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</a>
+            <button type="submit" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700">
+                {% if tool_name %}Update{% else %}Create{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    function addConfigRow(containerId, key = '', value = '') {
+        const container = document.getElementById(containerId);
+        const row = document.createElement('div');
+        row.className = 'flex gap-2';
+        row.innerHTML = `
+            <input type="text" placeholder="Key" value="${key}"
+                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm config-key">
+            <input type="text" placeholder="Value" value="${value}"
+                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm config-val">
+            <button type="button" onclick="this.parentElement.remove()" class="text-red-600 hover:text-red-900">X</button>
+        `;
+        container.appendChild(row);
+    }
+
+    async function loadTool(name) {
+        const resp = await fetch(`/api/tools/${name}`);
+        if (!resp.ok) return;
+        const tool = await resp.json();
+        
+        document.getElementById('type').value = tool.type || '';
+        document.getElementById('module').value = tool.module || '';
+        document.getElementById('node').value = tool.node || 'both';
+        document.getElementById('listen').checked = tool.listen;
+        document.getElementById('enabled').checked = tool.enabled;
+        document.getElementById('description').value = tool.description || '';
+        
+        for (const [k, v] of Object.entries(tool.config || {})) {
+            addConfigRow('config-rows', k, v);
+        }
+    }
+
+    document.getElementById('tool-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const config = {};
+        document.querySelectorAll('#config-rows > div').forEach(row => {
+            const key = row.querySelector('.config-key').value;
+            const val = row.querySelector('.config-val').value;
+            if (key) config[key] = val;
+        });
+        
+        const credentials = {};
+        document.querySelectorAll('#credential-rows > div').forEach(row => {
+            const key = row.querySelector('.config-key').value;
+            const val = row.querySelector('.config-val').value;
+            if (key) credentials[key] = val;
+        });
+        
+        const name = document.getElementById('name').value;
+        const isEdit = {{ 'true' if tool_name else 'false' }};
+        
+        const payload = {
+            name: name,
+            type: document.getElementById('type').value,
+            module: document.getElementById('module').value,
+            node: document.getElementById('node').value,
+            listen: document.getElementById('listen').checked,
+            enabled: document.getElementById('enabled').checked,
+            description: document.getElementById('description').value,
+            config: config,
+            credentials: credentials
+        };
+        
+        if (isEdit) {
+            await fetch(`/api/tools/${name}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config, credentials })
+            });
+        } else {
+            await fetch('/api/tools', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+        }
+        
+        window.location.href = '/ui/tools';
+    });
+
+    {% if tool_name %}
+    document.addEventListener('DOMContentLoaded', () => loadTool('{{ tool_name }}'));
+    {% endif %}
+</script>
+{% endblock %}

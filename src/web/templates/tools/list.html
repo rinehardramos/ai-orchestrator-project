@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Tools</h1>
+        <a href="/ui/tools/new" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700">
+            Add Tool
+        </a>
+    </div>
+
+    <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-md">
+        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-900">
+                <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Node</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Listen</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Enabled</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="tools-tbody">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    async function loadTools() {
+        const resp = await fetch('/api/tools');
+        const tools = await resp.json();
+        const tbody = document.getElementById('tools-tbody');
+        tbody.innerHTML = tools.map(t => `
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <a href="/ui/tools/${t.name}" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-900">${t.name}</a>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.type || '-'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.node || 'both'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.listen ? 'Yes' : 'No'}</td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <button onclick="toggleEnabled('${t.name}', ${t.enabled})" 
+                            class="px-2 py-1 text-xs rounded ${t.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'}">
+                        ${t.enabled ? 'Enabled' : 'Disabled'}
+                    </button>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                    <a href="/ui/tools/${t.name}" class="text-indigo-600 dark:text-indigo-400 hover:text-indigo-900 mr-3">Edit</a>
+                    <button onclick="deleteTool('${t.name}')" class="text-red-600 dark:text-red-400 hover:text-red-900">Delete</button>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    async function toggleEnabled(name, current) {
+        const action = current ? 'disable' : 'enable';
+        await fetch(`/api/tools/${name}/${action}`, { method: 'PATCH' });
+        loadTools();
+    }
+
+    async function deleteTool(name) {
+        if (!confirm(`Delete tool "${name}"?`)) return;
+        await fetch(`/api/tools/${name}`, { method: 'DELETE' });
+        loadTools();
+    }
+
+    document.addEventListener('DOMContentLoaded', loadTools);
+</script>
+{% endblock %}

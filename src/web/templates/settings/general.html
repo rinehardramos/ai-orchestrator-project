@@ -1,0 +1,170 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">Settings</h1>
+
+    <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+        <div class="border-b border-gray-200 dark:border-gray-700">
+            <nav class="flex -mb-px">
+                <button onclick="showTab('agent')" class="tab-btn px-6 py-3 border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-medium" data-tab="agent">Agent Defaults</button>
+                <button onclick="showTab('infra')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="infra">Infrastructure</button>
+                <button onclick="showTab('cluster')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="cluster">Cluster Nodes</button>
+            </nav>
+        </div>
+
+        <div class="p-6">
+            <div id="tab-agent" class="tab-content">
+                <form id="agent-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Tool Calls</label>
+                        <input type="number" name="max_tool_calls" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Cost (USD)</label>
+                        <input type="number" step="0.01" name="max_cost_usd" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Shell Timeout (seconds)</label>
+                        <input type="number" name="shell_timeout_seconds" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Activity Timeout (minutes)</label>
+                        <input type="number" name="activity_timeout_minutes" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Agent Defaults</button>
+                </form>
+            </div>
+
+            <div id="tab-infra" class="tab-content hidden">
+                <div id="infra-container" class="space-y-6"></div>
+            </div>
+
+            <div id="tab-cluster" class="tab-content hidden">
+                <div id="cluster-container"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let infra = {};
+    let cluster = [];
+
+    function showTab(name) {
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+        document.querySelectorAll('.tab-btn').forEach(el => {
+            el.classList.remove('border-indigo-500', 'text-indigo-600', 'dark:text-indigo-400');
+            el.classList.add('border-transparent', 'text-gray-500', 'dark:text-gray-400');
+        });
+        document.getElementById(`tab-${name}`).classList.remove('hidden');
+        const btn = document.querySelector(`.tab-btn[data-tab="${name}"]`);
+        btn.classList.remove('border-transparent', 'text-gray-500', 'dark:text-gray-400');
+        btn.classList.add('border-indigo-500', 'text-indigo-600', 'dark:text-indigo-400');
+    }
+
+    async function loadAgentDefaults() {
+        const resp = await fetch('/api/config/agent-defaults');
+        const data = await resp.json();
+        const form = document.getElementById('agent-form');
+        Object.entries(data).forEach(([k, v]) => {
+            const input = form.querySelector(`[name="${k}"]`);
+            if (input) input.value = v;
+        });
+    }
+
+    async function loadInfra() {
+        const resp = await fetch('/api/config/infrastructure');
+        infra = await resp.json();
+        const container = document.getElementById('infra-container');
+        
+        const activeEnv = infra.active_environment || 'primary';
+        const envs = infra.environments || {};
+        
+        container.innerHTML = `
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Active Environment</label>
+                <select id="active-env" class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    ${Object.keys(envs).map(e => `<option value="${e}" ${e === activeEnv ? 'selected' : ''}>${e}</option>`).join('')}
+                </select>
+            </div>
+            ${Object.entries(envs).map(([name, cfg]) => `
+                <details class="border dark:border-gray-700 rounded-md" ${name === activeEnv ? 'open' : ''}>
+                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium bg-gray-50 dark:bg-gray-900">${name}</summary>
+                    <div class="p-4 grid grid-cols-2 gap-4">
+                        ${Object.entries(cfg).map(([k, v]) => `
+                            <div>
+                                <label class="block text-xs text-gray-500 dark:text-gray-400">${k}</label>
+                                <input type="text" value="${typeof v === 'object' ? JSON.stringify(v) : v}" 
+                                       class="w-full text-sm rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" readonly>
+                            </div>
+                        `).join('')}
+                    </div>
+                </details>
+            `).join('')}
+            <button onclick="saveInfra()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Infrastructure</button>
+        `;
+    }
+
+    async function loadCluster() {
+        const resp = await fetch('/api/config/cluster');
+        cluster = await resp.json();
+        const container = document.getElementById('cluster-container');
+        
+        container.innerHTML = `
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Name</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Host</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Role</th>
+                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
+                    ${cluster.map(n => `
+                        <tr>
+                            <td class="px-4 py-2 text-sm text-gray-900 dark:text-white">${n.name}</td>
+                            <td class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">${n.host}</td>
+                            <td class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">${n.role}</td>
+                            <td class="px-4 py-2 text-sm"><span class="px-2 py-1 rounded text-xs bg-gray-100 dark:bg-gray-700">Unknown</span></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    }
+
+    async function saveAgentDefaults(e) {
+        e.preventDefault();
+        const form = document.getElementById('agent-form');
+        const data = {};
+        form.querySelectorAll('input').forEach(input => {
+            data[input.name] = parseFloat(input.value);
+        });
+        await fetch('/api/config/agent-defaults', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_defaults: data })
+        });
+        alert('Agent defaults saved');
+    }
+
+    async function saveInfra() {
+        infra.active_environment = document.getElementById('active-env').value;
+        await fetch('/api/config/infrastructure', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(infra)
+        });
+        alert('Infrastructure saved');
+    }
+
+    document.getElementById('agent-form').addEventListener('submit', saveAgentDefaults);
+    document.addEventListener('DOMContentLoaded', () => {
+        loadAgentDefaults();
+        loadInfra();
+        loadCluster();
+    });
+</script>
+{% endblock %}
