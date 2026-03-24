@@ -112,6 +112,13 @@ specializations:
     - email_search
     - email_get
     - email_delete
+    - drive_list
+    - drive_read
+    - drive_write
+    - drive_delete
+    - drive_search
+    - drive_create_folder
+    - drive_share
   coding:
     model: gemini-2.5-flash
     provider: google
