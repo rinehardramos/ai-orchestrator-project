@@ -879,7 +879,7 @@ def register_dynamic_tool(name: str, fn, schema: dict):
 
 
 def get_tool_schemas(specialization: str = "general") -> list[dict]:
-    """Return tool schemas filtered by specialization, plus any dynamically registered tools."""
+    """Return tool schemas filtered by specialization, plus plugin tools."""
     allowed = get_allowed_tools(specialization)
     if allowed is not None:
         base = [t["schema"] for t in TOOL_REGISTRY if t["name"] in allowed]
@@ -887,14 +887,62 @@ def get_tool_schemas(specialization: str = "general") -> list[dict]:
         base = [t["schema"] for t in TOOL_REGISTRY]
     # Always append dynamic tools (they are available regardless of specialization)
     dynamic = [entry["schema"] for entry in _DYNAMIC_REGISTRY.values()]
-    return base + dynamic
+    
+    # Add plugin tools from registry with namespaced function names
+    plugin_schemas = []
+    try:
+        from src.plugins.registry import registry
+        plugin_schemas = registry.get_all_tool_schemas(specialization=specialization)
+    except ImportError:
+        pass
+    
+    return base + dynamic + plugin_schemas
+
+
+# Map function names to plugin tools for lookup
+_plugin_fn_map = {}
+
+def _build_plugin_fn_map():
+    """Build a mapping from namespaced function names to (tool, method) tuples."""
+    global _plugin_fn_map
+    _plugin_fn_map = {}
+    try:
+        from src.plugins.registry import registry
+        for tool in registry._tools.values():
+            method_map = getattr(tool, '_method_map', {})
+            for schema in tool.get_tool_schemas():
+                fn_name = schema.get("function", {}).get("name", "")
+                if fn_name:
+                    namespaced = f"{tool.name}__{fn_name}"
+                    method_name = method_map.get(fn_name, fn_name)
+                    _plugin_fn_map[namespaced] = (tool, method_name)
+        logger.info(f"Built plugin function map with {len(_plugin_fn_map)} functions")
+    except ImportError:
+        pass
 
 
 def get_tool_fn(name: str):
-    """Look up a tool function by name — checks static registry first, then dynamic."""
+    """Look up a tool function by name — checks static registry, dynamic, then plugins."""
     for t in TOOL_REGISTRY:
         if t["name"] == name:
             return t["fn"]
     if name in _DYNAMIC_REGISTRY:
         return _DYNAMIC_REGISTRY[name]["fn"]
+    
+    # Check plugin registry by namespaced function name
+    if not _plugin_fn_map:
+        _build_plugin_fn_map()
+    
+    if name in _plugin_fn_map:
+        tool, method_name = _plugin_fn_map[name]
+        
+        def plugin_wrapper(workspace_dir, **kwargs):
+            from src.plugins.base import ToolContext
+            import asyncio
+            ctx = ToolContext(workspace_dir=workspace_dir, task_id="", envelope=None)
+            return asyncio.get_event_loop().run_until_complete(
+                tool.call_tool(method_name, kwargs, ctx)
+            )
+        return plugin_wrapper
+    
     return None

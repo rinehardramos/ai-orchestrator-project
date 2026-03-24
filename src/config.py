@@ -51,6 +51,9 @@ def load_settings(env_name: str = None):
     if os.environ.get("TEMPORAL_HOST"):
         if "temporal" not in config: config["temporal"] = {}
         config["temporal"]["host"] = os.environ.get("TEMPORAL_HOST")
+    if os.environ.get("TEMPORAL_PORT"):
+        if "temporal" not in config: config["temporal"] = {}
+        config["temporal"]["port"] = int(os.environ.get("TEMPORAL_PORT"))
         
     if os.environ.get("QDRANT_HOST"):
         if "qdrant" not in config: config["qdrant"] = {}

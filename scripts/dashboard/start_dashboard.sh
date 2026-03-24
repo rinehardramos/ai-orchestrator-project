@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 echo "Installing dashboard dependencies..."
-pip install -r "$SCRIPT_DIR/requirements.txt"
+pip3 install -r "$SCRIPT_DIR/requirements.txt"
 
 echo ""
 echo "Starting dashboard server..."

@@ -300,32 +300,38 @@ def tool_executor(state: AgenticState) -> AgenticState:
 
         new_count += 1
 
-        # Try plugin registry first, fall back to legacy tools.py
+        # Try plugin registry first (namespaced functions like gmail_blackopstech047__email_read_inbox)
+        result_str = None
         if PLUGINS_AVAILABLE:
             try:
                 # Ensure tools are loaded (sync version)
                 if not registry._tools:
                     load_tools_sync(node="worker")
                 
-                # Find tool by function name
-                tool = None
-                for t in registry._tools.values():
-                    for s in t.get_tool_schemas():
-                        if s.get("function", {}).get("name") == fn_name:
-                            tool = t
-                            break
-                    if tool:
-                        break
-                
-                if tool:
-                    # Get method mapping from tool's schemas
+                # Check if this is a namespaced function name
+                if "__" in fn_name and fn_name in registry._fn_lookup:
+                    instance_name = registry._fn_lookup[fn_name]
+                    tool = registry._tools[instance_name]
+                    raw_fn_name = fn_name.split("__", 1)[1]
+                    
+                    # Get method mapping from tool
                     method_map = getattr(tool, '_method_map', {})
-                    method_name = method_map.get(fn_name)
+                    method_name = method_map.get(raw_fn_name)
+                    
                     if method_name and hasattr(tool, method_name):
                         result_str = getattr(tool, method_name)(**args)
                     else:
-                        result_str = f"ERROR: Unknown function '{fn_name}' for tool '{tool.name}'"
+                        # Fallback to call_tool async method
+                        from src.plugins.base import ToolContext
+                        ctx = ToolContext(workspace_dir=state["workspace_dir"], task_id="", envelope=None)
+                        try:
+                            loop = asyncio.get_event_loop()
+                        except RuntimeError:
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                        result_str = loop.run_until_complete(tool.call_tool(raw_fn_name, args, ctx))
                 else:
+                    # Legacy non-namespaced lookup
                     tool_fn = get_tool_fn(fn_name)
                     if tool_fn is None:
                         result_str = f"ERROR: Unknown tool '{fn_name}'"
@@ -346,11 +352,11 @@ def tool_executor(state: AgenticState) -> AgenticState:
                 except Exception as e:
                     result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
 
-        logger.info(f"[Tool] {fn_name}({list(args.keys())}) -> {result_str[:200]}")
+        logger.info(f"[Tool] {fn_name}({list(args.keys())}) -> {result_str[:200] if result_str else 'None'}")
         new_log.append(f"tool: {fn_name} (step {new_count})")
 
         # Check for task_complete signal
-        if fn_name == "task_complete":
+        if fn_name == "task_complete" or fn_name.endswith("__task_complete"):
             try:
                 parsed = json.loads(result_str)
                 if parsed.get("action") == "task_complete":
@@ -362,7 +368,7 @@ def tool_executor(state: AgenticState) -> AgenticState:
         new_messages.append({
             "role": "tool",
             "tool_call_id": tc["id"],
-            "content": result_str[:10000],  # Truncate tool output
+            "content": result_str[:10000] if result_str else "ERROR: No result",
         })
 
     heartbeat_data = {

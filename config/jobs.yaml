@@ -1,14 +1,9 @@
 jobs:
-  # NOTE: IaC jobs (terraform, pulumi, aws-cdk) have been intentionally removed.
-  # IaC provisioning is the responsibility of the Genesis Node (src/genesis/iac/).
-  # The Execution Plane worker only runs AI tasks and shell commands.
-
-  - id: diagnostic_self_test
-    match_string: "Run diagnostic self-test:"
-    type: diagnostic
-
+- id: diagnostic_self_test
+  match_string: 'Run diagnostic self-test:'
+  type: diagnostic
 agent_defaults:
   max_tool_calls: 50
-  max_cost_usd: 0.50
+  max_cost_usd: 0.5
   shell_timeout_seconds: 120
   activity_timeout_minutes: 30
