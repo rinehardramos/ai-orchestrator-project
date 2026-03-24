@@ -27,7 +27,10 @@ REMOTE_HOST=""
 SSH_USER="${SSH_USER:-$(whoami)}"
 SSH_KEY="${SSH_KEY:-}"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/ai-orchestrator-project}"
-WORKER_CONTAINER="central_node-ai-worker-1"
+# CONTAINER_NAME can be overridden via env var; defaults to the standalone central_node container
+# but we will also check for the generic 'ai-worker' as a fallback.
+WORKER_CONTAINER="${WORKER_CONTAINER:-central_node-ai-worker-1}"
+FALLBACK_CONTAINER="ai-worker"
 
 # ── Argument Parsing ─────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -57,8 +60,13 @@ local_reload() {
   local container="$WORKER_CONTAINER"
 
   if ! docker inspect "$container" &>/dev/null; then
-    log "WARN" "Container $container not running — skipping."
-    return
+    if [[ "$container" == "$WORKER_CONTAINER" ]] && docker inspect "$FALLBACK_CONTAINER" &>/dev/null; then
+      log "INFO" "Target $container not found, falling back to $FALLBACK_CONTAINER..."
+      container="$FALLBACK_CONTAINER"
+    else
+      log "WARN" "Container $container not running — skipping."
+      return
+    fi
   fi
 
   log "SYNC" "Copying updated source code into $container..."

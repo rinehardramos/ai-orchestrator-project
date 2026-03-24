@@ -60,35 +60,44 @@ services:
       - ai-network
 
   # ── Execution Plane Worker ───────────────────────────────────────────────
-  # Local build for rapid development.
-  ai-worker:
-    build:
-      context: ../../../
-      dockerfile: src/execution/worker/Dockerfile.worker
-    container_name: ai-worker
-    env_file:
-      - ../../../.env
-    environment:
-      - TEMPORAL_HOST_URL=temporal:7233
-      - QDRANT_URL=http://qdrant:6333
-      - REDIS_URL=redis://redis:6379
-      - AGENT_DEFAULT_REPO=${AGENT_DEFAULT_REPO:-ssh://git@github.com/rinehardramos/workspaces.git}
-      - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
-      - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
-      - PYTHONUNBUFFERED=1
-    volumes:
-      - ../../../src:/app/src
-      - ../../../config:/app/config
-    depends_on:
-      - temporal
-      - qdrant
-      - redis
-    networks:
-      - ai-network
-    restart: unless-stopped
+  # REPLACED: Use the standalone worker in central_node/docker-compose.worker.yml
+  # This embedded version was causing duplicate worker nodes.
+  # ai-worker:
+  #   build:
+  #     context: ../../../
+  #     dockerfile: src/execution/worker/Dockerfile.worker
+  #   container_name: ai-worker
+  #   env_file:
+  #     - ../../../.env
+  #   environment:
+  #     - TEMPORAL_HOST_URL=temporal:7233
+  #     - QDRANT_URL=http://qdrant:6333
+  #     - REDIS_URL=redis://redis:6379
+  #     - AGENT_DEFAULT_REPO=${AGENT_DEFAULT_REPO:-ssh://git@github.com/rinehardramos/workspaces.git}
+  #     - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
+  #     - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
+  #     - PYTHONUNBUFFERED=1
+  #     - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+  #     - GEMINI_API_KEY=${GEMINI_API_KEY}
+  #     - GROK_API_KEY=${GROK_API_KEY}
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     - OLLAMA_API_KEY=${OLLAMA_API_KEY}
+  #     - REPLICATE_API_KEY=${REPLICATE_API_KEY}
+  #     - LMSTUDIO_API_KEY=${LMSTUDIO_API_KEY}
+  #   volumes:
+  #     - ../../../src:/app/src
+  #     - ../../../config:/app/config
+  #   depends_on:
+  #     - temporal
+  #     - qdrant
+  #     - redis
+  #   networks:
+  #     - ai-network
+  #   restart: unless-stopped
 
 volumes:
   qdrant_storage:
+
 
 networks:
   ai-network:

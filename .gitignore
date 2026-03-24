@@ -6,7 +6,6 @@ src/orchestrator/__pycache__/*
 tests/__pycache__/***/__pycache__/
 __pycache__/
 *.db
-.DS_Store
 
 # Claude Code local settings
 .claude/settings.json

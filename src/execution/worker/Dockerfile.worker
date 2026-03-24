@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Install dependencies (from root)
-COPY requirements.worker.txt .
+COPY src/execution/worker/requirements.worker.txt .
 RUN pip install --no-cache-dir -r requirements.worker.txt
 
 # Copy source code (from root)

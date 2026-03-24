@@ -1,0 +1,13 @@
+# Cluster Node Registry
+# Add all machines in your cluster here.
+nodes:
+  - name: genesis
+    host: localhost
+    role: cnc
+
+  # Add your remote worker machines below:
+  # - name: worker-rpi
+  #   host: 192.168.100.100
+  #   role: execution
+  #   user: pi
+  #   key: ~/.ssh/id_rsa
