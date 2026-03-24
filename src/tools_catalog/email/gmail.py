@@ -13,6 +13,15 @@ class GmailTool(Tool):
     name = "gmail"
     description = "Send and read emails via Gmail IMAP/SMTP"
     node = "worker"
+    
+    # Map function names to internal method names
+    _method_map = {
+        "email_read_inbox": "_read_inbox",
+        "email_send": "_send",
+        "email_search": "_search",
+        "email_get": "_get_email",
+        "email_delete": "_delete_email",
+    }
 
     def initialize(self, config: dict) -> None:
         self.config = config

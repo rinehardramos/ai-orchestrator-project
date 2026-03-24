@@ -34,6 +34,85 @@ from src.plugins.registry import registry
 log = logging.getLogger(__name__)
 
 
+def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
+                    node: str = "worker") -> None:
+    """
+    Synchronous version of load_tools for use in sync contexts.
+    Loads from database if available, falls back to YAML.
+    """
+    bootstrap = _load_bootstrap(bootstrap_path)
+    db_url = bootstrap.get("database_url", "")
+    secret_key = bootstrap.get("secret_key", "")
+    
+    tools_config = {}
+    
+    # Try to load from DB first
+    if db_url:
+        try:
+            import psycopg2
+            conn = psycopg2.connect(db_url)
+            cur = conn.cursor()
+            cur.execute("SELECT name, type, module, enabled, listen, node FROM tools WHERE enabled = true")
+            rows = cur.fetchall()
+            for row in rows:
+                name, typ, module, enabled, listen, node_val = row
+                cur.execute("SELECT key, value FROM tool_configs WHERE tool_name = %s", (name,))
+                config = {r[0]: r[1] for r in cur.fetchall()}
+                
+                if secret_key:
+                    cur.execute("SELECT key, value FROM credentials WHERE tool_name = %s", (name,))
+                    for r in cur.fetchall():
+                        config[r[0]] = _decrypt(r[1], secret_key)
+                
+                tools_config[name] = {
+                    "type": typ,
+                    "module": module,
+                    "enabled": enabled,
+                    "listen": listen,
+                    "node": node_val,
+                    "config": config
+                }
+            conn.close()
+            log.info(f"Loaded {len(tools_config)} tools from DB (sync)")
+        except Exception as e:
+            log.warning(f"DB load failed ({e}), falling back to YAML")
+            tools_config = _load_from_yaml("config/tools.yaml")
+    else:
+        tools_config = _load_from_yaml("config/tools.yaml")
+    
+    loaded = 0
+    skipped = 0
+    for name, entry in tools_config.items():
+        if not isinstance(entry, dict) or "module" not in entry:
+            continue
+        if not entry.get("enabled", False):
+            continue
+        tool_node = entry.get("node", "both")
+        if tool_node != "both" and tool_node != node:
+            continue
+        
+        try:
+            module = importlib.import_module(entry["module"])
+            tool_class = getattr(module, "tool_class", None)
+            if tool_class is None:
+                log.warning(f"Tool {name}: module {entry['module']} has no 'tool_class' export")
+                skipped += 1
+                continue
+            
+            instance = tool_class()
+            instance.name = name
+            instance.listen = entry.get("listen", instance.listen)
+            instance.node = entry.get("node", instance.node)
+            instance.initialize(entry.get("config", {}))
+            registry.register(instance)
+            loaded += 1
+        except Exception as e:
+            log.warning(f"Failed to load tool '{name}': {e}")
+            skipped += 1
+    
+    log.info(f"Sync loader complete — {loaded} loaded, {skipped} skipped (node={node})")
+
+
 async def load_tools(bootstrap_path: str = "config/bootstrap.yaml",
                      node: str = "worker") -> None:
     """

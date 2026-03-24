@@ -43,7 +43,7 @@ from src.execution.worker.prompts import build_system_prompt
 
 # Plugin system imports
 try:
-    from src.plugins.loader import load_tools
+    from src.plugins.loader import load_tools, load_tools_sync
     from src.plugins.registry import registry, ToolNotFound
     from src.plugins.base import ToolContext
     PLUGINS_AVAILABLE = True
@@ -301,8 +301,12 @@ def tool_executor(state: AgenticState) -> AgenticState:
         new_count += 1
 
         # Try plugin registry first, fall back to legacy tools.py
-        if PLUGINS_AVAILABLE and _tools_loaded:
+        if PLUGINS_AVAILABLE:
             try:
+                # Ensure tools are loaded (sync version)
+                if not registry._tools:
+                    load_tools_sync(node="worker")
+                
                 # Find tool by function name
                 tool = None
                 for t in registry._tools.values():
@@ -314,21 +318,14 @@ def tool_executor(state: AgenticState) -> AgenticState:
                         break
                 
                 if tool:
-                    # Call synchronous methods directly
-                    if fn_name == "email_read_inbox":
-                        result_str = tool._read_inbox(**args)
-                    elif fn_name == "email_send":
-                        result_str = tool._send(**args)
-                    elif fn_name == "email_search":
-                        result_str = tool._search(**args)
-                    elif fn_name == "email_get":
-                        result_str = tool._get_email(**args)
-                    elif fn_name == "email_delete":
-                        result_str = tool._delete_email(**args)
+                    # Get method mapping from tool's schemas
+                    method_map = getattr(tool, '_method_map', {})
+                    method_name = method_map.get(fn_name)
+                    if method_name and hasattr(tool, method_name):
+                        result_str = getattr(tool, method_name)(**args)
                     else:
-                        result_str = f"ERROR: Unknown function '{fn_name}'"
+                        result_str = f"ERROR: Unknown function '{fn_name}' for tool '{tool.name}'"
                 else:
-                    # Fall back to legacy tool
                     tool_fn = get_tool_fn(fn_name)
                     if tool_fn is None:
                         result_str = f"ERROR: Unknown tool '{fn_name}'"
@@ -340,7 +337,6 @@ def tool_executor(state: AgenticState) -> AgenticState:
             except Exception as e:
                 result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
         else:
-            # Legacy path
             tool_fn = get_tool_fn(fn_name)
             if tool_fn is None:
                 result_str = f"ERROR: Unknown tool '{fn_name}'"

@@ -29,6 +29,7 @@ sentence-transformers>=3.0.0
 
 # Database & Encryption (for plugin tools with credentials)
 asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
 cryptography>=42.0.0
 nest-asyncio>=1.5.0
 
