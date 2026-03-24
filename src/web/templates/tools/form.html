@@ -57,11 +57,19 @@
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Credentials</label>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Credentials
+                <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(encrypted, requires database)</span>
+            </label>
             <div id="credential-rows" class="space-y-2"></div>
-            <button type="button" onclick="addConfigRow('credential-rows')"
+            <button type="button" onclick="addCredentialRow()"
                     class="mt-2 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-900">+ Add Credential</button>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                Leave value blank to keep existing credential. Enter new value to update.
+            </p>
         </div>
+
+        <div id="error-message" class="hidden text-red-600 dark:text-red-400 text-sm"></div>
 
         <div class="flex justify-end gap-3">
             <a href="/ui/tools" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">Cancel</a>
@@ -73,18 +81,65 @@
 </div>
 
 <script>
-    function addConfigRow(containerId, key = '', value = '') {
-        const container = document.getElementById(containerId);
+    function addConfigRow(key = '', value = '') {
+        const container = document.getElementById('config-rows');
         const row = document.createElement('div');
-        row.className = 'flex gap-2';
+        row.className = 'flex gap-2 items-center';
         row.innerHTML = `
             <input type="text" placeholder="Key" value="${key}"
-                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm config-key">
+                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
             <input type="text" placeholder="Value" value="${value}"
-                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm config-val">
-            <button type="button" onclick="this.parentElement.remove()" class="text-red-600 hover:text-red-900">X</button>
+                   class="flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            <button type="button" onclick="this.parentElement.remove()" class="px-2 py-1 text-red-600 hover:text-red-900 text-sm">Remove</button>
         `;
         container.appendChild(row);
+    }
+
+    function addCredentialRow(key = '', maskedValue = '', hasExisting = false) {
+        const container = document.getElementById('credential-rows');
+        const row = document.createElement('div');
+        row.className = 'flex gap-2 items-center';
+        row.dataset.hasExisting = hasExisting;
+        row.dataset.key = key;
+        
+        const placeholder = hasExisting ? 'Enter new value to update' : 'Value';
+        
+        row.innerHTML = `
+            <input type="text" placeholder="Key" value="${key}" data-original-key="${key}"
+                   class="credential-key flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" ${hasExisting ? 'readonly' : ''}>
+            <input type="password" placeholder="${placeholder}" value=""
+                   class="credential-val flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm">
+            ${hasExisting ? '<span class="text-xs text-green-600 dark:text-green-400 whitespace-nowrap">•••••• saved</span>' : ''}
+            <button type="button" onclick="removeCredential(this)" class="px-2 py-1 text-red-600 hover:text-red-900 text-sm" title="${hasExisting ? 'Delete credential' : 'Remove'}">
+                ${hasExisting ? 'Delete' : 'Remove'}
+            </button>
+        `;
+        container.appendChild(row);
+    }
+
+    async function removeCredential(btn) {
+        const row = btn.parentElement;
+        const hasExisting = row.dataset.hasExisting === 'true';
+        const key = row.dataset.key;
+        
+        if (hasExisting && key) {
+            if (!confirm(`Delete credential "${key}"?`)) return;
+            
+            try {
+                const resp = await fetch(`/api/tools/{{ tool_name }}/credentials/${encodeURIComponent(key)}`, {
+                    method: 'DELETE'
+                });
+                if (!resp.ok) {
+                    const err = await resp.json();
+                    showError(err.detail || 'Failed to delete credential');
+                    return;
+                }
+            } catch (e) {
+                showError('Failed to delete credential: ' + e.message);
+                return;
+            }
+        }
+        row.remove();
     }
 
     async function loadTool(name) {
@@ -100,54 +155,104 @@
         document.getElementById('description').value = tool.description || '';
         
         for (const [k, v] of Object.entries(tool.config || {})) {
-            addConfigRow('config-rows', k, v);
+            addConfigRow(k, v);
         }
+        
+        // Load credentials with masked values
+        if (tool.credentials) {
+            for (const [k, v] of Object.entries(tool.credentials)) {
+                addCredentialRow(k, v, true);
+            }
+        }
+    }
+
+    function showError(msg) {
+        const el = document.getElementById('error-message');
+        el.textContent = msg;
+        el.classList.remove('hidden');
+    }
+
+    function hideError() {
+        document.getElementById('error-message').classList.add('hidden');
     }
 
     document.getElementById('tool-form').addEventListener('submit', async (e) => {
         e.preventDefault();
+        hideError();
         
         const config = {};
         document.querySelectorAll('#config-rows > div').forEach(row => {
-            const key = row.querySelector('.config-key').value;
-            const val = row.querySelector('.config-val').value;
+            const inputs = row.querySelectorAll('input');
+            const key = inputs[0].value.trim();
+            const val = inputs[1].value;
             if (key) config[key] = val;
         });
         
         const credentials = {};
+        const hasNewCredentials = [];
         document.querySelectorAll('#credential-rows > div').forEach(row => {
-            const key = row.querySelector('.config-key').value;
-            const val = row.querySelector('.config-val').value;
-            if (key) credentials[key] = val;
+            const keyInput = row.querySelector('.credential-key');
+            const valInput = row.querySelector('.credential-val');
+            const key = keyInput.value.trim();
+            const val = valInput.value;
+            
+            if (key) {
+                // Only include if user entered a new value
+                if (val) {
+                    credentials[key] = val;
+                    hasNewCredentials.push(key);
+                }
+                // If editing and value is empty but key exists, we keep the existing credential
+                // by not including it in the update payload
+            }
         });
         
         const name = document.getElementById('name').value;
         const isEdit = {{ 'true' if tool_name else 'false' }};
         
-        const payload = {
-            name: name,
-            type: document.getElementById('type').value,
-            module: document.getElementById('module').value,
-            node: document.getElementById('node').value,
-            listen: document.getElementById('listen').checked,
-            enabled: document.getElementById('enabled').checked,
-            description: document.getElementById('description').value,
-            config: config,
-            credentials: credentials
-        };
-        
         if (isEdit) {
-            await fetch(`/api/tools/${name}`, {
+            // For edit, only send credentials that have new values
+            const updatePayload = { config };
+            if (Object.keys(credentials).length > 0) {
+                updatePayload.credentials = credentials;
+            }
+            
+            const resp = await fetch(`/api/tools/${name}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ config, credentials })
+                body: JSON.stringify(updatePayload)
             });
+            
+            if (!resp.ok) {
+                const err = await resp.json();
+                showError(err.detail || 'Failed to update tool');
+                return;
+            }
         } else {
-            await fetch('/api/tools', {
+            // For new tool, include all fields
+            const payload = {
+                name: name,
+                type: document.getElementById('type').value,
+                module: document.getElementById('module').value,
+                node: document.getElementById('node').value,
+                listen: document.getElementById('listen').checked,
+                enabled: document.getElementById('enabled').checked,
+                description: document.getElementById('description').value,
+                config: config,
+                credentials: credentials
+            };
+            
+            const resp = await fetch('/api/tools', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
+            
+            if (!resp.ok) {
+                const err = await resp.json();
+                showError(err.detail || 'Failed to create tool');
+                return;
+            }
         }
         
         window.location.href = '/ui/tools';

@@ -34,6 +34,10 @@ class ToolUpdate(BaseModel):
     credentials: Optional[dict] = None
 
 
+class CredentialDelete(BaseModel):
+    key: str
+
+
 def get_db_info():
     bootstrap = _load_bootstrap(BOOTSTRAP_PATH)
     return bootstrap.get("database_url"), bootstrap.get("secret_key")
@@ -252,10 +256,15 @@ async def update_tool(name: str, payload: ToolUpdate, background_tasks: Backgrou
                             name, k, str(v)
                         )
 
-                if payload.credentials is not None:
-                    await conn.execute("DELETE FROM credentials WHERE tool_name=$1", name)
+                # Update only provided credentials (upsert, don't delete all)
+                if payload.credentials is not None and len(payload.credentials) > 0:
                     for k, v in payload.credentials.items():
                         enc = encrypt_credential(str(v), secret_key)
+                        # Delete existing credential with this key first
+                        await conn.execute(
+                            "DELETE FROM credentials WHERE tool_name=$1 AND key=$2",
+                            name, k
+                        )
                         await conn.execute(
                             "INSERT INTO credentials (tool_name, key, value) VALUES ($1, $2, $3)",
                             name, k, enc
@@ -385,3 +394,34 @@ async def disable_tool(name: str, background_tasks: BackgroundTasks):
     save_yaml(data)
     background_tasks.add_task(invalidate_tool_cache, name)
     return {"status": "success", "enabled": False}
+
+
+@tools_router.delete("/tools/{name}/credentials/{key}")
+async def delete_credential(name: str, key: str, background_tasks: BackgroundTasks):
+    db_url, secret_key = get_db_info()
+    if db_url:
+        try:
+            import asyncpg
+            conn = await asyncpg.connect(db_url)
+            try:
+                row = await conn.fetchrow("SELECT 1 FROM tools WHERE name=$1", name)
+                if not row:
+                    raise HTTPException(status_code=404, detail="Tool not found")
+
+                res = await conn.execute(
+                    "DELETE FROM credentials WHERE tool_name=$1 AND key=$2",
+                    name, key
+                )
+                background_tasks.add_task(invalidate_tool_cache, name)
+                return {"status": "success", "deleted_key": key}
+            finally:
+                await conn.close()
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    raise HTTPException(
+        status_code=503,
+        detail="Database unavailable. Credentials can only be managed when database is connected."
+    )
