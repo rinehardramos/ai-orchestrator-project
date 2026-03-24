@@ -1,0 +1,7 @@
+uvicorn
+sse-starlette
+redis
+fastapi
+jinja2
+pyyaml
+httpx
