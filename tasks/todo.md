@@ -21,3 +21,139 @@
 - [ ] Address strict mode violations and timing sensitivities in the Playwright integration tests.
 - [ ] Optimize the memory decay loops in `hybrid_store.py` to prevent stale task metadata accumulation.
 - [ ] Prevent native worker processes from running on the genesis node (add a startup check or systemd guard).
+
+---
+
+## Modular Tool Plugin System — Implementation Stories
+
+Stories are independent and assignable to different coding models in parallel.
+Each story lists inputs (reads), outputs (creates), and interface contract.
+
+### Completed
+- [x] **Phase 1** — Foundation: `src/plugins/base.py`, `registry.py`, `loader.py`, `config/bootstrap.yaml`, `config/tools.yaml`, `migrations/001_tools_schema.sql`, `scripts/migrate_yaml_to_db.py`
+- [x] **Phase 2** — Migrate existing tools: `tools_catalog/code/shell.py`, `filesystem.py`, `web.py`, `git.py`, `tools_catalog/media/image.py`, `tools_catalog/chat/telegram.py`
+
+---
+
+### Wave 1 — Fully Independent (run all in parallel)
+
+#### Story 1.1 — API: Tool CRUD endpoints
+- [ ] **File:** `src/web/api/tools.py`
+- **Also create:** `src/web/__init__.py`, `src/web/api/__init__.py`
+- **Reads:** `src/plugins/loader.py` (functions: `_load_from_yaml`, `encrypt_credential`, `invalidate_tool_cache`, `_resolve_env_vars`), `config/tools.yaml`
+- **Exports:** `tools_router` (FastAPI `APIRouter(prefix="/api")`)
+- **Endpoints:**
+  - `GET /api/tools` → list all tools with config (credentials masked as "••••••")
+  - `POST /api/tools` → register new tool instance `{name, type, module, node, listen, config, credentials}`
+  - `GET /api/tools/{name}` → single tool detail
+  - `PUT /api/tools/{name}` → update config/credentials
+  - `DELETE /api/tools/{name}` → remove tool + cascade
+  - `PATCH /api/tools/{name}/enable` → set enabled=true
+  - `PATCH /api/tools/{name}/disable` → set enabled=false
+- **Storage:** YAML fallback (read/write `config/tools.yaml`). DB path via asyncpg when available.
+- **After mutation:** call `await invalidate_tool_cache()`
+
+#### Story 1.2 — API: Config endpoints (YAML read/write)
+- [x] **File:** `src/web/api/config.py`
+- **Reads:** `config/profiles.yaml`, `config/settings.yaml`, `config/jobs.yaml`, `config/cluster_nodes.yaml`
+- **Exports:** `config_router` (FastAPI `APIRouter(prefix="/api/config")`)
+- **Endpoints:**
+  - `GET/PUT /api/config/routing` — profiles.yaml `task_routing` section
+  - `GET /api/config/models` — profiles.yaml `models` list (read-only)
+  - `GET/PUT /api/config/specializations` — profiles.yaml `specializations`
+  - `GET/PUT /api/config/agent-defaults` — jobs.yaml `agent_defaults`
+  - `GET/PUT /api/config/infrastructure` — settings.yaml (full)
+  - `GET/PUT /api/config/cluster` — cluster_nodes.yaml (full)
+- **Write pattern:** read existing YAML → merge with request body → write to temp file → `os.replace()` (atomic)
+
+#### Story 1.3 — API: Health status endpoint
+- [ ] **File:** `src/web/api/status.py`
+- **Reads:** `config/settings.yaml` (hosts/ports via `src.config.load_settings()`)
+- **Exports:** `status_router` (FastAPI `APIRouter(prefix="/api")`)
+- **Endpoint:** `GET /api/status` → `{"temporal": {"status":"up","latency_ms":12}, "qdrant": {...}, "redis": {...}, "lmstudio": {...}, "workers": [...]}`
+- **Checks:** TCP connect with 3s timeout (`asyncio.open_connection`), Redis PING, worker SSH port check
+
+#### Story 3.2 — http_client tool (outbound HTTP requests)
+- [ ] **Files:** `src/tools_catalog/webhook/__init__.py`, `src/tools_catalog/webhook/http_client.py`
+- **Reads:** `src/plugins/base.py` (Tool ABC, ToolContext)
+- **Exports:** `tool_class = HttpClientTool`
+- **Agent function:** `http_request(method, url, headers?, body?, timeout?)` → `{"status_code", "headers", "body"}`
+- **Uses:** `httpx.AsyncClient` (already in requirements)
+- **Truncate** response body to 50KB. Sanitize API keys from output.
+
+#### Story 3.3 — MCP bridge tool
+- [ ] **File:** `src/plugins/mcp_bridge.py`
+- **Reads:** `src/plugins/base.py` (Tool ABC)
+- **Exports:** `tool_class = MCPBridgeTool`
+- **Config:** `{transport: "stdio", command: "npx -y @modelcontextprotocol/server-gdrive"}`
+- **Protocol:** JSON-RPC over stdin/stdout
+  - On init: send `initialize` handshake
+  - `get_tool_schemas()` → call `tools/list`, convert MCP `inputSchema` to OpenAI `parameters` format, cache result
+  - `call_tool(name, args, ctx)` → call `tools/call`, extract text content from response
+- **Process:** `asyncio.create_subprocess_exec(*command.split(), stdin=PIPE, stdout=PIPE)`
+
+---
+
+### Wave 2 — Depends on Wave 1
+
+#### Story 1.4 — Admin router + base template
+- [ ] **Files:** `src/web/admin.py`, `src/web/templates/base.html`
+- **Imports:** `tools_router` from 1.1, `config_router` from 1.2, `status_router` from 1.3
+- **Exports:** `create_admin_router()` → FastAPI `APIRouter` with all sub-routers + UI page routes
+- **`admin.py`:** defines `/ui/`, `/ui/tools`, `/ui/tools/new`, `/ui/tools/{name}`, `/ui/models`, `/ui/settings` routes that render Jinja2 templates
+- **`base.html`:** Tailwind CDN (`<script src="https://cdn.tailwindcss.com">`), HTMX CDN (`<script src="https://unpkg.com/htmx.org@2.0.4">`), dark sidebar nav (Dashboard, Tools, Models, Settings), `{% block content %}`, toast div
+
+#### Story 3.1 — http_server tool (task submission + SSE)
+- [ ] **Files:** `src/tools_catalog/api/__init__.py`, `src/tools_catalog/api/http_server.py`
+- **Reads:** `src/plugins/base.py`, `src/web/admin.py` (mounts admin router)
+- **Exports:** `tool_class = HttpServerTool`
+- **Config:** `{host, port, api_key, redis_url}`
+- **Tool attrs:** `type="api"`, `listen=True`, `node="genesis"`, `get_tool_schemas()→[]`
+- **`start_listener(on_message)`:** creates FastAPI app, mounts admin router, adds task endpoints, runs uvicorn
+- **Task endpoints:**
+  - `POST /task` → async, returns `{"task_id"}`
+  - `POST /task/run` → sync, blocks on Redis pub/sub until done
+  - `GET /task/{id}/stream` → SSE via `sse_starlette.EventSourceResponse`
+  - `GET /task/{id}/files/{filename}` → artifact download
+- **Redis:** subscribe to `task:{id}:events` channel for SSE and sync wait
+
+---
+
+### Wave 3 — Depends on Wave 2 (all pages are independent of each other)
+
+#### Story 1.5 — Dashboard page
+- [ ] **File:** `src/web/templates/dashboard.html`
+- Extends `base.html`. Cards: tool counts (total/enabled/listeners/disabled). Health dots via `hx-get="/api/status"`. Quick action buttons.
+
+#### Story 1.6 — Tool list page
+- [ ] **File:** `src/web/templates/tools/list.html`
+- Extends `base.html`. Table of tools. Enabled toggle via HTMX PATCH. Delete with confirm. Clone link. "Add Tool" button.
+
+#### Story 1.7 — Tool add/edit form page
+- [ ] **File:** `src/web/templates/tools/form.html`
+- Extends `base.html`. Reused for new + edit. Dynamic key-value config/credential rows. HTMX submit to `/api/tools`.
+
+#### Story 1.8 — Model routing page
+- [ ] **File:** `src/web/templates/models/routing.html`
+- Extends `base.html`. Routing table with model/provider dropdowns. Specialization collapsibles with allowed_tools checkboxes. Save via HTMX PUT.
+
+#### Story 1.9 — Settings page (agent defaults, infra, cluster)
+- [ ] **File:** `src/web/templates/settings/general.html`
+- Extends `base.html`. Three tabs: Agent Defaults (number inputs), Infrastructure (env dropdown + host/port fields), Cluster Nodes (table + health check).
+
+#### Story 1.10 — Enable tools in tools.yaml + smoke test
+- [ ] Enable `http_server` in `config/tools.yaml`
+- Verify: `curl http://localhost:8000/ui/` renders, `/api/tools` returns JSON, `/api/status` returns health
+
+---
+
+### Dependency Graph
+```
+Wave 1 (parallel):  1.1  1.2  1.3  3.2  3.3
+                      │    │    │
+                      ▼    ▼    ▼
+Wave 2:             1.4 ◄─────────  3.1 (mounts 1.4)
+                      │               │
+                      ▼               ▼
+Wave 3 (parallel):  1.5  1.6  1.7  1.8  1.9  1.10
+```
