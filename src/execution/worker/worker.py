@@ -82,6 +82,9 @@ async def _ensure_tools_loaded():
             await load_tools("config/bootstrap.yaml", node="worker")
             _tools_loaded = True
             logger.info(f"Loaded {len(registry._tools)} tools from plugin registry")
+            # Build the function map for tool lookup
+            from src.execution.worker.tools import _build_plugin_fn_map
+            _build_plugin_fn_map()
         except Exception as e:
             logger.warning(f"Could not load plugin tools: {e}")
 
@@ -300,24 +303,40 @@ def tool_executor(state: AgenticState) -> AgenticState:
         # Try plugin registry first, fall back to legacy tools.py
         if PLUGINS_AVAILABLE and _tools_loaded:
             try:
-                ctx = ToolContext(
-                    workspace_dir=state["workspace_dir"],
-                    task_id="",
-                    envelope=None
-                )
-                result_str = asyncio.get_event_loop().run_until_complete(
-                    registry.call_tool(fn_name, args, ctx)
-                )
-            except ToolNotFound:
-                # Fall back to legacy tool
-                tool_fn = get_tool_fn(fn_name)
-                if tool_fn is None:
-                    result_str = f"ERROR: Unknown tool '{fn_name}'"
+                # Find tool by function name
+                tool = None
+                for t in registry._tools.values():
+                    for s in t.get_tool_schemas():
+                        if s.get("function", {}).get("name") == fn_name:
+                            tool = t
+                            break
+                    if tool:
+                        break
+                
+                if tool:
+                    # Call synchronous methods directly
+                    if fn_name == "email_read_inbox":
+                        result_str = tool._read_inbox(**args)
+                    elif fn_name == "email_send":
+                        result_str = tool._send(**args)
+                    elif fn_name == "email_search":
+                        result_str = tool._search(**args)
+                    elif fn_name == "email_get":
+                        result_str = tool._get_email(**args)
+                    elif fn_name == "email_delete":
+                        result_str = tool._delete_email(**args)
+                    else:
+                        result_str = f"ERROR: Unknown function '{fn_name}'"
                 else:
-                    try:
-                        result_str = tool_fn(state["workspace_dir"], **args)
-                    except Exception as e:
-                        result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
+                    # Fall back to legacy tool
+                    tool_fn = get_tool_fn(fn_name)
+                    if tool_fn is None:
+                        result_str = f"ERROR: Unknown tool '{fn_name}'"
+                    else:
+                        try:
+                            result_str = tool_fn(state["workspace_dir"], **args)
+                        except Exception as e:
+                            result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
             except Exception as e:
                 result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
         else:
@@ -595,6 +614,10 @@ def _detect_specialization(description: str) -> str:
 @activity.defn
 async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
     from src.execution.worker.multi_agent_graph import run_orchestrator
+    
+    # Ensure plugin tools are loaded
+    await _ensure_tools_loaded()
+    
     mode, payload = parse_task_input(input_task)
 
     if mode != "agent":
