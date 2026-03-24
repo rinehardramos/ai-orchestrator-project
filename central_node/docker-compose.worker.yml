@@ -14,7 +14,6 @@ services:
       - LMSTUDIO_PORT=${LMSTUDIO_PORT:-1234}
       - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
       - PYTHONUNBUFFERED=1
     volumes:
       - ../src:/app/src
