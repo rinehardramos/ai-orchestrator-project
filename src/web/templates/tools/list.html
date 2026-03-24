@@ -16,7 +16,7 @@
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Name</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Type</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Node</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Listen</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Credentials</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Enabled</th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
                 </tr>
@@ -39,7 +39,11 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.type || '-'}</td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.node || 'both'}</td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${t.listen ? 'Yes' : 'No'}</td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    ${t.has_credentials 
+                        ? '<span class="px-2 py-1 text-xs rounded bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Configured</span>'
+                        : '<span class="px-2 py-1 text-xs rounded bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400">None</span>'}
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <button onclick="toggleEnabled('${t.name}', ${t.enabled})" 
                             class="px-2 py-1 text-xs rounded ${t.enabled ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'}">
@@ -56,8 +60,16 @@
 
     async function toggleEnabled(name, current) {
         const action = current ? 'disable' : 'enable';
-        await fetch(`/api/tools/${name}/${action}`, { method: 'PATCH' });
-        loadTools();
+        try {
+            const resp = await fetch(`/api/tools/${name}/${action}`, { method: 'PATCH' });
+            if (!resp.ok) {
+                console.error('Toggle failed:', await resp.text());
+                return;
+            }
+            loadTools();
+        } catch (err) {
+            console.error('Toggle error:', err);
+        }
     }
 
     async function deleteTool(name) {

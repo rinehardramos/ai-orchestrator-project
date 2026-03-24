@@ -59,8 +59,15 @@ def save_yaml(data: dict):
 def tool_to_response(name: str, entry: dict) -> dict:
     t = dict(entry)
     t["name"] = name
-    if "credentials" in t:
+    
+    # Handle credentials - always show the field
+    if "credentials" in t and t["credentials"]:
         t["credentials"] = mask_credentials(t["credentials"])
+        t["has_credentials"] = True
+    else:
+        t["credentials"] = {}
+        t["has_credentials"] = False
+    
     return t
 
 
@@ -90,7 +97,8 @@ async def _get_all_db(db_url: str):
                 "node": row["node"],
                 "description": row["description"],
                 "config": conf,
-                "credentials": creds
+                "credentials": creds,
+                "has_credentials": len(creds) > 0
             })
         return result
     finally:
@@ -122,7 +130,8 @@ async def _get_tool_db(db_url: str, name: str):
             "node": row["node"],
             "description": row["description"],
             "config": conf,
-            "credentials": creds
+            "credentials": creds,
+            "has_credentials": len(creds) > 0
         }
     finally:
         await conn.close()
