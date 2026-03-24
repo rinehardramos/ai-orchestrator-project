@@ -13,6 +13,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+# Load .env file before any other imports
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.tools_catalog.api.http_server import HttpServerTool
 
 

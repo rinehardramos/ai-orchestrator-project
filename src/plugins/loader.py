@@ -25,6 +25,10 @@ from typing import Optional
 
 import yaml
 
+# Load .env file before any other processing
+from dotenv import load_dotenv
+load_dotenv()
+
 from src.plugins.registry import registry
 
 log = logging.getLogger(__name__)
