@@ -38,7 +38,7 @@ Each story lists inputs (reads), outputs (creates), and interface contract.
 ### Wave 1 — Fully Independent (run all in parallel)
 
 #### Story 1.1 — API: Tool CRUD endpoints
-- [ ] **File:** `src/web/api/tools.py`
+- [x] **File:** `src/web/api/tools.py`
 - **Also create:** `src/web/__init__.py`, `src/web/api/__init__.py`
 - **Reads:** `src/plugins/loader.py` (functions: `_load_from_yaml`, `encrypt_credential`, `invalidate_tool_cache`, `_resolve_env_vars`), `config/tools.yaml`
 - **Exports:** `tools_router` (FastAPI `APIRouter(prefix="/api")`)
@@ -67,14 +67,14 @@ Each story lists inputs (reads), outputs (creates), and interface contract.
 - **Write pattern:** read existing YAML → merge with request body → write to temp file → `os.replace()` (atomic)
 
 #### Story 1.3 — API: Health status endpoint
-- [ ] **File:** `src/web/api/status.py`
+- [x] **File:** `src/web/api/status.py`
 - **Reads:** `config/settings.yaml` (hosts/ports via `src.config.load_settings()`)
 - **Exports:** `status_router` (FastAPI `APIRouter(prefix="/api")`)
 - **Endpoint:** `GET /api/status` → `{"temporal": {"status":"up","latency_ms":12}, "qdrant": {...}, "redis": {...}, "lmstudio": {...}, "workers": [...]}`
 - **Checks:** TCP connect with 3s timeout (`asyncio.open_connection`), Redis PING, worker SSH port check
 
 #### Story 3.2 — http_client tool (outbound HTTP requests)
-- [ ] **Files:** `src/tools_catalog/webhook/__init__.py`, `src/tools_catalog/webhook/http_client.py`
+- [x] **Files:** `src/tools_catalog/webhook/__init__.py`, `src/tools_catalog/webhook/http_client.py`
 - **Reads:** `src/plugins/base.py` (Tool ABC, ToolContext)
 - **Exports:** `tool_class = HttpClientTool`
 - **Agent function:** `http_request(method, url, headers?, body?, timeout?)` → `{"status_code", "headers", "body"}`
@@ -82,7 +82,7 @@ Each story lists inputs (reads), outputs (creates), and interface contract.
 - **Truncate** response body to 50KB. Sanitize API keys from output.
 
 #### Story 3.3 — MCP bridge tool
-- [ ] **File:** `src/plugins/mcp_bridge.py`
+- [x] **File:** `src/plugins/mcp_bridge.py`
 - **Reads:** `src/plugins/base.py` (Tool ABC)
 - **Exports:** `tool_class = MCPBridgeTool`
 - **Config:** `{transport: "stdio", command: "npx -y @modelcontextprotocol/server-gdrive"}`
