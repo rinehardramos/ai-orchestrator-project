@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="px-4 py-6 sm:px-0">
-    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6" id="page-title">
         {% if tool_name %}Edit Tool: {{ tool_name }}{% else %}Add New Tool{% endif %}
     </h1>
 
@@ -165,6 +165,37 @@
             }
         }
     }
+    
+    async function loadToolForCopy(name) {
+        const resp = await fetch(`/api/tools/${name}`);
+        if (!resp.ok) return;
+        const tool = await resp.json();
+        
+        // Update page title
+        document.getElementById('page-title').textContent = `Copy Tool: ${name}`;
+        
+        // Set suggested name
+        document.getElementById('name').value = `${name}_copy`;
+        document.getElementById('name').focus();
+        document.getElementById('name').select();
+        
+        document.getElementById('type').value = tool.type || '';
+        document.getElementById('module').value = tool.module || '';
+        document.getElementById('node').value = tool.node || 'both';
+        document.getElementById('listen').checked = tool.listen;
+        document.getElementById('enabled').checked = tool.enabled;
+        document.getElementById('description').value = tool.description || '';
+        
+        for (const [k, v] of Object.entries(tool.config || {})) {
+            addConfigRow(k, v);
+        }
+        
+        // Show note about credentials
+        const credNote = document.createElement('div');
+        credNote.className = 'bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 p-3 mb-2';
+        credNote.innerHTML = '<p class="text-sm text-yellow-700 dark:text-yellow-400">Credentials are not copied for security. Please re-enter credentials for the new tool.</p>';
+        document.getElementById('credential-rows').parentElement.insertBefore(credNote, document.getElementById('credential-rows'));
+    }
 
     function showError(msg) {
         const el = document.getElementById('error-message');
@@ -260,6 +291,15 @@
 
     {% if tool_name %}
     document.addEventListener('DOMContentLoaded', () => loadTool('{{ tool_name }}'));
+    {% else %}
+    document.addEventListener('DOMContentLoaded', () => {
+        // Check for copy parameter
+        const params = new URLSearchParams(window.location.search);
+        const copyFrom = params.get('copy');
+        if (copyFrom) {
+            loadToolForCopy(copyFrom);
+        }
+    });
     {% endif %}
 </script>
 {% endblock %}
