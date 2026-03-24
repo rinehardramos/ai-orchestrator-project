@@ -7,6 +7,7 @@ All agents use the same embedding model for vector compatibility in Qdrant.
 import os
 import yaml
 import logging
+from src.config import load_settings
 
 logger = logging.getLogger("Embeddings")
 
@@ -61,15 +62,9 @@ class SentenceTransformerEmbedder:
         
         if self.provider in ["local", "lmstudio", "ollama"]:
             # Load URL from settings
-            settings_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
-            self.api_base = "http://127.0.0.1:1234/v1"
-            if os.path.exists(settings_path):
-                with open(settings_path, "r") as f:
-                    settings = yaml.safe_load(f)
-                    env = settings.get("active_environment", "primary")
-                    lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
-                    if lmstudio:
-                        self.api_base = f"http://{lmstudio.get('host', '127.0.0.1')}:{lmstudio.get('port', 1234)}/v1"
+            settings = load_settings()
+            lmstudio = settings.get("lmstudio", {})
+            self.api_base = f"http://{lmstudio.get('host', '127.0.0.1')}:{lmstudio.get('port', 1234)}/v1"
             logger.info(f"Using local embeddings endpoint at {self.api_base}")
             self._model = "local" # placeholder
             return

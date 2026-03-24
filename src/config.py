@@ -60,6 +60,13 @@ def load_settings(env_name: str = None):
         if "redis" not in config: config["redis"] = {}
         config["redis"]["host"] = os.environ.get("REDIS_HOST")
 
+    if os.environ.get("LMSTUDIO_HOST"):
+        if "lmstudio" not in config: config["lmstudio"] = {}
+        config["lmstudio"]["host"] = os.environ.get("LMSTUDIO_HOST")
+    if os.environ.get("LMSTUDIO_PORT"):
+        if "lmstudio" not in config: config["lmstudio"] = {}
+        config["lmstudio"]["port"] = int(os.environ.get("LMSTUDIO_PORT"))
+
     # Opik (Self-hosted Observability)
     if "opik" in config:
         host = config["opik"].get("host", "localhost")
