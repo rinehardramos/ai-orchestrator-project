@@ -71,14 +71,19 @@ tools:
     config:
       transport: stdio
       command: npx -y @modelcontextprotocol/server-gdrive
-  gmail_blackopstech047:
+  
+  # Gmail tool - requires credentials in database (not here)
+  # Use: POST /api/tools with credentials to register securely
+  gmail:
+    enabled: false
     type: email
-    module: src.tools_catalog.email.gmail
-    enabled: true
     listen: false
     node: worker
-    description: ''
+    module: src.tools_catalog.email.gmail
     config:
-      server: smtp.gmail.com
-      port: '587'
+      imap_host: imap.gmail.com
+      imap_port: 993
+      smtp_host: smtp.gmail.com
+      smtp_port: 587
       encryption: tls
+      # username and password must be stored via API (encrypted in DB)
