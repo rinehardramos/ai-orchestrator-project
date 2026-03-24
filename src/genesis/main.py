@@ -23,7 +23,34 @@ from src.genesis.iac.pulumi_wrapper import provision_worker, destroy_worker
 from src.genesis.orchestrator.scheduler import TaskScheduler
 from src.genesis.utils.system_monitor import SystemMonitor
 
+# Plugin system imports
+try:
+    from src.plugins.loader import load_tools as load_plugin_tools
+    from src.plugins.registry import registry
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+    registry = None
+
 monitor = SystemMonitor(threshold_percent=99.0)
+
+
+async def start_listeners(scheduler: TaskScheduler):
+    """Start all listener tools from the plugin registry."""
+    if not PLUGINS_AVAILABLE or not registry:
+        return
+    
+    listeners = registry.get_listeners()
+    if not listeners:
+        return
+    
+    logger_main = logging.getLogger("CNC")
+    for tool in listeners:
+        try:
+            await tool.start_listener(scheduler.submit_task)
+            logger_main.info(f"Started listener: {tool.name}")
+        except Exception as e:
+            logger_main.warning(f"Failed to start listener {tool.name}: {e}")
 
 
 def preprocess_argv():
@@ -253,6 +280,17 @@ async def main_async():
     # Startup notification kept local — Telegram channel was getting spammed on every CLI invocation
     logger_main = logging.getLogger("CNC")
     logger_main.info("Genesis Node CLI initialized.")
+
+    # Load plugin tools for genesis node
+    if PLUGINS_AVAILABLE:
+        try:
+            await load_plugin_tools("config/bootstrap.yaml", node="genesis")
+            logger_main.info(f"Loaded {len(registry._tools)} genesis tools from plugin registry")
+            # Start listeners in background
+            scheduler = TaskScheduler("dummy-temporal-queue", "dummy-qdrant-db")
+            await start_listeners(scheduler)
+        except Exception as e:
+            logger_main.warning(f"Could not load genesis plugin tools: {e}")
 
     # Preprocess argv so bare task strings route to 'submit'
     preprocess_argv()

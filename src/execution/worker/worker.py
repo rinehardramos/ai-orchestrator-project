@@ -41,6 +41,16 @@ from src.execution.worker.sandbox import create_workspace, cleanup_workspace
 from src.execution.worker.tools import get_tool_schemas, get_tool_fn, TOOL_REGISTRY
 from src.execution.worker.prompts import build_system_prompt
 
+# Plugin system imports
+try:
+    from src.plugins.loader import load_tools
+    from src.plugins.registry import registry, ToolNotFound
+    from src.plugins.base import ToolContext
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+    ToolContext = None
+
 from src.execution.worker.model_router import ModelRouter, TaskType
 from src.execution.worker.embeddings import get_embedder
 
@@ -61,6 +71,19 @@ memory_store = HybridMemoryStore(
     redis_url=f"redis://{redis_cfg.get('host', 'localhost')}:{redis_cfg.get('port', 6379)}",
     qdrant_url=f"http://{qdrant_cfg.get('host', 'localhost')}:{qdrant_cfg.get('port', 6333)}"
 )
+
+# Load plugin tools at startup
+_tools_loaded = False
+
+async def _ensure_tools_loaded():
+    global _tools_loaded
+    if not _tools_loaded and PLUGINS_AVAILABLE:
+        try:
+            await load_tools("config/bootstrap.yaml", node="worker")
+            _tools_loaded = True
+            logger.info(f"Loaded {len(registry._tools)} tools from plugin registry")
+        except Exception as e:
+            logger.warning(f"Could not load plugin tools: {e}")
 
 # --- Agent Defaults (from jobs.yaml) ---
 def load_agent_defaults() -> dict:
@@ -274,15 +297,39 @@ def tool_executor(state: AgenticState) -> AgenticState:
 
         new_count += 1
 
-        tool_fn = get_tool_fn(fn_name)
-        if tool_fn is None:
-            result_str = f"ERROR: Unknown tool '{fn_name}'"
-        else:
+        # Try plugin registry first, fall back to legacy tools.py
+        if PLUGINS_AVAILABLE and _tools_loaded:
             try:
-                # All tool fns take workspace_dir as first arg
-                result_str = tool_fn(state["workspace_dir"], **args)
+                ctx = ToolContext(
+                    workspace_dir=state["workspace_dir"],
+                    task_id="",
+                    envelope=None
+                )
+                result_str = asyncio.get_event_loop().run_until_complete(
+                    registry.call_tool(fn_name, args, ctx)
+                )
+            except ToolNotFound:
+                # Fall back to legacy tool
+                tool_fn = get_tool_fn(fn_name)
+                if tool_fn is None:
+                    result_str = f"ERROR: Unknown tool '{fn_name}'"
+                else:
+                    try:
+                        result_str = tool_fn(state["workspace_dir"], **args)
+                    except Exception as e:
+                        result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
             except Exception as e:
                 result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
+        else:
+            # Legacy path
+            tool_fn = get_tool_fn(fn_name)
+            if tool_fn is None:
+                result_str = f"ERROR: Unknown tool '{fn_name}'"
+            else:
+                try:
+                    result_str = tool_fn(state["workspace_dir"], **args)
+                except Exception as e:
+                    result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
 
         logger.info(f"[Tool] {fn_name}({list(args.keys())}) -> {result_str[:200]}")
         new_log.append(f"tool: {fn_name} (step {new_count})")
@@ -595,6 +642,9 @@ class AIOrchestrationWorkflow:
 async def main():
     temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
     logger.info(f"Connecting to Temporal at {temporal_host}...")
+
+    # Load plugin tools
+    await _ensure_tools_loaded()
 
     client = None
     for i in range(10):

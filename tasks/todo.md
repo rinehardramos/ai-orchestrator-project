@@ -157,3 +157,15 @@ Wave 2:             1.4 ◄─────────  3.1 (mounts 1.4)
                       ▼               ▼
 Wave 3 (parallel):  1.5  1.6  1.7  1.8  1.9  1.10
 ```
+
+---
+
+### Phase 3 — New tools (Completed in Wave 1-3)
+- [x] `src/tools_catalog/api/http_server.py` — HTTP+SSE source + tool mgmt API
+- [x] `src/tools_catalog/webhook/http_client.py` — http_request tool
+- [x] `src/plugins/mcp_bridge.py` — MCP server adapter
+
+### Phase 4 — Wire into existing code
+- [x] 16. Update `worker.py` — use registry for tool schemas and execution
+- [x] 17. Update `scheduler.py` — use registry for result delivery
+- [x] 18. Update `genesis/main.py` — load tools and start listeners

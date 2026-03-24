@@ -20,6 +20,14 @@ try:
 except ImportError:
     TelegramNotifier = None
 
+# Plugin system imports
+try:
+    from src.plugins.registry import registry
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+    registry = None
+
 from src.config import load_settings
 
 class TaskScheduler:
@@ -124,6 +132,26 @@ class TaskScheduler:
         source = self._get_task_source(task_id)
         logger.info(f"[ARTIFACTS] task={task_id} source={source} files={len(artifact_files)} names={[a.get('name') for a in artifact_files]}")
 
+        # Try registry-based delivery first
+        if PLUGINS_AVAILABLE and registry:
+            source_tool = registry.get(source)
+            if source_tool and hasattr(source_tool, 'deliver_result'):
+                try:
+                    from src.plugins.base import Envelope
+                    envelope = Envelope(
+                        id=task_id,
+                        source=source,
+                        task_description=self._get_task_description(task_id)
+                    )
+                    summary = result.get("summary", "")
+                    asyncio.get_event_loop().run_until_complete(
+                        source_tool.deliver_result(envelope, summary, artifact_files)
+                    )
+                    return
+                except Exception as e:
+                    logger.warning(f"Registry delivery failed for source '{source}': {e}")
+
+        # Fallback to legacy delivery
         if not artifact_files:
             if source == "telegram" and self.notifier:
                 agent_summary = result.get("summary", "")
