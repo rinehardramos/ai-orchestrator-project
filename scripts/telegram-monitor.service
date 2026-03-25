@@ -7,7 +7,7 @@ User=pi
 WorkingDirectory=/home/pi/Projects/ai-orchestration-project
 EnvironmentFile=/home/pi/Projects/ai-orchestration-project/.env
 Environment=PYTHONPATH=/home/pi/Projects/ai-orchestration-project
-ExecStart=/usr/bin/stdbuf -oL /home/pi/Projects/ai-orchestration-project/venv/bin/python3 src/cnc/orchestrator/telegram_monitor.py
+ExecStart=/usr/bin/stdbuf -oL /home/pi/Projects/ai-orchestration-project/venv/bin/python3 src/genesis/orchestrator/telegram_monitor.py
 Restart=always
 RestartSec=10
 
