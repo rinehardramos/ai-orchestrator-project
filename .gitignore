@@ -18,3 +18,4 @@ venv/
 data/
 logs/telegram_monitor.log
 data/tg_last_update_id.txt
+backups/

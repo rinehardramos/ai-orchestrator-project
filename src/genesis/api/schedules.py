@@ -363,6 +363,46 @@ async def preview_cron_expression(
     )
 
 
+@router.get("/daemon/status")
+async def get_daemon_status():
+    """Get scheduler daemon status."""
+    import subprocess
+    
+    result = subprocess.run(
+        ["pgrep", "-f", "start_scheduler.py"],
+        capture_output=True,
+        text=True
+    )
+    
+    pids = result.stdout.strip().split('\n') if result.stdout.strip() else []
+    is_running = len(pids) > 0 and pids[0] != ''
+    
+    status = {
+        "running": is_running,
+        "pid": int(pids[0]) if is_running else None,
+        "pids": [int(p) for p in pids if p] if is_running else [],
+        "uptime": None,
+        "last_log": None
+    }
+    
+    if is_running:
+        try:
+            import os
+            stat = os.popen(f"ps -p {pids[0]} -o etime=").read().strip()
+            status["uptime"] = stat
+        except:
+            pass
+    
+    try:
+        with open("/tmp/scheduler.log", "r") as f:
+            lines = f.readlines()[-20:]
+            status["last_log"] = "".join(lines)
+    except:
+        status["last_log"] = "No log file found"
+    
+    return status
+
+
 @router.get("/history/recent", response_model=TaskHistoryList)
 async def get_recent_history(
     limit: int = Query(20, ge=1, le=100),

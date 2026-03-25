@@ -170,13 +170,21 @@ class SchedulerDaemon:
             temporal_task_id, result = await self.executor.execute_task(task)
             
             status_str = result.get("status", "success")
-            if status_str == "success":
+            if status_str == "success" or status_str == ExecutionStatus.SUCCESS:
                 status = ExecutionStatus.SUCCESS
-            elif status_str == "failed":
+            elif status_str == "failed" or status_str == ExecutionStatus.FAILED:
                 status = ExecutionStatus.FAILED
                 error_message = result.get("error", "Unknown error")
             
-            result_summary = result.get("summary", result.get("result", ""))[:1000]
+            # Get result summary - handle different types
+            raw_result = result.get("summary") or result.get("result") or result.get("output") or ""
+            if isinstance(raw_result, dict):
+                result_summary = str(raw_result)[:1000]
+            elif isinstance(raw_result, str):
+                result_summary = raw_result[:1000]
+            else:
+                result_summary = str(raw_result)[:1000]
+            
             cost_usd = result.get("cost_usd")
             tool_call_count = result.get("tool_call_count")
             full_result = result

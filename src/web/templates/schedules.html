@@ -2,142 +2,710 @@
 {% block content %}
 <div class="px-4 py-6 sm:px-0">
     <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Scheduled Tasks</h1>
-        <a href="/ui/schedules/new" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700">
-            + New Schedule
-        </a>
+        <div>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">Scheduled Tasks</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Manage automated prompts and task schedules</p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <!-- Scheduler Status Indicator -->
+            <div id="daemon-status" class="flex items-center px-3 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-sm">
+                <div class="w-2 h-2 rounded-full bg-gray-400 mr-2" id="daemon-indicator"></div>
+                <span id="daemon-text">Checking...</span>
+            </div>
+            <button onclick="openModal('new-schedule-modal')" class="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors">
+                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                Schedule Prompt
+            </button>
+        </div>
+    </div>
+
+    <!-- Daemon Status Card (collapsible) -->
+    <div id="daemon-card" class="hidden mb-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div class="px-4 py-3 bg-gray-50 dark:bg-gray-700/50 flex items-center justify-between cursor-pointer" onclick="toggleDaemonDetails()">
+            <div class="flex items-center">
+                <div id="daemon-status-icon" class="w-3 h-3 rounded-full mr-2"></div>
+                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Scheduler Daemon</span>
+            </div>
+            <div class="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
+                <span id="daemon-uptime"></span>
+                <span id="daemon-pid"></span>
+                <svg class="w-4 h-4 transform transition-transform" id="daemon-chevron" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+            </div>
+        </div>
+        <div id="daemon-details" class="hidden p-4 border-t dark:border-gray-700">
+            <pre id="daemon-log" class="text-xs bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto max-h-48 overflow-y-auto font-mono"></pre>
+            <div class="mt-3 flex space-x-2">
+                <button onclick="restartDaemon()" class="px-3 py-1.5 text-xs bg-yellow-100 text-yellow-800 rounded hover:bg-yellow-200">Restart Daemon</button>
+                <button onclick="loadDaemonStatus()" class="px-3 py-1.5 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200">Refresh Log</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Schedule Card -->
+    <div class="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-xl shadow-lg p-6 mb-8 text-white">
+        <div class="flex items-start justify-between">
+            <div>
+                <h2 class="text-lg font-semibold">Quick Schedule</h2>
+                <p class="text-indigo-100 text-sm mt-1">Schedule a prompt to run at a specific time</p>
+            </div>
+            <svg class="w-8 h-8 text-indigo-200" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+        </div>
+        <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="md:col-span-2">
+                <input type="text" id="quick-prompt" placeholder="What should the AI do?" 
+                    class="w-full px-4 py-3 rounded-lg bg-white/20 backdrop-blur border border-white/30 text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+            </div>
+            <div class="flex gap-2">
+                <input type="datetime-local" id="quick-datetime" 
+                    class="flex-1 px-3 py-3 rounded-lg bg-white/20 backdrop-blur border border-white/30 text-white focus:outline-none focus:ring-2 focus:ring-white/50">
+                <button onclick="submitQuickSchedule()" class="px-4 py-3 bg-white text-indigo-600 font-medium rounded-lg hover:bg-indigo-50 transition-colors">
+                    Schedule
+                </button>
+            </div>
+        </div>
     </div>
 
     <!-- Stats Cards -->
-    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-            <div class="px-4 py-5 sm:p-6">
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Schedules</dt>
-                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-count">-</dd>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Total</p>
+                    <p class="text-2xl font-bold text-gray-900 dark:text-white mt-1" id="total-count">0</p>
+                </div>
+                <div class="w-10 h-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                </div>
             </div>
         </div>
-        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-            <div class="px-4 py-5 sm:p-6">
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Enabled</dt>
-                <dd class="mt-1 text-3xl font-semibold text-green-600" id="enabled-count">-</dd>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Active</p>
+                    <p class="text-2xl font-bold text-green-600 mt-1" id="enabled-count">0</p>
+                </div>
+                <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
             </div>
         </div>
-        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-            <div class="px-4 py-5 sm:p-6">
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Running</dt>
-                <dd class="mt-1 text-3xl font-semibold text-blue-600" id="running-count">-</dd>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Running</p>
+                    <p class="text-2xl font-bold text-blue-600 mt-1" id="running-count">0</p>
+                </div>
+                <div class="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-blue-600 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </div>
             </div>
         </div>
-        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
-            <div class="px-4 py-5 sm:p-6">
-                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Disabled</dt>
-                <dd class="mt-1 text-3xl font-semibold text-red-600" id="disabled-count">-</dd>
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-5 border border-gray-100 dark:border-gray-700">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Failed</p>
+                    <p class="text-2xl font-bold text-red-600 mt-1" id="failed-count">0</p>
+                </div>
+                <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-lg flex items-center justify-center">
+                    <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Schedules Table -->
-    <div class="bg-white dark:bg-gray-800 shadow overflow-hidden sm:rounded-lg">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-            <thead class="bg-gray-50 dark:bg-gray-700">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Name</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Schedule</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Type</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Next Run</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Last Run</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Actions</th>
-                </tr>
-            </thead>
-            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="schedules-body">
-            </tbody>
-        </table>
+    <!-- Scheduled Tasks List -->
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
+        <div class="px-6 py-4 border-b border-gray-100 dark:border-gray-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">All Scheduled Tasks</h2>
+        </div>
+        <div id="schedules-list" class="divide-y divide-gray-100 dark:divide-gray-700">
+            <div class="p-12 text-center text-gray-400">
+                <svg class="w-12 h-12 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                <p>Loading scheduled tasks...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- New Schedule Modal -->
+<div id="new-schedule-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+    <div class="fixed inset-0 bg-black/50" onclick="closeModal()"></div>
+    <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full mx-4 relative z-10 max-h-[90vh] overflow-y-auto">
+        <div class="flex items-center justify-between p-6 border-b dark:border-gray-700">
+            <div>
+                <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Schedule a Prompt</h3>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Set up an automated task to run at a specific time</p>
+            </div>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+        <form id="schedule-form" class="p-6 space-y-6">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Task Name *</label>
+                <input type="text" id="modal-name" required placeholder="e.g., Daily Report, Email Reminder"
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Prompt *</label>
+                <textarea id="modal-prompt" required rows="4" placeholder="Describe what you want the AI to do..."
+                    class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent"></textarea>
+                <p class="text-xs text-gray-500 mt-1">The AI will receive this instruction at the scheduled time</p>
+            </div>
+
+            <!-- Schedule Type Selection -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Schedule Type</label>
+                <div class="grid grid-cols-3 gap-2">
+                    <button type="button" onclick="setScheduleType('once')" id="btn-once" class="schedule-type-btn px-4 py-2 text-sm rounded-lg border-2 border-indigo-500 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                        One Time
+                    </button>
+                    <button type="button" onclick="setScheduleType('interval')" id="btn-interval" class="schedule-type-btn px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-indigo-500">
+                        Repeating
+                    </button>
+                    <button type="button" onclick="setScheduleType('cron')" id="btn-cron" class="schedule-type-btn px-4 py-2 text-sm rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:border-indigo-500">
+                        Cron
+                    </button>
+                </div>
+            </div>
+
+            <!-- One Time Schedule -->
+            <div id="once-config" class="space-y-4">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Date & Time *</label>
+                        <input type="datetime-local" id="modal-datetime"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Timezone</label>
+                        <select id="modal-timezone"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <option value="Asia/Manila">Philippines (PHT)</option>
+                            <option value="UTC">UTC</option>
+                            <option value="America/New_York">Eastern Time (ET)</option>
+                            <option value="America/Chicago">Central Time (CT)</option>
+                            <option value="America/Denver">Mountain Time (MT)</option>
+                            <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                            <option value="Asia/Tokyo">Japan (JST)</option>
+                            <option value="Europe/London">London (GMT)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interval Schedule -->
+            <div id="interval-config" class="hidden space-y-4">
+                <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Quick Presets</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="setInterval(15, 'minutes')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Every 15 min</button>
+                        <button type="button" onclick="setInterval(30, 'minutes')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Every 30 min</button>
+                        <button type="button" onclick="setInterval(1, 'hours')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Hourly</button>
+                        <button type="button" onclick="setInterval(6, 'hours')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Every 6 hours</button>
+                        <button type="button" onclick="setInterval(12, 'hours')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Every 12 hours</button>
+                        <button type="button" onclick="setInterval(1, 'days')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Daily</button>
+                        <button type="button" onclick="setInterval(7, 'days')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Weekly</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-3 gap-4">
+                    <div class="col-span-1">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Every</label>
+                        <input type="number" id="interval-value" value="1" min="1"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Unit</label>
+                        <select id="interval-unit"
+                            class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                            <option value="minutes">Minutes</option>
+                            <option value="hours">Hours</option>
+                            <option value="days">Days</option>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Start Time</label>
+                    <input type="datetime-local" id="interval-start"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                </div>
+            </div>
+
+            <!-- Cron Schedule -->
+            <div id="cron-config" class="hidden space-y-4">
+                <div class="bg-gray-50 dark:bg-gray-700/50 p-4 rounded-lg">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Quick Presets</label>
+                    <div class="flex flex-wrap gap-2">
+                        <button type="button" onclick="setCron('0 9 * * *')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Daily 9 AM</button>
+                        <button type="button" onclick="setCron('0 9 * * 1')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Weekly Mon 9 AM</button>
+                        <button type="button" onclick="setCron('0 9,17 * * *')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Twice Daily</button>
+                        <button type="button" onclick="setCron('0 0 * * *')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Midnight Daily</button>
+                        <button type="button" onclick="setCron('0 9 1 * *')" class="px-3 py-1 text-xs rounded-full bg-white dark:bg-gray-600 border border-gray-200 dark:border-gray-500 hover:border-indigo-500">Monthly 1st</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Cron Expression</label>
+                    <input type="text" id="cron-expression" placeholder="0 9 * * *" value="0 9 * * *"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent font-mono">
+                    <p class="text-xs text-gray-500 mt-1">Format: minute hour day month weekday (e.g., "0 9 * * *" = every day at 9:00 AM)</p>
+                </div>
+                <div id="cron-preview" class="text-sm text-indigo-600 dark:text-indigo-400"></div>
+            </div>
+
+            <!-- Run Limits -->
+            <div class="border-t dark:border-gray-700 pt-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Run Limits</label>
+                <div class="flex items-center space-x-4">
+                    <label class="flex items-center">
+                        <input type="radio" name="run-limit" value="unlimited" checked class="text-indigo-600 focus:ring-indigo-500">
+                        <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Unlimited runs</span>
+                    </label>
+                    <label class="flex items-center">
+                        <input type="radio" name="run-limit" value="limited" class="text-indigo-600 focus:ring-indigo-500">
+                        <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Run exactly</span>
+                    </label>
+                    <input type="number" id="modal-max-runs" min="1" value="1" disabled
+                        class="w-20 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm">
+                    <span class="text-sm text-gray-700 dark:text-gray-300">times</span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Timeout (minutes)</label>
+                    <input type="number" id="modal-timeout" value="5" min="1" max="1440"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Max Retries</label>
+                    <input type="number" id="modal-retries" value="3" min="0" max="10"
+                        class="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+                </div>
+            </div>
+
+            <div class="flex items-center space-x-4">
+                <label class="flex items-center">
+                    <input type="checkbox" id="modal-notify-success" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                    <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Notify on success</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="modal-notify-failure" checked class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                    <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Notify on failure</span>
+                </label>
+            </div>
+
+            <div class="flex justify-end space-x-3 pt-4 border-t dark:border-gray-700">
+                <button type="button" onclick="closeModal()" class="px-6 py-3 border border-gray-300 dark:border-gray-600 rounded-lg text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    Cancel
+                </button>
+                <button type="submit" class="px-6 py-3 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors">
+                    Create Schedule
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 
 <script>
-    fetch('/api/schedules')
-        .then(response => response.json())
-        .then(data => {
-            const tbody = document.getElementById('schedules-body');
-            tbody.innerHTML = '';
-            
-            const items = data.items || [];
-            
-            // Update stats
-            document.getElementById('total-count').textContent = data.total || items.length;
-            document.getElementById('enabled-count').textContent = items.filter(t => t.enabled).length;
-            document.getElementById('running-count').textContent = items.filter(t => t.status === 'running').length;
-            document.getElementById('disabled-count').textContent = items.filter(t => !t.enabled).length;
-            
-            items.forEach(task => {
-                const row = document.createElement('tr');
-                const nextRun = task.next_run_at ? new Date(task.next_run_at).toLocaleString() : '-';
-                const lastRun = task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '-';
-                
-                const statusClass = {
-                    'idle': 'bg-gray-100 text-gray-800',
-                    'running': 'bg-blue-100 text-blue-800',
-                    'paused': 'bg-yellow-100 text-yellow-800',
-                    'disabled': 'bg-red-100 text-red-800',
-                    'error': 'bg-red-100 text-red-800'
-                }[task.status] || 'bg-gray-100 text-gray-800';
-                
-                row.innerHTML = `
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <div class="text-sm font-medium text-gray-900 dark:text-white">${task.name}</div>
-                        <div class="text-sm text-gray-500 dark:text-gray-400">${task.description || ''}</div>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        ${task.schedule_type}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        ${task.task_type}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap">
-                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
-                            ${task.status}
-                        </span>
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        ${nextRun}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        ${lastRun}
-                    </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                        <button onclick="toggleEnable(${task.id}, ${!task.enabled})" class="text-blue-600 hover:text-blue-900 mr-2">
-                            ${task.enabled ? 'Disable' : 'Enable'}
-                        </button>
-                        <button onclick="runNow(${task.id})" class="text-green-600 hover:text-green-900 mr-2">Run</button>
-                        <a href="/ui/schedules/${task.id}" class="text-blue-600 hover:text-blue-900 mr-2">Edit</a>
-                        <button onclick="deleteTask(${task.id})" class="text-red-600 hover:text-red-900">Delete</button>
-                    </td>
-                `;
-                tbody.appendChild(row);
-            });
-            
-            if (items.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="px-6 py-4 text-center text-gray-500">No scheduled tasks found</td></tr>';
-            }
-        });
+    const statusConfig = {
+        'idle': { color: 'gray', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>', bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' },
+        'running': { color: 'blue', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>', bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600' },
+        'paused': { color: 'yellow', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>', bg: 'bg-yellow-100 dark:bg-yellow-900/30', text: 'text-yellow-600' },
+        'disabled': { color: 'red', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"></path>', bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600' },
+        'error': { color: 'red', icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>', bg: 'bg-red-100 dark:bg-red-900/30', text: 'text-red-600' }
+    };
 
-    async function toggleEnable(id, enable) {
-        await fetch(`/api/schedules/${id}/${enable ? 'enable' : 'disable'}`, {method: 'POST'});
-        location.reload();
+    const scheduleTypeIcons = {
+        'once': '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>',
+        'cron': '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>',
+        'interval': '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>'
+    };
+
+    function formatDateTime(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        const now = new Date();
+        const diff = date - now;
+        const isPast = diff < 0;
+        
+        const formatted = date.toLocaleString('en-US', { 
+            timeZone: 'Asia/Manila',
+            month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+        
+        if (isPast) return `${formatted} PHT (past)`;
+        
+        const minutes = Math.floor(diff / 60000);
+        const hours = Math.floor(diff / 3600000);
+        const days = Math.floor(diff / 86400000);
+        
+        if (minutes < 60) return `${formatted} PHT (in ${minutes}m)`;
+        if (hours < 24) return `${formatted} PHT (in ${hours}h)`;
+        return `${formatted} PHT (in ${days}d)`;
     }
 
-    async function runNow(id) {
-        await fetch(`/api/schedules/${id}/run`, {method: 'POST'});
-        alert('Task triggered! It will run on the next daemon cycle.');
+    function toLocalDateTimeInput(isoString) {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        const pht = new Date(date.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+        const offset = pht.getTimezoneOffset();
+        const local = new Date(pht.getTime() - offset * 60000);
+        return local.toISOString().slice(0, 16);
+    }
+
+    function getCurrentPHT() {
+        const now = new Date();
+        const pht = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Manila' }));
+        const offset = pht.getTimezoneOffset();
+        const local = new Date(pht.getTime() - offset * 60000);
+        return local.toISOString().slice(0, 16);
+    }
+
+    async function loadSchedules() {
+        try {
+            const resp = await fetch('/api/schedules');
+            const data = await resp.json();
+            const items = data.items || [];
+            
+            document.getElementById('total-count').textContent = data.total || 0;
+            document.getElementById('enabled-count').textContent = items.filter(t => t.enabled).length;
+            document.getElementById('running-count').textContent = items.filter(t => t.status === 'running').length;
+            document.getElementById('failed-count').textContent = items.filter(t => t.last_run_status === 'failed').length;
+            
+            const container = document.getElementById('schedules-list');
+            
+            if (items.length === 0) {
+                container.innerHTML = `
+                    <div class="p-12 text-center">
+                        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300 dark:text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <p class="text-gray-500 dark:text-gray-400 text-lg font-medium">No scheduled tasks yet</p>
+                        <p class="text-gray-400 dark:text-gray-500 text-sm mt-1">Create your first scheduled prompt above</p>
+                    </div>`;
+                return;
+            }
+            
+            container.innerHTML = items.map(task => {
+                const status = statusConfig[task.status] || statusConfig['idle'];
+                const scheduleIcon = scheduleTypeIcons[task.schedule_type] || scheduleTypeIcons['once'];
+                
+                return `
+                <div class="p-5 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors group">
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-start space-x-4 flex-1 min-w-0">
+                            <div class="w-10 h-10 rounded-lg ${status.bg} flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 ${status.text} ${task.status === 'running' ? 'animate-spin' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">${status.icon}</svg>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center space-x-2">
+                                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white truncate">${task.name}</h3>
+                                    ${!task.enabled ? '<span class="px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 rounded">Disabled</span>' : ''}
+                                    <span class="px-2 py-0.5 text-xs font-medium ${status.bg} ${status.text} rounded capitalize">${task.status}</span>
+                                </div>
+                                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 truncate">${task.description || 'No description'}</p>
+                                <div class="flex items-center space-x-4 mt-2 text-xs text-gray-400">
+                                    <span class="flex items-center">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">${scheduleIcon}</svg>
+                                        ${task.schedule_type}
+                                    </span>
+                                    <span class="flex items-center">
+                                        <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                        Next: ${formatDateTime(task.next_run_at)}
+                                    </span>
+                                    <span>Runs: ${task.run_count || 0}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center space-x-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            ${task.enabled 
+                                ? `<button onclick="toggleTask(${task.id}, false)" class="p-2 text-gray-400 hover:text-yellow-600 rounded-lg hover:bg-yellow-50 dark:hover:bg-yellow-900/20" title="Disable"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></button>`
+                                : `<button onclick="toggleTask(${task.id}, true)" class="p-2 text-gray-400 hover:text-green-600 rounded-lg hover:bg-green-50 dark:hover:bg-green-900/20" title="Enable"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg></button>`
+                            }
+                            <button onclick="runTask(${task.id})" class="p-2 text-gray-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20" title="Run Now">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            </button>
+                            <a href="/ui/schedules/${task.id}" class="p-2 text-gray-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20" title="Edit">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                            </a>
+                            <button onclick="deleteTask(${task.id})" class="p-2 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20" title="Delete">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        } catch (e) {
+            console.error('Failed to load schedules:', e);
+            document.getElementById('schedules-list').innerHTML = `
+                <div class="p-12 text-center text-red-500">
+                    <p>Failed to load scheduled tasks</p>
+                    <button onclick="loadSchedules()" class="mt-2 text-indigo-600 hover:underline">Retry</button>
+                </div>`;
+        }
+    }
+
+    async function submitQuickSchedule() {
+        const prompt = document.getElementById('quick-prompt').value.trim();
+        const datetime = document.getElementById('quick-datetime').value;
+        
+        if (!prompt || !datetime) {
+            showToast('Please fill in both the prompt and date/time', 'error');
+            return;
+        }
+        
+        try {
+            const resp = await fetch('/api/schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: `Quick Task ${new Date().toLocaleTimeString()}`,
+                    description: prompt.slice(0, 100),
+                    schedule_type: 'once',
+                    scheduled_for: datetime + ':00Z',
+                    timezone: 'Asia/Manila',
+                    task_type: 'agent',
+                    task_payload: { description: prompt, specialization: 'general' },
+                    enabled: true,
+                    timeout_seconds: 300,
+                    notify_on_failure: true
+                })
+            });
+            
+            if (resp.ok) {
+                showToast('Task scheduled successfully!');
+                document.getElementById('quick-prompt').value = '';
+                document.getElementById('quick-datetime').value = '';
+                loadSchedules();
+            } else {
+                const err = await resp.json();
+                showToast(err.detail || 'Failed to create task', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    }
+
+    // Schedule type handling
+    let currentScheduleType = 'once';
+
+    function setScheduleType(type) {
+        currentScheduleType = type;
+        
+        // Update button styles
+        document.querySelectorAll('.schedule-type-btn').forEach(btn => {
+            btn.classList.remove('border-2', 'border-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'text-indigo-700', 'dark:text-indigo-300');
+            btn.classList.add('border', 'border-gray-300', 'dark:border-gray-600', 'text-gray-700', 'dark:text-gray-300');
+        });
+        const activeBtn = document.getElementById(`btn-${type}`);
+        activeBtn.classList.remove('border', 'border-gray-300', 'dark:border-gray-600', 'text-gray-700', 'dark:text-gray-300');
+        activeBtn.classList.add('border-2', 'border-indigo-500', 'bg-indigo-50', 'dark:bg-indigo-900/30', 'text-indigo-700', 'dark:text-indigo-300');
+        
+        // Show/hide config sections
+        document.getElementById('once-config').classList.toggle('hidden', type !== 'once');
+        document.getElementById('interval-config').classList.toggle('hidden', type !== 'interval');
+        document.getElementById('cron-config').classList.toggle('hidden', type !== 'cron');
+        
+        if (type === 'cron') {
+            previewCron();
+        }
+    }
+
+    function setInterval(value, unit) {
+        document.getElementById('interval-value').value = value;
+        document.getElementById('interval-unit').value = unit;
+    }
+
+    function setCron(expression) {
+        document.getElementById('cron-expression').value = expression;
+        previewCron();
+    }
+
+    async function previewCron() {
+        const expr = document.getElementById('cron-expression').value;
+        if (!expr) return;
+        
+        try {
+            const resp = await fetch(`/api/schedules/preview-cron?expression=${encodeURIComponent(expr)}&timezone=Asia/Manila`);
+            if (resp.ok) {
+                const data = await resp.json();
+                const runs = data.next_runs.slice(0, 5).map(d => {
+                    const date = new Date(d);
+                    return date.toLocaleString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                }).join('<br>');
+                document.getElementById('cron-preview').innerHTML = 
+                    `<strong>${data.description}</strong><br>Next runs (PHT):<br>${runs}`;
+            } else {
+                document.getElementById('cron-preview').innerHTML = '<span class="text-red-600">Invalid cron expression</span>';
+            }
+        } catch (e) {
+            document.getElementById('cron-preview').innerHTML = '<span class="text-red-600">Invalid cron expression</span>';
+        }
+    }
+
+    // Run limit radio handling
+    document.querySelectorAll('input[name="run-limit"]').forEach(radio => {
+        radio.addEventListener('change', (e) => {
+            document.getElementById('modal-max-runs').disabled = e.target.value === 'unlimited';
+        });
+    });
+
+    document.getElementById('cron-expression').addEventListener('input', previewCron);
+
+    document.getElementById('schedule-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const name = document.getElementById('modal-name').value.trim();
+        const prompt = document.getElementById('modal-prompt').value.trim();
+        const timeout = parseInt(document.getElementById('modal-timeout').value) * 60;
+        const maxRunsRadio = document.querySelector('input[name="run-limit"]:checked');
+        const maxRuns = maxRunsRadio.value === 'limited' ? parseInt(document.getElementById('modal-max-runs').value) : null;
+        
+        // Build schedule config based on type
+        let scheduleConfig = {
+            name: name,
+            description: prompt.slice(0, 100),
+            schedule_type: currentScheduleType,
+            task_type: 'agent',
+            task_payload: { description: prompt, specialization: 'general' },
+            enabled: true,
+            timeout_seconds: timeout,
+            max_failures: parseInt(document.getElementById('modal-retries').value),
+            max_runs: maxRuns,
+            notify_on_success: document.getElementById('modal-notify-success').checked,
+            notify_on_failure: document.getElementById('modal-notify-failure').checked
+        };
+        
+        if (currentScheduleType === 'once') {
+            const datetime = document.getElementById('modal-datetime').value;
+            if (!datetime) {
+                showToast('Please select a date and time', 'error');
+                return;
+            }
+            scheduleConfig.scheduled_for = datetime + ':00Z';
+            scheduleConfig.timezone = document.getElementById('modal-timezone').value;
+        } else if (currentScheduleType === 'interval') {
+            const value = parseInt(document.getElementById('interval-value').value);
+            const unit = document.getElementById('interval-unit').value;
+            const multipliers = { minutes: 60, hours: 3600, days: 86400 };
+            scheduleConfig.interval_seconds = value * multipliers[unit];
+            
+            const startTime = document.getElementById('interval-start').value;
+            if (startTime) {
+                scheduleConfig.scheduled_for = startTime + ':00Z';
+            }
+            scheduleConfig.timezone = 'Asia/Manila';
+        } else if (currentScheduleType === 'cron') {
+            scheduleConfig.cron_expression = document.getElementById('cron-expression').value;
+            scheduleConfig.timezone = 'Asia/Manila';
+        }
+        
+        try {
+            const resp = await fetch('/api/schedules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scheduleConfig)
+            });
+            
+            if (resp.ok) {
+                closeModal();
+                showToast('Task scheduled successfully!');
+                loadSchedules();
+            } else {
+                const err = await resp.json();
+                showToast(err.detail || 'Failed to create task', 'error');
+            }
+        } catch (e) {
+            showToast('Error: ' + e.message, 'error');
+        }
+    });
+
+    // Daemon status
+    async function loadDaemonStatus() {
+        try {
+            const resp = await fetch('/api/schedules/daemon/status');
+            const data = await resp.json();
+            
+            const indicator = document.getElementById('daemon-indicator');
+            const text = document.getElementById('daemon-text');
+            const card = document.getElementById('daemon-card');
+            const statusIcon = document.getElementById('daemon-status-icon');
+            
+            if (data.running) {
+                indicator.className = 'w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse';
+                text.textContent = `Running (PID: ${data.pid})`;
+                text.className = 'text-green-600 dark:text-green-400';
+                card.classList.remove('hidden');
+                statusIcon.className = 'w-3 h-3 rounded-full mr-2 bg-green-500';
+                
+                if (data.uptime) {
+                    document.getElementById('daemon-uptime').textContent = `Uptime: ${data.uptime}`;
+                }
+                document.getElementById('daemon-pid').textContent = `PID: ${data.pid}`;
+                document.getElementById('daemon-log').textContent = data.last_log || 'No logs available';
+            } else {
+                indicator.className = 'w-2 h-2 rounded-full bg-red-500 mr-2';
+                text.textContent = 'Stopped';
+                text.className = 'text-red-600 dark:text-red-400';
+                card.classList.remove('hidden');
+                statusIcon.className = 'w-3 h-3 rounded-full mr-2 bg-red-500';
+                document.getElementById('daemon-uptime').textContent = 'Not running';
+                document.getElementById('daemon-pid').textContent = '';
+                document.getElementById('daemon-log').textContent = data.last_log || 'Scheduler daemon is not running. Start it with: python scripts/start_scheduler.py';
+            }
+        } catch (e) {
+            document.getElementById('daemon-indicator').className = 'w-2 h-2 rounded-full bg-yellow-500 mr-2';
+            document.getElementById('daemon-text').textContent = 'Unknown';
+        }
+    }
+
+    function toggleDaemonDetails() {
+        const details = document.getElementById('daemon-details');
+        const chevron = document.getElementById('daemon-chevron');
+        details.classList.toggle('hidden');
+        chevron.classList.toggle('rotate-180');
+    }
+
+    async function restartDaemon() {
+        showToast('Restarting daemon...', 'info');
+        // This would need a proper API endpoint to restart the daemon
+        // For now, just reload status
+        setTimeout(loadDaemonStatus, 2000);
+    }
+
+    async function toggleTask(id, enable) {
+        await fetch(`/api/schedules/${id}/${enable ? 'enable' : 'disable'}`, { method: 'POST' });
+        loadSchedules();
+    }
+
+    async function runTask(id) {
+        await fetch(`/api/schedules/${id}/run`, { method: 'POST' });
+        showToast('Task triggered! It will run shortly.');
     }
 
     async function deleteTask(id) {
-        if (confirm('Are you sure you want to delete this scheduled task?')) {
-            await fetch(`/api/schedules/${id}`, {method: 'DELETE'});
-            location.reload();
-        }
+        if (!confirm('Delete this scheduled task?')) return;
+        await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+        showToast('Task deleted');
+        loadSchedules();
     }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSchedules();
+        loadDaemonStatus();
+        
+        // Set default datetime to 5 minutes from now in PHT
+        const phtDateTime = getCurrentPHT();
+        const fiveMinLater = new Date(new Date(phtDateTime).getTime() + 300000);
+        const offset = fiveMinLater.getTimezoneOffset();
+        const local = new Date(fiveMinLater.getTime() - offset * 60000);
+        const defaultDateTime = local.toISOString().slice(0, 16);
+        document.getElementById('quick-datetime').value = defaultDateTime;
+        document.getElementById('modal-datetime').value = defaultDateTime;
+        document.getElementById('interval-start').value = defaultDateTime;
+        
+        // Refresh daemon status every 30 seconds
+        setInterval(loadDaemonStatus, 30000);
+    });
 </script>
 {% endblock %}

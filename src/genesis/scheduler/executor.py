@@ -7,7 +7,7 @@ Executes scheduled tasks via Temporal and manages execution history.
 import json
 import logging
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from src.genesis.scheduler.models import (
@@ -47,7 +47,7 @@ class TaskExecutor:
         task_id = None
         result = {
             "status": ExecutionStatus.RUNNING,
-            "started_at": datetime.now(timezone.utc),
+            "started_at": datetime.now(timezone.utc).isoformat(),
             "temporal_task_id": None,
             "error": None
         }
@@ -187,18 +187,18 @@ class TaskExecutor:
         
         # Ensure tools are loaded
         if not registry._tools:
-            load_tools_sync(node="worker")
+            await load_tools_sync(node="worker")
         
         # Get tool instance
         tool = registry.get(tool_name)
         if not tool:
-            raise ValueError(f"Tool not found: {tool_name}")
+            raise ValueError(f"Tool not found: {tool_name}. Available: {list(registry._tools.keys())}")
         
         # Build namespaced function name
         namespaced_fn = f"{tool_name}__{function_name}"
         
         if namespaced_fn not in registry._fn_lookup:
-            raise ValueError(f"Function not found: {namespaced_fn}")
+            raise ValueError(f"Function not found: {namespaced_fn}. Available: {list(registry._fn_lookup.keys())[:10]}...")
         
         # Execute tool
         from src.plugins.base import ToolContext
@@ -258,6 +258,7 @@ class TaskExecutor:
             return 0
         
         async with self.db_pool.acquire() as conn:
+            started_at = datetime.now(timezone.utc) - timedelta(seconds=duration_seconds) if duration_seconds else datetime.now(timezone.utc)
             record_id = await conn.fetchval(
                 """
                 INSERT INTO scheduled_task_history 
@@ -268,7 +269,7 @@ class TaskExecutor:
                 RETURNING id
                 """,
                 task_id,
-                datetime.now(timezone.utc) - (duration_seconds or 0) * 1000000 if duration_seconds else datetime.now(timezone.utc),
+                started_at,
                 datetime.now(timezone.utc),
                 duration_seconds,
                 temporal_task_id,

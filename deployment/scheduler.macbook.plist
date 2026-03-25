@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aiorchestrator.scheduler</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/rinehardramos/Projects/ai-orchestrator-project/.venv/bin/python</string>
+        <string>scripts/start_scheduler.py</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/rinehardramos/Projects/ai-orchestrator-project</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/Users/rinehardramos/Projects/ai-orchestrator-project/.venv/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>DATABASE_URL</key>
+        <string>postgres://temporal:temporal@localhost:5432/orchestrator</string>
+        <key>CONFIG_SECRET_KEY</key>
+        <string>uKah8x2Nghzs6hCIO8EVK66kQrbcWzUyfSNNfbcL5CM=</string>
+    </dict>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>StandardOutPath</key>
+    <string>/var/log/ai-orchestrator/scheduler.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/var/log/ai-orchestrator/scheduler.log</string>
+    
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

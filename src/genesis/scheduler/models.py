@@ -181,6 +181,22 @@ class ScheduledTaskInDB(ScheduledTaskBase):
     created_by: Optional[str] = None
     
     model_config = {"from_attributes": True}
+    
+    @model_validator(mode='before')
+    @classmethod
+    def parse_jsonb_fields(cls, data):
+        """Parse JSONB fields that come as strings from asyncpg."""
+        if isinstance(data, dict):
+            if isinstance(data.get('task_payload'), str):
+                import json
+                data['task_payload'] = json.loads(data['task_payload'])
+            if isinstance(data.get('notification_recipients'), str):
+                import json
+                data['notification_recipients'] = json.loads(data['notification_recipients'])
+            if isinstance(data.get('tags'), str):
+                import json
+                data['tags'] = json.loads(data['tags'])
+        return data
 
 
 class ScheduledTaskResponse(ScheduledTaskInDB):
