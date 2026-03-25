@@ -25,12 +25,13 @@ except ImportError:
 
 
 def _load_embedding_config() -> dict:
-    config_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml")
-    )
-    with open(config_path, "r") as f:
-        data = yaml.safe_load(f)
-    return data.get("task_routing", {}).get("embeddings", {})
+    try:
+        from src.config_db import get_loader
+        profiles = get_loader().load_namespace("profiles")
+        return profiles.get("task_routing", {}).get("embeddings", {})
+    except Exception as e:
+        logger.error(f"Could not load embedding config from DB: {e}")
+        return {}
 
 
 def get_embedder() -> "SentenceTransformerEmbedder":

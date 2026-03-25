@@ -39,12 +39,11 @@ class TranscribeAudioTool(Tool):
 
     def _load_media_config(self) -> dict:
         if self._media_config is None:
-            config_path = os.path.join(os.path.dirname(__file__), "../../../config/media.yaml")
             try:
-                with open(config_path) as f:
-                    self._media_config = yaml.safe_load(f)
+                from src.config_db import get_loader
+                self._media_config = get_loader().load_all_namespaces()
             except Exception as e:
-                log.warning(f"Could not load media.yaml, using defaults: {e}")
+                log.error(f"Could not load media config from DB: {e}")
                 self._media_config = self._default_config()
         return self._media_config
 

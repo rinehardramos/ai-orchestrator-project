@@ -127,16 +127,6 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
 }
 
 
-def _load_yaml_config() -> dict:
-    """Load config/profiles.yaml."""
-    config_path = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../../config/profiles.yaml")
-    )
-    if os.path.exists(config_path):
-        with open(config_path, "r") as f:
-            return yaml.safe_load(f) or {}
-    return {}
-
 
 class ModelRouter:
     """
@@ -154,7 +144,14 @@ class ModelRouter:
             pass
         _configure_opik()
         
-        config_data = _load_yaml_config()
+        # Load from DB
+        try:
+            from src.config_db import get_loader
+            config_data = get_loader().load_namespace("profiles")
+        except Exception as e:
+            logger.error(f"Could not load profiles from DB: {e}")
+            config_data = {}
+            
         self._routing = config_data.get("task_routing", {})
         self._specializations = config_data.get("specializations", {})
         api_key = os.environ.get("OPENROUTER_API_KEY", "")
@@ -191,6 +188,7 @@ class ModelRouter:
             logger.warning(f"[OPIK] Failed to wrap client: {e}")
 
     def get_model(self, task_type: TaskType, specialization: str = "general") -> str:
+
         """
         Return the model string for a task type. Specific specializations override generic types.
         """

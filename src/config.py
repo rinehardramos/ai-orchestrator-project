@@ -1,33 +1,33 @@
 import os
-import yaml
+import logging
 from dotenv import load_dotenv
+from src.config_db import get_loader
 
 # Ensure environment variables are loaded from .env
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 load_dotenv(os.path.join(project_root, ".env"))
 
+log = logging.getLogger(__name__)
+
 def load_settings(env_name: str = None):
     """
     Centralized configuration loader.
-    Merges static config from config/settings.yaml with sensitive
+    Merges configuration from DB (app_config table) with sensitive
     environment variables loaded from .env or os.environ.
-    
-    Supports multi-environment configuration if 'environments' key exists.
     """
-    settings_path = os.path.join(project_root, "config/settings.yaml")
-    raw_config = {}
+    try:
+        # Load structural configuration from DB
+        raw_config = get_loader().load_all_namespaces()
+    except Exception as e:
+        log.error(f"Failed to load configuration from DB: {e}")
+        raise RuntimeError("System configuration could not be loaded from database.")
     
-    # Load structural configuration
-    if os.path.exists(settings_path):
-        with open(settings_path, "r") as f:
-            raw_config = yaml.safe_load(f) or {}
-
     # Determine which environment to use
-    selected_env = env_name or os.environ.get("SELECTED_ENV") or raw_config.get("active_environment")
+    selected_env = env_name or os.environ.get("SELECTED_ENV") or raw_config.get("settings", {}).get("active_environment")
     
     config = {}
     if "environments" in raw_config and selected_env in raw_config["environments"]:
-        print(f"🔧 [CONFIG] Loading environment: {selected_env}")
+        log.info(f"🔧 [CONFIG] Loading environment: {selected_env}")
         config = raw_config["environments"][selected_env]
         # Keep global settings that are NOT inside environments (like telegram)
         for key, value in raw_config.items():
@@ -80,3 +80,4 @@ def load_settings(env_name: str = None):
         os.environ.setdefault("OPIK_PROJECT_NAME", "ai-orchestration")
 
     return config
+

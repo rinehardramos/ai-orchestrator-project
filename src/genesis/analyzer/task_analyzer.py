@@ -1,4 +1,3 @@
-import yaml
 import os
 import json
 import logging
@@ -57,17 +56,18 @@ class AnalyzerResult(BaseModel):
 class TaskAnalyzer:
     def __init__(self, config_path: str = "config/profiles.yaml"):
         _configure_opik()
-        # Resolve config path relative to project root
-        if not os.path.isabs(config_path):
-            # src/genesis/analyzer/task_analyzer.py -> src/genesis/analyzer -> src/genesis -> src -> project_root
-            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-            config_path = os.path.join(project_root, config_path)
-            
-        with open(config_path, 'r') as f:
-            data = yaml.safe_load(f)
-            self.models = data.get('models', [])
-            self.infrastructure = data.get('infrastructure', [])
         
+        # Load from DB
+        try:
+            from src.config_db import get_loader
+            profiles = get_loader().load_namespace("profiles")
+            self.models = profiles.get('models', [])
+            self.infrastructure = profiles.get('infrastructure', [])
+        except Exception as e:
+            logger.error(f"Could not load profiles from DB: {e}")
+            self.models = []
+            self.infrastructure = []
+            
         # Initialize Gemini for statement parsing
         api_key = os.environ.get("GOOGLE_API_KEY")
         if api_key:

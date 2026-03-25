@@ -90,16 +90,15 @@ async def _ensure_tools_loaded():
 
 # --- Agent Defaults (from jobs.yaml) ---
 def load_agent_defaults() -> dict:
-    config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/jobs.yaml"))
     defaults = {"max_tool_calls": 50, "max_cost_usd": 0.50, "shell_timeout_seconds": 120, "activity_timeout_minutes": 30}
     try:
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                data = yaml.safe_load(f)
-                if data and "agent_defaults" in data:
-                    defaults.update(data["agent_defaults"])
-    except Exception:
-        pass
+        from src.config_db import get_loader
+        jobs_config = get_loader().load_namespace("jobs")
+        if jobs_config:
+            defaults.update(jobs_config)
+    except Exception as e:
+        log.error(f"Could not load agent defaults from DB: {e}")
+        # Use hardcoded defaults if DB unavailable, but log an error
     return defaults
 
 AGENT_DEFAULTS = load_agent_defaults()

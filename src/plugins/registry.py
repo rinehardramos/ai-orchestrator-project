@@ -169,23 +169,25 @@ class ToolRegistry:
         return filtered
 
     def _get_allowed_tools(self, specialization: str) -> list[str]:
-        """Load allowed_tools list for a specialization from profiles.yaml."""
+        """Load allowed_tools list for a specialization from DB."""
         if self._specializations is None:
             self._specializations = self._load_specializations()
         spec = self._specializations.get(specialization, {})
+        # Note: 'allowed_tools' key in DB is stored as a list
         return spec.get("allowed_tools", [])
 
     def _load_specializations(self) -> dict:
-        """Read specializations from config/profiles.yaml."""
+        """Read specializations from database (app_config table)."""
         try:
-            import yaml
-            profiles_path = os.path.join("config", "profiles.yaml")
-            with open(profiles_path) as f:
-                data = yaml.safe_load(f)
-            return data.get("specializations", {})
+            from src.config_db import get_loader
+            loader = get_loader()
+            return loader.get_specializations()
         except Exception as e:
-            log.warning(f"Could not load profiles.yaml for specialization filter: {e}")
-            return {}
+            log.error(f"Could not load specializations from DB: {e}")
+            # Fallback to minimal default to allow system to start
+            return {
+                "general": {"allowed_tools": ["shell", "filesystem", "web"]}
+            }
 
 
 # Global singleton — one per process.

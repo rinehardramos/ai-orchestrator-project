@@ -31,23 +31,41 @@ An autonomous, multi-tier orchestrator designed to run as a **Genesis Node (L0 C
   - `GOOGLE_API_KEY`: For Gemini models.
   - `OPENAI_API_KEY`: For GPT models.
 
-## 🔐 Configuration
+## 🔐 Configuration Model
 
-The project uses two primary configuration files:
-- `config/profiles.yaml`: Defines available LLM models and infrastructure tiers (costs, limits).
-- `config/settings.yaml`: Defines your local network topology (Remote host IP, SSH keys, Ports).
+The system separates **critical boot credentials** from **non-critical runtime config**.
 
-### **Example `config/settings.yaml`**
-```yaml
-remote_worker:
-  host: "macbook.local"
-  user: "your-user"
-  ssh_key_path: "~/.ssh/id_ed25519"
-  project_dir: "ai-orchestration-worker"
+- Critical boot config: `.env` files per role (`genesis`, `control`, `worker`) so each role can authenticate to shared services.
+- Non-critical config: stored in Postgres (`app_config`) and editable from GUI/TUI/CLI.
 
-temporal:
-  host: "macbook.local"
-  port: 7233
+### Critical (per-role .env)
+
+Examples:
+
+- `DATABASE_URL=postgres://user:pass@postgres:5432/orchestrator`
+- `REDIS_URL=redis://:pass@redis:6379`
+- `TEMPORAL_HOST=temporal:7233`
+- `QDRANT_HOST=qdrant:6333`
+
+Genesis-only values (example):
+
+- `TELEGRAM_BOT_TOKEN_ADMIN=...`
+- `TELEGRAM_CHAT_ID_ADMIN=...`
+
+### Non-critical (in Postgres)
+
+YAML sources can be seeded into DB once:
+
+- `config/profiles.yaml`
+- `config/jobs.yaml`
+- `config/media.yaml`
+- `config/cluster_nodes.yaml`
+- `config/schedules.yaml`
+
+Seed command:
+
+```bash
+python scripts/seed_noncritical_config.py
 ```
 
 ## 📦 Installation
@@ -71,8 +89,30 @@ temporal:
    # Add your API keys (at least one LLM provider is required)
    # ANTHROPIC_API_KEY=...
    # GOOGLE_API_KEY=...
-   # OPENAI_API_KEY=...
+    # OPENAI_API_KEY=...
+    ```
+
+## 🧱 Single-Machine Bootstrap (Current Priority)
+
+1. Start infrastructure services (Postgres/Redis/Qdrant/Temporal) on one Docker network.
+2. Apply schema migrations:
+   ```bash
+   psql "$DATABASE_URL" < migrations/001_tools_schema.sql
+   psql "$DATABASE_URL" < migrations/002_scheduled_tasks.sql
+   psql "$DATABASE_URL" < migrations/003_app_config.sql
    ```
+3. Seed tools into DB:
+   ```bash
+   python scripts/migrate_yaml_to_db.py
+   ```
+4. Seed non-critical config into DB:
+   ```bash
+   python scripts/seed_noncritical_config.py
+   ```
+5. Start role services with role-specific env files:
+   - Control plane uses `.env.control`
+   - Execution plane uses `.env.worker`
+   - Genesis interface uses `.env.genesis`
 
 ## 📖 Usage
 
@@ -167,5 +207,12 @@ To add more machines to your AI Orchestration cluster as workers:
    python src/execution/worker/worker.py
    ```
    The new worker will immediately start polling the `ai-orchestration-queue` and executing delegated tasks.
+
+## 🧩 Runtime Roles
+
+- **Control Plane (Brain):** Coordination and scheduling components (including Temporal integration)
+- **Execution Plane (Hands):** Worker/agent runtime that executes tasks
+- **Interfaces (Eyes):** Web GUI, CLI, TUI, Telegram ingress
+- **Genesis:** Standalone interface/bastion-style entrypoint; useful for bootstrapping and operations but not required for core execution to run
 
 ---
