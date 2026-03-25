@@ -365,15 +365,15 @@ Worker Node (Execution)
 | 2 | US-2.2 Task Executor | ✅ completed | - | 2026-03-25 | 2026-03-25 |
 | 2 | US-2.3 Scheduler Daemon | ✅ completed | - | 2026-03-25 | 2026-03-25 |
 | 2 | US-2.4 Daemon Startup Script | ✅ completed | - | 2026-03-25 | 2026-03-25 |
-| 3 | US-3.1 Schedule CRUD API | pending | - | - | - |
-| 3 | US-3.2 Schedule History API | pending | - | - | - |
-| 4 | US-4.1 Schedules List Page | pending | - | - | - |
-| 4 | US-4.2 Schedule Create/Edit Form | pending | - | - | - |
-| 4 | US-4.3 Schedule Detail Page | pending | - | - | - |
-| 5 | US-5.1 Notification Integration | pending | - | - | - |
-| 5 | US-5.2 YAML Schedule Loading | pending | - | - | - |
-| 5 | US-5.3 Timezone Support | pending | - | - | - |
-| 5 | US-5.4 Task Retry Logic | pending | - | - | - |
+| 3 | US-3.1 Schedule CRUD API | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 3 | US-3.2 Schedule History API | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 4 | US-4.1 Schedules List Page | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 4 | US-4.2 Schedule Create/Edit Form | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 4 | US-4.3 Schedule Detail Page | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 5 | US-5.1 Notification Integration | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 5 | US-5.2 YAML Schedule Loading | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 5 | US-5.3 Timezone Support | ✅ completed | - | 2026-03-25 | 2026-03-25 |
+| 5 | US-5.4 Task Retry Logic | ✅ completed | - | 2026-03-25 | 2026-03-25 |
 
 ## Dependencies Graph
 
