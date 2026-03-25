@@ -1,0 +1,67 @@
+transcription:
+  tiers:
+    fast:
+      primary: "groq/whisper-large-v3-turbo"
+      fallback: "gemini/gemini-2.5-flash-preview-05-20"
+      max_latency_ms: 2000
+      description: "Interactive voice messages - optimized for speed (<2s)"
+    accurate:
+      primary: "openai/gpt-4o-mini-transcribe"
+      fallback: "openai/whisper-1"
+      max_latency_ms: 10000
+      description: "High-quality transcription for podcasts, interviews"
+    diarize:
+      primary: "openai/gpt-4o-transcribe-diarize"
+      fallback: "google/chirp-3"
+      max_latency_ms: 15000
+      description: "Multi-speaker transcription with speaker identification"
+
+  formats:
+    audio/ogg:
+      native_support: ["groq", "gemini"]
+      convert_to: "wav"
+      description: "Telegram voice messages"
+    audio/oga:
+      native_support: ["groq", "gemini"]
+      convert_to: "wav"
+      description: "Telegram voice messages (alternate)"
+    audio/mpeg:
+      native_support: ["openai", "groq", "google", "gemini"]
+      description: "MP3 audio files"
+    audio/mp4:
+      native_support: ["openai", "groq", "gemini"]
+      description: "M4A/AAC audio"
+    audio/wav:
+      native_support: ["openai", "groq", "google", "gemini"]
+      description: "WAV audio"
+    audio/webm:
+      native_support: ["openai", "groq"]
+      description: "WebM audio"
+
+vision:
+  tiers:
+    fast:
+      primary: "google/gemini-2.0-flash"
+      fallback: "openai/gpt-4o-mini"
+      max_latency_ms: 3000
+      description: "Quick image analysis"
+    accurate:
+      primary: "openai/gpt-4o"
+      fallback: "google/gemini-2.5-pro-preview-05-06"
+      max_latency_ms: 10000
+      description: "Detailed image analysis"
+
+  formats:
+    image/jpeg:
+      native_support: ["openai", "google", "anthropic"]
+    image/png:
+      native_support: ["openai", "google", "anthropic"]
+    image/gif:
+      native_support: ["openai", "google"]
+    image/webp:
+      native_support: ["openai", "google"]
+
+limits:
+  max_file_size_mb: 25
+  max_audio_duration_seconds: 3600
+  timeout_seconds: 60

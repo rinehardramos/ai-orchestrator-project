@@ -473,7 +473,7 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     logger.info(f"[SPECIALIZATION] Task loaded with specialization: '{specialization}'")
 
     task_id = str(uuid.uuid4())
-    workspace_dir = create_workspace(task_id)
+    workspace_dir = task_payload.get("workspace_dir") or create_workspace(task_id)
 
     try:
         # Build initial user message
@@ -593,6 +593,77 @@ def parse_task_input(input_task: str) -> tuple[str, dict | None]:
     return ("legacy", None)
 
 
+def detect_media_envelope(input_task: str) -> dict | None:
+    """
+    Detect if input is a media envelope (voice, photo, audio).
+    Returns the envelope dict or None.
+    """
+    stripped = input_task.strip()
+    if stripped.startswith("{"):
+        try:
+            payload = json.loads(stripped)
+            if "envelope" in payload:
+                return payload["envelope"]
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def prepare_media_context(envelope: dict, workspace_dir: str) -> tuple[str, list[str]]:
+    """
+    Process a media envelope and prepare context for the agent.
+    Returns: (modified_task_description, tool_scope)
+    """
+    content_type = envelope.get("content_type", "text/plain")
+    payload_b64 = envelope.get("payload")
+    task_desc = envelope.get("task_description", "")
+    tool_scope = envelope.get("tool_scope", [])
+    metadata = envelope.get("metadata", {})
+    
+    if not payload_b64 or content_type == "text/plain":
+        return task_desc, tool_scope
+    
+    os.makedirs(workspace_dir, exist_ok=True)
+    
+    media_bytes = base64.b64decode(payload_b64)
+    extension = mimetypes.guess_extension(content_type) or ".bin"
+    media_path = os.path.join(workspace_dir, f"input_media{extension}")
+    
+    with open(media_path, "wb") as f:
+        f.write(media_bytes)
+    
+    logger.info(f"Saved media to {media_path} ({len(media_bytes)} bytes, {content_type})")
+    
+    if content_type.startswith("audio/"):
+        duration = metadata.get("duration", "unknown")
+        modified_desc = f"""📁 Media file available at: `{media_path}`
+Type: {content_type}
+Duration: {duration}s
+
+Instructions:
+1. Use the `transcribe_audio` tool with mode="fast" to transcribe the audio file
+2. Then respond to the user's request: {task_desc}"""
+        
+        if "transcribe_audio" not in tool_scope:
+            tool_scope.append("transcribe_audio")
+    
+    elif content_type.startswith("image/"):
+        modified_desc = f"""📁 Image file available at: `{media_path}`
+Type: {content_type}
+
+Instructions:
+1. Use the `analyze_image` tool to understand the image content
+2. Then respond to the user's request: {task_desc}"""
+        
+        if "analyze_image" not in tool_scope:
+            tool_scope.append("analyze_image")
+    
+    else:
+        modified_desc = f"File available at: {media_path}\n\n{task_desc}"
+    
+    return modified_desc, tool_scope
+
+
 # --- Temporal Activities ---
 
 def _detect_specialization(description: str) -> str:
@@ -617,13 +688,39 @@ def _detect_specialization(description: str) -> str:
 async def execute_langgraph_agent(input_task: str, model_id: str, provider: str) -> dict:
     from src.execution.worker.multi_agent_graph import run_orchestrator
     
-    # Ensure plugin tools are loaded
     await _ensure_tools_loaded()
+    
+    media_envelope = detect_media_envelope(input_task)
+    
+    if media_envelope:
+        workspace_dir = create_workspace()
+        logger.info(f"[MEDIA MODE] Detected media envelope: {media_envelope.get('content_type')}")
+        
+        task_description, tool_scope = prepare_media_context(media_envelope, workspace_dir)
+        
+        specialization = _detect_specialization(task_description)
+        if "audio" in media_envelope.get("content_type", ""):
+            specialization = "audio_generation"
+        elif "image" in media_envelope.get("content_type", ""):
+            specialization = "image_generation"
+        
+        payload = {
+            "task_type": "agent",
+            "description": task_description,
+            "repo_url": "",
+            "max_tool_calls": AGENT_DEFAULTS["max_tool_calls"],
+            "max_cost_usd": AGENT_DEFAULTS["max_cost_usd"],
+            "specialization": specialization,
+            "tool_scope": tool_scope,
+            "workspace_dir": workspace_dir,
+        }
+        
+        logger.info(f"[MEDIA MODE] Prepared task with specialization={specialization}")
+        return await run_orchestrator(payload, model_id)
     
     mode, payload = parse_task_input(input_task)
 
     if mode != "agent":
-        # Wrap plain-text tasks as agent payloads, detecting specialization from the text
         specialization = _detect_specialization(input_task)
         logger.info(f"[AGENT MODE] Wrapping plain-text task as agent payload: {input_task[:100]} (specialization={specialization})")
         payload = {

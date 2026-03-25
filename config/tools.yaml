@@ -55,6 +55,20 @@ tools:
     node: worker
     module: src.tools_catalog.media.image
     config: {}
+  transcribe_audio:
+    enabled: true
+    type: media
+    listen: false
+    node: worker
+    module: src.tools_catalog.media.audio
+    config: {}
+  analyze_image:
+    enabled: true
+    type: media
+    listen: false
+    node: worker
+    module: src.tools_catalog.media.vision
+    config: {}
   http_client:
     enabled: true
     type: webhook
