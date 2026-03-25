@@ -12,12 +12,12 @@ from typing import Dict, List, Optional
 import asyncpg
 import yaml
 
-from src.genesis.scheduler.models import (
+from src.control.scheduler.models import (
     NotificationChannel,
     ScheduleType,
     TaskType,
 )
-from src.genesis.scheduler.parser import validate_cron
+from src.control.scheduler.parser import validate_cron
 
 logger = logging.getLogger(__name__)
 

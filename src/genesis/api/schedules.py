@@ -12,7 +12,7 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from src.genesis.scheduler.models import (
+from src.control.scheduler.models import (
     CronPreview,
     ScheduledTaskCreate,
     ScheduledTaskResponse,
@@ -23,7 +23,7 @@ from src.genesis.scheduler.models import (
     TaskHistoryResponse,
     ScheduleStats,
 )
-from src.genesis.scheduler.parser import (
+from src.control.scheduler.parser import (
     get_human_description,
     get_next_runs,
     validate_cron,

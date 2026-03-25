@@ -10,7 +10,7 @@ import traceback
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Optional, Tuple
 
-from src.genesis.scheduler.models import (
+from src.control.scheduler.models import (
     ExecutionStatus,
     ScheduledTaskInDB,
     TaskHistoryCreate,

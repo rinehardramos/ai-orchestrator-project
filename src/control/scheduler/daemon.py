@@ -14,9 +14,9 @@ from typing import Optional
 import asyncpg
 import yaml
 
-from src.genesis.scheduler.executor import TaskExecutor
-from src.genesis.scheduler.models import ExecutionStatus, ScheduledTaskInDB
-from src.genesis.scheduler.parser import calculate_next_run_at, get_next_run
+from src.control.scheduler.executor import TaskExecutor
+from src.control.scheduler.models import ExecutionStatus, ScheduledTaskInDB
+from src.control.scheduler.parser import calculate_next_run_at, get_next_run
 
 logger = logging.getLogger(__name__)
 
