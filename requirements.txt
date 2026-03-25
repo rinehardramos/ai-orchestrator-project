@@ -41,3 +41,4 @@ cryptography      # AES-256-GCM credential encryption
 
 # --- Scheduler ---
 croniter          # Cron expression parsing
+playwright>=1.40.0
