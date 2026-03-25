@@ -239,9 +239,9 @@ case $ROLE_CHOICE in
         ;;
     5)
         echo -e "${GREEN}Configuring Observability Node...${NC}"
-        prompt_if_empty "TEMPORAL_HOST_URL" "Enter Temporal Host URL (e.g., temporal:7233 or 192.168.100.249:7233)"
-        prompt_if_empty "QDRANT_URL" "Enter Qdrant URL (e.g., http://192.168.100.249:6333)"
-        prompt_if_empty "REDIS_URL" "Enter Redis URL (e.g., redis://192.168.100.249:6379)"
+        prompt_if_empty "TEMPORAL_HOST_URL" "Enter Temporal Host URL (e.g., temporal:7233 or macbook.local:7233)"
+        prompt_if_empty "QDRANT_URL" "Enter Qdrant URL (e.g., http://macbook.local:6333)"
+        prompt_if_empty "REDIS_URL" "Enter Redis URL (e.g., redis://macbook.local:6379)"
         
         echo -e "${BLUE}🚢 Launching Observability Services...${NC}"
         $DOCKER_COMPOSE -f "$COMPOSE_OBSERVABILITY_FILE" up -d --build

@@ -322,7 +322,7 @@ async def invalidate_tool_cache(tool_name: str = None) -> None:
 
 
 def _get_redis_url() -> str:
-    return os.environ.get("REDIS_URL", "redis://192.168.100.249:6379")
+    return os.environ.get("REDIS_URL", "redis://macbook.local:6379")
 
 
 # -----------------------------------------------------------------------------

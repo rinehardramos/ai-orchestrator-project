@@ -11,7 +11,7 @@ services:
       - QDRANT_URL=http://${QDRANT_HOST:-qdrant}:6333
       - REDIS_URL=redis://${REDIS_HOST:-redis}:6379
       - DATABASE_URL=postgresql://temporal:temporal@postgres:5432/ai_orchestrator
-      - LMSTUDIO_HOST=${LMSTUDIO_HOST:-192.168.100.249}
+      - LMSTUDIO_HOST=${LMSTUDIO_HOST:-macbook.local}
       - LMSTUDIO_PORT=${LMSTUDIO_PORT:-1234}
       - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://opik-backend:8080}
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}

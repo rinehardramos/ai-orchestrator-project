@@ -17,7 +17,7 @@ nodes:
     project_dir: /home/pi/Projects/ai-orchestration-project
 
   - name: worker-main
-    host: 192.168.100.249
+    host: macbook.local
     role: execution
     user: rinehardramos
     project_dir: /Users/rinehardramos/Projects/ai-orchestrator-project

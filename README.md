@@ -40,13 +40,13 @@ The project uses two primary configuration files:
 ### **Example `config/settings.yaml`**
 ```yaml
 remote_worker:
-  host: "192.168.100.249"
+  host: "macbook.local"
   user: "your-user"
   ssh_key_path: "~/.ssh/id_ed25519"
   project_dir: "ai-orchestration-worker"
 
 temporal:
-  host: "192.168.100.249"
+  host: "macbook.local"
   port: 7233
 ```
 

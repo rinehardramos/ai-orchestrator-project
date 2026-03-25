@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from temporalio.client import Client, WorkflowExecutionStatus
 
-TEMPORAL_HOST = "192.168.100.249:7233"
+TEMPORAL_HOST = "macbook.local:7233"
 TASK_QUEUE = "ai-orchestration-queue"
 TIMEOUT_MINUTES = 8
 SEP = "=" * 65

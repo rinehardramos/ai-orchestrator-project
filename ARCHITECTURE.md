@@ -28,9 +28,9 @@ graph TD
     end
 
     %% ═══════════════════════════════════════════
-    %% CONTROL PLANE (192.168.100.249)
+    %% CONTROL PLANE (macbook.local)
     %% ═══════════════════════════════════════════
-    subgraph CP["Control Plane (Remote Central Node — 192.168.100.249)"]
+    subgraph CP["Control Plane (Remote Central Node — macbook.local)"]
         direction TB
 
         subgraph WF["Workflow Engine"]
@@ -67,7 +67,7 @@ graph TD
     %% ═══════════════════════════════════════════
     %% EXECUTION PLANE (Worker Node)
     %% ═══════════════════════════════════════════
-    subgraph EP["Execution Plane (Worker — 192.168.100.249 / .100)"]
+    subgraph EP["Execution Plane (Worker — macbook.local / .100)"]
         direction TB
 
         subgraph WRK["ai-worker (Docker)"]

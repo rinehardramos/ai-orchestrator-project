@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--port", type=int, default=8000, help="Port to bind (default: 8000)")
     args = parser.parse_args()
 
-    redis_url = os.environ.get("REDIS_URL", "redis://192.168.100.249:6379")
+    redis_url = os.environ.get("REDIS_URL", "redis://macbook.local:6379")
 
     config = {
         "host": args.host,

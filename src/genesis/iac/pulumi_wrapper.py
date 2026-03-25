@@ -108,7 +108,7 @@ export GOOGLE_API_KEY='{api_key}'
             import pulumi_command as command
             
             worker_cfg = settings.get("remote_worker", {})
-            remote_host = worker_cfg.get("host", "192.168.100.249")
+            remote_host = worker_cfg.get("host", "macbook.local")
             remote_port = worker_cfg.get("port", 22)
             remote_user = worker_cfg.get("user", "rinehardramos")
             ssh_key_path = worker_cfg.get("ssh_key_path", "/home/pi/.ssh/id_ed25519")

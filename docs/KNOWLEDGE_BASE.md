@@ -9,7 +9,7 @@ This knowledge base documents repeated operations, common pitfalls, and their re
 
 ## 2. Remote Worker Interaction and Docker
 - **Issue:** Running `docker ps` or `docker-compose` locally on the Genesis node to find/manage the worker.
-- **Root Cause:** The worker node runs remotely (e.g., at `192.168.100.249`), and the Genesis node only delegates via Temporal.
+- **Root Cause:** The worker node runs remotely (e.g., at `macbook.local`), and the Genesis node only delegates via Temporal.
 - **Resolution:** Access the worker via SSH. Use `docker compose` (modern syntax) instead of `docker-compose` on the remote node.
 - **Issue:** `docker compose` command not found during remote SSH execution.
 - **Resolution:** Ensure the PATH is explicitly set in the SSH command (e.g., `PATH=$PATH:/usr/local/bin:/usr/bin docker compose ...`).
@@ -66,7 +66,7 @@ This playbook handles full rebuilds and restarts of specific planes or individua
     ansible-playbook -i scripts/inventory.py scripts/deploy.yml -e "plane=execution" --limit execution_nodes
     ```
 
-3.  **Deploy all services on a specific node (e.g., `192.168.100.249`):**
+3.  **Deploy all services on a specific node (e.g., `macbook.local`):**
     ```bash
     ansible-playbook -i scripts/inventory.py scripts/deploy.yml --limit worker-main
     ```

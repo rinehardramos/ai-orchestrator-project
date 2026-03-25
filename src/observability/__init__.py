@@ -16,6 +16,6 @@ Access:
   - Opik API: http://<host>:8080
 
 Environment Variables:
-  - OPIK_URL_OVERRIDE: Backend API URL for SDK (default: http://192.168.100.249:8080)
+  - OPIK_URL_OVERRIDE: Backend API URL for SDK (default: http://macbook.local:8080)
   - OPIK_PROJECT_NAME: Project name for trace grouping (default: ai-orchestration)
 """

@@ -23,12 +23,12 @@ def create_cloud_ltm():
     return qdrant_instance
 
 # --- 2. Local Testing Environment (Experimental) ---
-# Use Docker on your local network server (192.168.100.249) to mock the infrastructure
+# Use Docker on your local network server (macbook.local) to mock the infrastructure
 def create_local_test_env():
     # Configure the Docker Provider to talk to your remote server
     # Note: Requires SSH or TCP access enabled on the remote docker daemon
     remote_docker = docker.Provider("remote-docker",
-        host="ssh://rinehardramos@192.168.100.249")
+        host="ssh://rinehardramos@macbook.local")
 
     # Local Qdrant Container for testing RAG
     qdrant_container = docker.Container("test-qdrant",
