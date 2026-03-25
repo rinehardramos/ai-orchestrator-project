@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <div class="mb-6">
+        <a href="/ui/schedules" class="text-blue-600 hover:text-blue-900">&larr; Back to Schedules</a>
+    </div>
+    
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">
+        {% if schedule %}Edit Schedule: {{ schedule.name }}{% else %}Create New Schedule{% endif %}
+    </h1>
+    
+    <form id="schedule-form" class="space-y-6 bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
+        <input type="hidden" id="task-id" value="{{ schedule.id if schedule else '' }}">
+        
+        <!-- Basic Info -->
+        <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Name *</label>
+                <input type="text" id="name" required
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    value="{{ schedule.name if schedule else '' }}">
+            </div>
+            
+            <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Task Type *</label>
+                <select id="task-type" required
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                    <option value="agent" {% if schedule and schedule.task_type == 'agent' %}selected{% endif %}>Agent Task</option>
+                    <option value="shell" {% if schedule and schedule.task_type == 'shell' %}selected{% endif %}>Shell Command</option>
+                    <option value="tool" {% if schedule and schedule.task_type == 'tool' %}selected{% endif %}>Tool Call</option>
+                </select>
+            </div>
+        </div>
+        
+        <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Description</label>
+            <textarea id="description" rows="2"
+                class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">{{ schedule.description if schedule else '' }}</textarea>
+        </div>
+        
+        <!-- Schedule Configuration -->
+        <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Schedule</h3>
+            
+            <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Schedule Type *</label>
+                    <select id="schedule-type" required onchange="toggleScheduleFields()"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                        <option value="cron" {% if schedule and schedule.schedule_type == 'cron' %}selected{% endif %}>Cron Expression</option>
+                        <option value="interval" {% if schedule and schedule.schedule_type == 'interval' %}selected{% endif %}>Interval</option>
+                        <option value="once" {% if schedule and schedule.schedule_type == 'once' %}selected{% endif %}>One Time</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Timezone</label>
+                    <select id="timezone"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                        <option value="UTC" {% if not schedule or schedule.timezone == 'UTC' %}selected{% endif %}>UTC</option>
+                        <option value="America/New_York" {% if schedule and schedule.timezone == 'America/New_York' %}selected{% endif %}>America/New_York</option>
+                        <option value="America/Los_Angeles" {% if schedule and schedule.timezone == 'America/Los_Angeles' %}selected{% endif %}>America/Los_Angeles</option>
+                        <option value="Europe/London" {% if schedule and schedule.timezone == 'Europe/London' %}selected{% endif %}>Europe/London</option>
+                        <option value="Asia/Tokyo" {% if schedule and schedule.timezone == 'Asia/Tokyo' %}selected{% endif %}>Asia/Tokyo</option>
+                        <option value="Asia/Manila" {% if schedule and schedule.timezone == 'Asia/Manila' %}selected{% endif %}>Asia/Manila</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- Cron Expression -->
+            <div id="cron-fields" class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Cron Expression *</label>
+                <input type="text" id="cron-expression" placeholder="0 9 * * *"
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    value="{{ schedule.cron_expression if schedule else '' }}">
+                <p class="mt-1 text-sm text-gray-500">Format: minute hour day month weekday (e.g., "0 9 * * *" for every day at 9am)</p>
+                <div id="cron-preview" class="mt-2 text-sm text-blue-600"></div>
+            </div>
+            
+            <!-- Interval -->
+            <div id="interval-fields" class="mt-4 hidden">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Interval *</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <input type="number" id="interval-value" min="1" placeholder="1"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        value="{% if schedule and schedule.interval_seconds %}{{ schedule.interval_seconds // 60 }}{% endif %}">
+                    <select id="interval-unit"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                        <option value="minutes">Minutes</option>
+                        <option value="hours" {% if schedule and schedule.interval_seconds >= 3600 %}selected{% endif %}>Hours</option>
+                        <option value="days" {% if schedule and schedule.interval_seconds >= 86400 %}selected{% endif %}>Days</option>
+                    </select>
+                </div>
+            </div>
+            
+            <!-- One Time -->
+            <div id="once-fields" class="mt-4 hidden">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Run At *</label>
+                <input type="datetime-local" id="scheduled-for"
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    value="{% if schedule and schedule.scheduled_for %}{{ schedule.scheduled_for.strftime('%Y-%m-%dT%H:%M') }}{% endif %}">
+            </div>
+        </div>
+        
+        <!-- Task Payload -->
+        <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Task Configuration</h3>
+            
+            <div id="agent-payload">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Prompt / Description *</label>
+                <textarea id="prompt" rows="4"
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    placeholder="Describe what the agent should do...">{{ schedule.task_payload.description if schedule else '' }}</textarea>
+            </div>
+            
+            <div id="shell-payload" class="hidden mt-4">
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Shell Command *</label>
+                <input type="text" id="shell-command"
+                    class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                    placeholder="echo 'Hello World'"
+                    value="{{ schedule.task_payload.command if schedule else '' }}">
+            </div>
+            
+            <div id="tool-payload" class="hidden mt-4">
+                <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Tool Name *</label>
+                        <input type="text" id="tool-name"
+                            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                            value="{{ schedule.task_payload.tool_name if schedule else '' }}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Function Name *</label>
+                        <input type="text" id="tool-function"
+                            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                            value="{{ schedule.task_payload.function_name if schedule else '' }}">
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Arguments (JSON)</label>
+                    <textarea id="tool-args" rows="2"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        placeholder='{"limit": 10}'>{{ schedule.task_payload.arguments | tojson if schedule and schedule.task_payload.arguments else '' }}</textarea>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Options -->
+        <div class="border-t border-gray-200 dark:border-gray-700 pt-6">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Options</h3>
+            
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Timeout (seconds)</label>
+                    <input type="number" id="timeout" min="1" max="86400"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        value="{{ schedule.timeout_seconds if schedule else 300 }}">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Failures</label>
+                    <input type="number" id="max-failures" min="0"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        value="{{ schedule.max_failures if schedule else 3 }}">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Runs</label>
+                    <input type="number" id="max-runs" min="1" placeholder="Unlimited"
+                        class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
+                        value="{{ schedule.max_runs if schedule else '' }}">
+                </div>
+            </div>
+            
+            <div class="mt-4 space-y-2">
+                <label class="flex items-center">
+                    <input type="checkbox" id="notify-success"
+                        class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        {% if schedule and schedule.notify_on_success %}checked{% endif %}>
+                    <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Notify on success</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="notify-failure"
+                        class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        {% if not schedule or schedule.notify_on_failure %}checked{% endif %}>
+                    <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Notify on failure</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="checkbox" id="enabled"
+                        class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        {% if not schedule or schedule.enabled %}checked{% endif %}>
+                    <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Enabled</span>
+                </label>
+            </div>
+        </div>
+        
+        <!-- Submit -->
+        <div class="flex justify-end space-x-3">
+            <a href="/ui/schedules" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                Cancel
+            </a>
+            <button type="submit" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700">
+                {% if schedule %}Update{% else %}Create{% endif %} Schedule
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    toggleScheduleFields();
+    togglePayloadFields();
+    
+    document.getElementById('schedule-type').addEventListener('change', toggleScheduleFields);
+    document.getElementById('task-type').addEventListener('change', togglePayloadFields);
+    document.getElementById('cron-expression').addEventListener('input', previewCron);
+    
+    function toggleScheduleFields() {
+        const type = document.getElementById('schedule-type').value;
+        document.getElementById('cron-fields').classList.toggle('hidden', type !== 'cron');
+        document.getElementById('interval-fields').classList.toggle('hidden', type !== 'interval');
+        document.getElementById('once-fields').classList.toggle('hidden', type !== 'once');
+        
+        if (type === 'cron') {
+            previewCron();
+        }
+    }
+    
+    function togglePayloadFields() {
+        const type = document.getElementById('task-type').value;
+        document.getElementById('agent-payload').classList.toggle('hidden', type !== 'agent');
+        document.getElementById('shell-payload').classList.toggle('hidden', type !== 'shell');
+        document.getElementById('tool-payload').classList.toggle('hidden', type !== 'tool');
+    }
+    
+    async function previewCron() {
+        const expr = document.getElementById('cron-expression').value;
+        if (!expr) return;
+        
+        try {
+            const resp = await fetch(`/api/schedules/preview-cron?expression=${encodeURIComponent(expr)}`);
+            if (resp.ok) {
+                const data = await resp.json();
+                const runs = data.next_runs.map(d => new Date(d).toLocaleString()).join('<br>');
+                document.getElementById('cron-preview').innerHTML = 
+                    `<strong>${data.description}</strong><br>Next runs:<br>${runs}`;
+            } else {
+                document.getElementById('cron-preview').innerHTML = '<span class="text-red-600">Invalid cron expression</span>';
+            }
+        } catch (e) {
+            document.getElementById('cron-preview').innerHTML = '<span class="text-red-600">Invalid cron expression</span>';
+        }
+    }
+    
+    document.getElementById('schedule-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const scheduleType = document.getElementById('schedule-type').value;
+        const taskType = document.getElementById('task-type').value;
+        const taskId = document.getElementById('task-id').value;
+        
+        // Build task payload
+        let taskPayload = {};
+        if (taskType === 'agent') {
+            taskPayload = { description: document.getElementById('prompt').value };
+        } else if (taskType === 'shell') {
+            taskPayload = { command: document.getElementById('shell-command').value };
+        } else if (taskType === 'tool') {
+            taskPayload = {
+                tool_name: document.getElementById('tool-name').value,
+                function_name: document.getElementById('tool-function').value,
+                arguments: JSON.parse(document.getElementById('tool-args').value || '{}')
+            };
+        }
+        
+        // Build request body
+        const body = {
+            name: document.getElementById('name').value,
+            description: document.getElementById('description').value,
+            schedule_type: scheduleType,
+            timezone: document.getElementById('timezone').value,
+            task_type: taskType,
+            task_payload: taskPayload,
+            timeout_seconds: parseInt(document.getElementById('timeout').value) || 300,
+            max_failures: parseInt(document.getElementById('max-failures').value) || 3,
+            max_runs: document.getElementById('max-runs').value ? parseInt(document.getElementById('max-runs').value) : null,
+            notify_on_success: document.getElementById('notify-success').checked,
+            notify_on_failure: document.getElementById('notify-failure').checked,
+            enabled: document.getElementById('enabled').checked
+        };
+        
+        // Add schedule-specific fields
+        if (scheduleType === 'cron') {
+            body.cron_expression = document.getElementById('cron-expression').value;
+        } else if (scheduleType === 'interval') {
+            const value = parseInt(document.getElementById('interval-value').value) || 1;
+            const unit = document.getElementById('interval-unit').value;
+            const multipliers = { minutes: 60, hours: 3600, days: 86400 };
+            body.interval_seconds = value * multipliers[unit];
+        } else if (scheduleType === 'once') {
+            body.scheduled_for = document.getElementById('scheduled-for').value + ':00Z';
+        }
+        
+        try {
+            const url = taskId ? `/api/schedules/${taskId}` : '/api/schedules';
+            const method = taskId ? 'PUT' : 'POST';
+            
+            const resp = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            
+            if (resp.ok) {
+                window.location.href = '/ui/schedules';
+            } else {
+                const error = await resp.json();
+                alert('Error: ' + (error.detail || JSON.stringify(error)));
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    });
+</script>
+{% endblock %}

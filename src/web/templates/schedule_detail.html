@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="px-4 py-6 sm:px-0">
+    <div class="mb-6">
+        <a href="/ui/schedules" class="text-blue-600 hover:text-blue-900">&larr; Back to Schedules</a>
+    </div>
+    
+    <div class="flex justify-between items-start mb-6">
+        <div>
+            <h1 class="text-2xl font-semibold text-gray-900 dark:text-white" id="task-name">Loading...</h1>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400" id="task-description"></p>
+        </div>
+        <div class="flex space-x-3">
+            <button onclick="runNow()" class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700">
+                Run Now
+            </button>
+            <button onclick="toggleEnable()" id="toggle-btn" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                Disable
+            </button>
+            <a id="edit-link" href="#" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+                Edit
+            </a>
+            <button onclick="deleteTask()" class="px-4 py-2 border border-red-300 dark:border-red-700 rounded-md text-sm font-medium text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900">
+                Delete
+            </button>
+        </div>
+    </div>
+    
+    <!-- Stats -->
+    <div class="grid grid-cols-1 gap-5 sm:grid-cols-4 mb-8">
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Runs</dt>
+                <dd class="mt-1 text-3xl font-semibold text-gray-900 dark:text-white" id="total-runs">-</dd>
+            </div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Success Rate</dt>
+                <dd class="mt-1 text-3xl font-semibold text-green-600" id="success-rate">-</dd>
+            </div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Avg Duration</dt>
+                <dd class="mt-1 text-3xl font-semibold text-blue-600" id="avg-duration">-</dd>
+            </div>
+        </div>
+        <div class="bg-white dark:bg-gray-800 overflow-hidden shadow rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <dt class="text-sm font-medium text-gray-500 dark:text-gray-400 truncate">Total Cost</dt>
+                <dd class="mt-1 text-3xl font-semibold text-purple-600" id="total-cost">-</dd>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Task Configuration -->
+    <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg mb-8">
+        <div class="px-4 py-5 sm:p-6">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Configuration</h3>
+            <dl class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-2" id="config-grid">
+                <!-- Populated by JS -->
+            </dl>
+        </div>
+    </div>
+    
+    <!-- Execution History -->
+    <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Execution History</h3>
+            <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-700">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Started</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Duration</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Cost</th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">Summary</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="history-body">
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    const taskId = {{ task_id }};
+    
+    // Load task details
+    fetch(`/api/schedules/${taskId}`)
+        .then(r => r.json())
+        .then(task => {
+            document.getElementById('task-name').textContent = task.name;
+            document.getElementById('task-description').textContent = task.description || '';
+            document.getElementById('edit-link').href = `/ui/schedules/${taskId}/edit`;
+            document.getElementById('toggle-btn').textContent = task.enabled ? 'Disable' : 'Enable';
+            
+            const configGrid = document.getElementById('config-grid');
+            configGrid.innerHTML = `
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Schedule Type</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.schedule_type}</dd>
+                </div>
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Schedule</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.cron_expression || task.interval_seconds + 's' || '-'}</dd>
+                </div>
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Task Type</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.task_type}</dd>
+                </div>
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Status</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.status}</dd>
+                </div>
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Next Run</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.next_run_at ? new Date(task.next_run_at).toLocaleString() : '-'}</dd>
+                </div>
+                <div class="sm:col-span-1">
+                    <dt class="text-sm font-medium text-gray-500 dark:text-gray-400">Last Run</dt>
+                    <dd class="mt-1 text-sm text-gray-900 dark:text-white">${task.last_run_at ? new Date(task.last_run_at).toLocaleString() : '-'}</dd>
+                </div>
+            `;
+        });
+    
+    // Load stats
+    fetch(`/api/schedules/${taskId}/stats`)
+        .then(r => r.json())
+        .then(stats => {
+            document.getElementById('total-runs').textContent = stats.total_runs;
+            document.getElementById('success-rate').textContent = stats.success_rate.toFixed(1) + '%';
+            document.getElementById('avg-duration').textContent = stats.average_duration_seconds.toFixed(1) + 's';
+            document.getElementById('total-cost').textContent = '$' + stats.total_cost_usd.toFixed(4);
+        });
+    
+    // Load history
+    fetch(`/api/schedules/${taskId}/history`)
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.getElementById('history-body');
+            tbody.innerHTML = '';
+            
+            (data.items || []).forEach(run => {
+                const row = document.createElement('tr');
+                const statusClass = {
+                    'success': 'bg-green-100 text-green-800',
+                    'failed': 'bg-red-100 text-red-800',
+                    'running': 'bg-blue-100 text-blue-800',
+                    'timeout': 'bg-yellow-100 text-yellow-800',
+                    'cancelled': 'bg-gray-100 text-gray-800'
+                }[run.status] || 'bg-gray-100 text-gray-800';
+                
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        ${new Date(run.started_at).toLocaleString()}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}">
+                            ${run.status}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        ${run.duration_seconds ? run.duration_seconds + 's' : '-'}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                        ${run.cost_usd ? '$' + run.cost_usd.toFixed(4) : '-'}
+                    </td>
+                    <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 max-w-md truncate">
+                        ${run.result_summary || run.error_message || '-'}
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+            
+            if (!data.items || data.items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">No execution history</td></tr>';
+            }
+        });
+    
+    async function runNow() {
+        await fetch(`/api/schedules/${taskId}/run`, { method: 'POST' });
+        alert('Task triggered! It will run on the next daemon cycle.');
+    }
+    
+    async function toggleEnable() {
+        const task = await fetch(`/api/schedules/${taskId}`).then(r => r.json());
+        await fetch(`/api/schedules/${taskId}/${task.enabled ? 'disable' : 'enable'}`, { method: 'POST' });
+        location.reload();
+    }
+    
+    async function deleteTask() {
+        if (confirm('Are you sure you want to delete this scheduled task?')) {
+            await fetch(`/api/schedules/${taskId}`, { method: 'DELETE' });
+            window.location.href = '/ui/schedules';
+        }
+    }
+</script>
+{% endblock %}
