@@ -4,6 +4,7 @@ Database-only configuration loader.
 NO YAML fallback. If DB is not configured, system fails with clear error.
 """
 
+import json
 import os
 import sys
 import logging
@@ -22,24 +23,47 @@ class ConfigLoader:
     """Load all config from database. Fail if not configured."""
     
     def __init__(self, database_url: str = None):
-        self.database_url = database_url or os.environ.get("DATABASE_URL")
-        if not self.database_url:
-            raise RuntimeError(
-                "DATABASE_URL not set. Required for startup.\n"
-                "Set in .env file:\n"
-                "  DATABASE_URL=postgres://user:pass@host:5432/db"
-            )
-        
-        if not psycopg2:
-            raise RuntimeError("psycopg2 not installed. Run: pip install psycopg2-binary")
-        
+        self._database_url = database_url or os.environ.get("DATABASE_URL")
         self._conn = None
         self._cache: dict[str, Any] = {}
+        self._db_config: dict[str, Any] = {}
+        
+    @property
+    def database_url(self) -> str:
+        if self._database_url:
+            return self._database_url
+        if self._db_config:
+            host = self._db_config.get("host", "localhost")
+            port = self._db_config.get("port", 5432)
+            database = self._db_config.get("database", "orchestrator")
+            user = self._db_config.get("user", "temporal")
+            password = self._db_config.get("password", "")
+            return f"postgres://{user}:{password}@{host}:{port}/{database}"
+        return ""
     
     def _get_conn(self):
         if self._conn is None or self._conn.closed:
+            if not self.database_url:
+                raise RuntimeError(
+                    "DATABASE_URL not set. Configure via:\n"
+                    "  1. Set DATABASE_URL in .env file, or\n"
+                    "  2. Configure database settings in Web UI"
+                )
+            if not psycopg2:
+                raise RuntimeError("psycopg2 not installed. Run: pip install psycopg2-binary")
             self._conn = psycopg2.connect(self.database_url)
         return self._conn
+    
+    def reconnect(self, database_url: str = None, db_config: dict = None) -> None:
+        """Close existing connection and reconnect with new settings."""
+        if self._conn and not self._conn.closed:
+            self._conn.close()
+        self._conn = None
+        self._cache.clear()
+        if database_url:
+            self._database_url = database_url
+        if db_config:
+            self._db_config = db_config
     
     def validate_setup(self) -> bool:
         """Check if system has been properly set up."""
@@ -47,7 +71,6 @@ class ConfigLoader:
             conn = self._get_conn()
             cur = conn.cursor()
             
-            # Check setup_complete flag
             cur.execute("SELECT value FROM system_state WHERE key = 'setup_complete'")
             row = cur.fetchone()
             if not row or row[0] != 'true':
@@ -65,7 +88,6 @@ class ConfigLoader:
             
             missing = []
             
-            # Check required tables
             checks = [
                 ("tools", "SELECT COUNT(*) FROM tools WHERE enabled = true"),
                 ("profiles config", "SELECT COUNT(*) FROM app_config WHERE namespace = 'profiles'"),
@@ -118,6 +140,30 @@ class ConfigLoader:
         
         return result
     
+    def save_namespace(self, namespace: str, config: dict[str, Any]) -> None:
+        """Save config for a namespace to app_config."""
+        conn = self._get_conn()
+        
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM app_config WHERE namespace = %s", (namespace,))
+                
+                for key, value in config.items():
+                    cur.execute(
+                        """
+                        INSERT INTO app_config (namespace, key, value)
+                        VALUES (%s, %s, %s)
+                        """,
+                        (namespace, key, json.dumps(value))
+                    )
+            conn.commit()
+            self._cache.pop(namespace, None)
+            log.info(f"Saved config for namespace '{namespace}' to DB")
+        except Exception as e:
+            conn.rollback()
+            log.error(f"Failed to save config for namespace '{namespace}': {e}")
+            raise
+
     def get(self, namespace: str, key: str, default: Any = None) -> Any:
         """Get a single config value."""
         ns = self.load_namespace(namespace)
@@ -152,7 +198,6 @@ class ConfigLoader:
         log.info("Setup marked as complete")
 
 
-# Global instance
 _loader: Optional[ConfigLoader] = None
 
 
@@ -170,19 +215,17 @@ def load_settings() -> dict:
     """
     loader = get_loader()
     
-    # Validate setup
     if not loader.validate_setup():
         missing = loader.get_missing_config()
-        print("❌ System not configured. Missing:")
+        print("System not configured. Missing:")
         for m in missing:
             print(f"   - {m}")
         print("\nRun setup:")
-        print("   python scripts/migrate_yaml_to_db.py")
+        print("   python scripts/migrate.py")
         print("   python scripts/seed_noncritical_config.py")
         print("   python scripts/complete_setup.py")
         sys.exit(1)
     
-    # Load all config
     return {
         "profiles": loader.get_profiles(),
         "jobs": loader.get_jobs_config(),

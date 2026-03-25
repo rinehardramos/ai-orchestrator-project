@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: src/web/Dockerfile.web
+    container_name: ai-web
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgres://temporal:temporal@postgres:5432/orchestrator
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:14
+    container_name: ai-postgres
+    environment:
+      - POSTGRES_USER=temporal
+      - POSTGRES_PASSWORD=temporal
+      - POSTGRES_DB=orchestrator
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d orchestrator"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-redis
+    ports:
+      - "6379:6379"
+    networks:
+      - ai-network
+    restart: unless-stopped
+
+networks:
+  ai-network:
+    driver: bridge
+
+volumes:
+  postgres_data:

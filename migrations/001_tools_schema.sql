@@ -86,15 +86,18 @@ CREATE TRIGGER tools_updated_at
 -- ---------------------------------------------------------------------------
 INSERT INTO tools (name, type, module, enabled, listen, node, description)
 VALUES
-    ('http_server', 'api',     'src.tools_catalog.api.http_server',       false, true,  'genesis', 'Universal HTTP+SSE source for TUIs, scripts, and curl'),
-    ('telegram',    'chat',    'src.tools_catalog.chat.telegram',          false, true,  'both',    'Send and receive messages via Telegram'),
-    ('shell',       'code',    'src.tools_catalog.code.shell',             false, false, 'worker',  'Execute shell commands'),
-    ('filesystem',  'code',    'src.tools_catalog.code.filesystem',        false, false, 'worker',  'Read, write, and manage files'),
-    ('web',         'code',    'src.tools_catalog.code.web',               false, false, 'worker',  'Web search and URL fetching'),
-    ('git',         'code',    'src.tools_catalog.code.git',               false, false, 'worker',  'Git operations: clone, commit, push, branch'),
-    ('image',       'media',   'src.tools_catalog.media.image',            false, false, 'worker',  'Generate images using AI models'),
-    ('http_client', 'webhook', 'src.tools_catalog.webhook.http_client',    false, false, 'worker',  'Make HTTP requests (GET, POST, PUT, DELETE)'),
-    ('google_drive','mcp',     'src.plugins.mcp_bridge',                   false, false, 'worker',  'Google Drive via MCP: list, read, write, search files')
+    ('http_server', 'api',     'src.tools_catalog.api.http_server',       true,  true,  'genesis', 'Universal HTTP+SSE source for TUIs, scripts, and curl'),
+    ('telegram',    'chat',    'src.tools_catalog.chat.telegram',          true,  true,  'both',    'Send and receive messages via Telegram'),
+    ('shell',       'code',    'src.tools_catalog.code.shell',             true,  false, 'worker',  'Execute shell commands'),
+    ('filesystem',  'code',    'src.tools_catalog.code.filesystem',        true,  false, 'worker',  'Read, write, and manage files'),
+    ('web',         'code',    'src.tools_catalog.code.web',               true,  false, 'worker',  'Web search and URL fetching'),
+    ('git',         'code',    'src.tools_catalog.code.git',               true,  false, 'worker',  'Git operations: clone, commit, push, branch'),
+    ('image',       'media',   'src.tools_catalog.media.image',            true,  false, 'worker',  'Generate images using AI models'),
+    ('http_client', 'webhook', 'src.tools_catalog.webhook.http_client',    true,  false, 'worker',  'Make HTTP requests (GET, POST, PUT, DELETE)'),
+    ('google_drive','mcp',     'src.plugins.mcp_bridge',                   false, false, 'worker',  'Google Drive via MCP: list, read, write, search files'),
+    ('transcribe_audio', 'media', 'src.tools_catalog.media.audio',         true,  false, 'worker',  'Transcribe audio files'),
+    ('analyze_image', 'media',   'src.tools_catalog.media.vision',         true,  false, 'worker',  'Analyze images with vision models'),
+    ('gmail',       'email',   'src.tools_catalog.email.gmail',            true,  false, 'worker',  'Gmail IMAP/SMTP integration')
 ON CONFLICT (name) DO NOTHING;
 
 -- Seed tool_configs for non-sensitive defaults
@@ -104,5 +107,10 @@ VALUES
     ('http_server', 'port', '8000'),
     ('shell',       'timeout_seconds', '120'),
     ('google_drive','transport', 'stdio'),
-    ('google_drive','command', 'npx -y @modelcontextprotocol/server-gdrive')
+    ('google_drive','command', 'npx -y @modelcontextprotocol/server-gdrive'),
+    ('gmail',       'imap_host', 'imap.gmail.com'),
+    ('gmail',       'imap_port', '993'),
+    ('gmail',       'smtp_host', 'smtp.gmail.com'),
+    ('gmail',       'smtp_port', '587'),
+    ('gmail',       'encryption', 'tls')
 ON CONFLICT (tool_name, key) DO NOTHING;

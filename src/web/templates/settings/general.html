@@ -7,14 +7,66 @@
     <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
         <div class="border-b border-gray-200 dark:border-gray-700">
             <nav class="flex -mb-px">
-                <button onclick="showTab('agent')" class="tab-btn px-6 py-3 border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-medium" data-tab="agent">Agent Defaults</button>
-                <button onclick="showTab('infra')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="infra">Infrastructure</button>
+                <button onclick="showTab('database')" class="tab-btn px-6 py-3 border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-medium" data-tab="database">Database</button>
+                <button onclick="showTab('agent')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="agent">Agent Defaults</button>
                 <button onclick="showTab('cluster')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="cluster">Cluster Nodes</button>
             </nav>
         </div>
 
         <div class="p-6">
-            <div id="tab-agent" class="tab-content">
+            <div id="tab-database" class="tab-content">
+                <div class="mb-6">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Connection Status</h3>
+                    <div id="db-status" class="p-4 rounded-md bg-gray-50 dark:bg-gray-900">
+                        <span class="text-gray-500">Checking...</span>
+                    </div>
+                </div>
+                
+                <form id="db-form" class="space-y-4 mb-6">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Connection Settings</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Host / Server</label>
+                            <input type="text" name="host" placeholder="localhost" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Port</label>
+                            <input type="number" name="port" placeholder="5432" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Database Name</label>
+                            <input type="text" name="database" placeholder="orchestrator" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Username</label>
+                            <input type="text" name="user" placeholder="temporal" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Password</label>
+                            <input type="password" name="password" placeholder="••••••••" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        </div>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button type="button" onclick="testDbConnection()" class="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700">Test Connection</button>
+                        <button type="button" onclick="saveDbSettings()" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Settings</button>
+                    </div>
+                </form>
+
+                <div class="mb-6">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">System State</h3>
+                    <div id="system-state-container" class="p-4 rounded-md bg-gray-50 dark:bg-gray-900">
+                        <span class="text-gray-500">Loading...</span>
+                    </div>
+                </div>
+
+                <div class="flex space-x-4">
+                    <button onclick="runMigration()" class="px-4 py-2 bg-yellow-600 text-white rounded-md hover:bg-yellow-700">Run Migrations</button>
+                    <button onclick="seedConfig()" class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">Seed Default Config</button>
+                    <button onclick="completeSetup()" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Complete Setup</button>
+                </div>
+            </div>
+
+            <div id="tab-agent" class="tab-content hidden">
                 <form id="agent-form" class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Max Tool Calls</label>
@@ -36,10 +88,6 @@
                 </form>
             </div>
 
-            <div id="tab-infra" class="tab-content hidden">
-                <div id="infra-container" class="space-y-6"></div>
-            </div>
-
             <div id="tab-cluster" class="tab-content hidden">
                 <div id="cluster-container"></div>
             </div>
@@ -48,7 +96,6 @@
 </div>
 
 <script>
-    let infra = {};
     let cluster = [];
 
     function showTab(name) {
@@ -63,6 +110,178 @@
         btn.classList.add('border-indigo-500', 'text-indigo-600', 'dark:text-indigo-400');
     }
 
+    async function loadDbSettings() {
+        try {
+            const resp = await fetch('/api/config/database');
+            const data = await resp.json();
+            const form = document.getElementById('db-form');
+            ['host', 'port', 'database', 'user'].forEach(field => {
+                const input = form.querySelector(`[name="${field}"]`);
+                if (input && data[field]) input.value = data[field];
+            });
+        } catch (e) {
+            console.error('Failed to load DB settings:', e);
+        }
+    }
+
+    async function checkDbStatus() {
+        const container = document.getElementById('db-status');
+        try {
+            const resp = await fetch('/api/config/database/status');
+            const data = await resp.json();
+            if (data.connected) {
+                container.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                        <span class="text-green-600 dark:text-green-400 font-medium">Connected</span>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                        Database: ${data.database} | Tables: ${data.tables} | Tools: ${data.tool_count}
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                        <span class="text-red-600 dark:text-red-400 font-medium">Disconnected</span>
+                    </div>
+                    <div class="mt-2 text-sm text-red-600 dark:text-red-400">${data.error}</div>
+                `;
+            }
+        } catch (e) {
+            container.innerHTML = `
+                <div class="flex items-center">
+                    <span class="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                    <span class="text-red-600 dark:text-red-400 font-medium">Error</span>
+                </div>
+                <div class="mt-2 text-sm text-red-600 dark:text-red-400">${e.message}</div>
+            `;
+        }
+    }
+
+    async function loadSystemState() {
+        const container = document.getElementById('system-state-container');
+        try {
+            const resp = await fetch('/api/config/database/status');
+            const data = await resp.json();
+            const setupComplete = data.setup_complete;
+            container.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 ${setupComplete ? 'bg-green-500' : 'bg-yellow-500'} rounded-full mr-2"></span>
+                        <span class="font-medium">Setup: ${setupComplete ? 'Complete' : 'Pending'}</span>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            container.innerHTML = `<span class="text-red-600">Failed to load system state</span>`;
+        }
+    }
+
+    async function saveDbSettings() {
+        const form = document.getElementById('db-form');
+        const data = {};
+        form.querySelectorAll('input').forEach(input => {
+            if (input.value) data[input.name] = input.value;
+        });
+        
+        try {
+            const resp = await fetch('/api/config/database', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                alert('Database settings saved');
+                checkDbStatus();
+            } else {
+                alert('Failed to save: ' + result.error);
+            }
+        } catch (e) {
+            alert('Error: ' + e.message);
+        }
+    }
+
+    async function testDbConnection() {
+        const form = document.getElementById('db-form');
+        const data = {};
+        form.querySelectorAll('input').forEach(input => {
+            if (input.value) data[input.name] = input.value;
+        });
+        
+        const container = document.getElementById('db-status');
+        container.innerHTML = `<span class="text-gray-500">Testing connection...</span>`;
+        
+        try {
+            const resp = await fetch('/api/config/database/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await resp.json();
+            if (result.connected) {
+                container.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                        <span class="text-green-600 dark:text-green-400 font-medium">Connection Successful</span>
+                    </div>
+                `;
+            } else {
+                container.innerHTML = `
+                    <div class="flex items-center">
+                        <span class="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                        <span class="text-red-600 dark:text-red-400 font-medium">Connection Failed</span>
+                    </div>
+                    <div class="mt-2 text-sm text-red-600 dark:text-red-400">${result.error}</div>
+                `;
+            }
+        } catch (e) {
+            container.innerHTML = `
+                <div class="flex items-center">
+                    <span class="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                    <span class="text-red-600 dark:text-red-400 font-medium">Error</span>
+                </div>
+                <div class="mt-2 text-sm text-red-600 dark:text-red-400">${e.message}</div>
+            `;
+        }
+    }
+
+    async function runMigration() {
+        if (!confirm('This will run database migrations. Continue?')) return;
+        try {
+            const resp = await fetch('/api/config/database/migrate', { method: 'POST' });
+            const result = await resp.json();
+            alert(result.message || 'Migration complete');
+            checkDbStatus();
+            loadSystemState();
+        } catch (e) {
+            alert('Migration failed: ' + e.message);
+        }
+    }
+
+    async function seedConfig() {
+        if (!confirm('This will seed default configuration. Continue?')) return;
+        try {
+            const resp = await fetch('/api/config/database/seed', { method: 'POST' });
+            const result = await resp.json();
+            alert(result.message || 'Seeding complete');
+        } catch (e) {
+            alert('Seeding failed: ' + e.message);
+        }
+    }
+
+    async function completeSetup() {
+        try {
+            const resp = await fetch('/api/setup/complete', { method: 'POST' });
+            const result = await resp.json();
+            alert(result.message || 'Setup complete');
+            loadSystemState();
+        } catch (e) {
+            alert('Failed: ' + e.message);
+        }
+    }
+
     async function loadAgentDefaults() {
         const resp = await fetch('/api/config/agent-defaults');
         const data = await resp.json();
@@ -71,39 +290,6 @@
             const input = form.querySelector(`[name="${k}"]`);
             if (input) input.value = v;
         });
-    }
-
-    async function loadInfra() {
-        const resp = await fetch('/api/config/infrastructure');
-        infra = await resp.json();
-        const container = document.getElementById('infra-container');
-        
-        const activeEnv = infra.active_environment || 'primary';
-        const envs = infra.environments || {};
-        
-        container.innerHTML = `
-            <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Active Environment</label>
-                <select id="active-env" class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
-                    ${Object.keys(envs).map(e => `<option value="${e}" ${e === activeEnv ? 'selected' : ''}>${e}</option>`).join('')}
-                </select>
-            </div>
-            ${Object.entries(envs).map(([name, cfg]) => `
-                <details class="border dark:border-gray-700 rounded-md" ${name === activeEnv ? 'open' : ''}>
-                    <summary class="px-4 py-2 cursor-pointer text-sm font-medium bg-gray-50 dark:bg-gray-900">${name}</summary>
-                    <div class="p-4 grid grid-cols-2 gap-4">
-                        ${Object.entries(cfg).map(([k, v]) => `
-                            <div>
-                                <label class="block text-xs text-gray-500 dark:text-gray-400">${k}</label>
-                                <input type="text" value="${typeof v === 'object' ? JSON.stringify(v) : v}" 
-                                       class="w-full text-sm rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" readonly>
-                            </div>
-                        `).join('')}
-                    </div>
-                </details>
-            `).join('')}
-            <button onclick="saveInfra()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Infrastructure</button>
-        `;
     }
 
     async function loadCluster() {
@@ -118,16 +304,14 @@
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Name</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Host</th>
                         <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Role</th>
-                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">Status</th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-                    ${cluster.map(n => `
+                    ${(Array.isArray(cluster) ? cluster : []).map(n => `
                         <tr>
                             <td class="px-4 py-2 text-sm text-gray-900 dark:text-white">${n.name}</td>
                             <td class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">${n.host}</td>
                             <td class="px-4 py-2 text-sm text-gray-500 dark:text-gray-400">${n.role}</td>
-                            <td class="px-4 py-2 text-sm"><span class="px-2 py-1 rounded text-xs bg-gray-100 dark:bg-gray-700">Unknown</span></td>
                         </tr>
                     `).join('')}
                 </tbody>
@@ -150,20 +334,12 @@
         alert('Agent defaults saved');
     }
 
-    async function saveInfra() {
-        infra.active_environment = document.getElementById('active-env').value;
-        await fetch('/api/config/infrastructure', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(infra)
-        });
-        alert('Infrastructure saved');
-    }
-
     document.getElementById('agent-form').addEventListener('submit', saveAgentDefaults);
     document.addEventListener('DOMContentLoaded', () => {
+        loadDbSettings();
+        checkDbStatus();
+        loadSystemState();
         loadAgentDefaults();
-        loadInfra();
         loadCluster();
     });
 </script>

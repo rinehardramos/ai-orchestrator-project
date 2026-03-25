@@ -5,6 +5,7 @@ REST API endpoints for managing scheduled tasks.
 """
 
 import logging
+import json
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -131,16 +132,16 @@ async def create_schedule(
                 max_failures, max_runs, notify_on_success, notify_on_failure,
                 notify_on_start, notification_channel, notification_recipients,
                 tags, created_by
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16, $17, $18::jsonb, $19::jsonb, $20)
             RETURNING *
             """,
             task.name, task.description, task.schedule_type.value,
             task.cron_expression, task.interval_seconds, task.scheduled_for,
-            task.timezone, task.task_type.value, task.task_payload,
+            task.timezone, task.task_type.value, json.dumps(task.task_payload),
             task.enabled, task.timeout_seconds, task.max_failures, task.max_runs,
             task.notify_on_success, task.notify_on_failure, task.notify_on_start,
-            task.notification_channel.value, task.notification_recipients,
-            task.tags, task.created_by
+            task.notification_channel.value, json.dumps(task.notification_recipients),
+            json.dumps(task.tags), task.created_by
         )
         
         return ScheduledTaskResponse(**dict(row))
@@ -248,54 +249,6 @@ async def run_schedule_now(task_id: int, pool: asyncpg.Pool = Depends(get_db_poo
             "UPDATE scheduled_tasks SET next_run_at = NOW() WHERE id = $1", task_id
         )
         return {"status": "triggered", "id": task_id, "message": "Task will execute on next daemon cycle"}
-
-
-@router.get("/{task_id}/history", response_model=TaskHistoryList)
-async def get_schedule_history(
-    task_id: int,
-    status: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    pool: asyncpg.Pool = Depends(get_db_pool)
-):
-    """Get execution history for a scheduled task."""
-    offset = (page - 1) * page_size
-    
-    async with pool.acquire() as conn:
-        task = await conn.fetchrow(
-            "SELECT id, name FROM scheduled_tasks WHERE id = $1", task_id
-        )
-        if not task:
-            raise HTTPException(status_code=404, detail="Scheduled task not found")
-        
-        conditions = ["scheduled_task_id = $1"]
-        params = [task_id]
-        param_idx = 2
-        
-        if status:
-            conditions.append(f"status = ${param_idx}")
-            params.append(status)
-            param_idx += 1
-        
-        where_clause = f"WHERE {' AND '.join(conditions)}"
-        
-        count_query = f"SELECT COUNT(*) FROM scheduled_task_history {where_clause}"
-        total = await conn.fetchval(count_query, *params)
-        
-        query = f"""
-            SELECT h.*, $1 as task_name
-            FROM scheduled_task_history h
-            {where_clause}
-            ORDER BY started_at DESC
-            LIMIT ${param_idx} OFFSET ${param_idx + 1}
-        """
-        params.extend([page_size, offset])
-        
-        rows = await conn.fetch(query, *params)
-        items = []
-        for row in rows:
-            item_dict = dict(row) for row in rows if row else {}
-    return JSONResponse(status_code=200, content=dict(row))
 
 
 @router.get("/{task_id}/history", response_model=TaskHistoryList)

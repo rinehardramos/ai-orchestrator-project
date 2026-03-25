@@ -2,24 +2,59 @@
 
 {% block content %}
 <div class="px-4 py-6 sm:px-0">
-    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">Model Routing</h1>
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white mb-6">Model Configuration</h1>
 
-    <div class="space-y-6">
-        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Task Routing</h2>
-            <div id="routing-table" class="space-y-4"></div>
-            <button onclick="saveRouting()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Routing</button>
+    <div class="space-y-8">
+        <!-- Available Models Section -->
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+            <div class="px-6 py-4 border-b dark:border-gray-700 flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900 dark:text-white">Available Models</h2>
+                <button onclick="showAddModelModal()" class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">
+                    + Add Model
+                </button>
+            </div>
+            <div class="p-6">
+                <div id="models-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
         </div>
 
-        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Specializations</h2>
-            <div id="specializations-list" class="space-y-4"></div>
-            <button onclick="saveSpecializations()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Specializations</button>
+        <!-- Task Routing Section -->
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+            <div class="px-6 py-4 border-b dark:border-gray-700 flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900 dark:text-white">Task Routing</h2>
+                <button onclick="showAddRoutingModal()" class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">
+                    + Add Task
+                </button>
+            </div>
+            <div class="p-6">
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                        <thead class="bg-gray-50 dark:bg-gray-900">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Task Name</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Model</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Provider</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="routing-tbody" class="divide-y divide-gray-200 dark:divide-gray-700"></tbody>
+                    </table>
+                </div>
+                <button onclick="saveRouting()" class="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Routing</button>
+            </div>
         </div>
 
-        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg p-6">
-            <h2 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Available Models</h2>
-            <div id="models-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+        <!-- Specializations Section -->
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+            <div class="px-6 py-4 border-b dark:border-gray-700 flex justify-between items-center">
+                <h2 class="text-lg font-medium text-gray-900 dark:text-white">Specializations</h2>
+                <button onclick="showAddSpecModal()" class="px-4 py-2 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700">
+                    + Add Specialization
+                </button>
+            </div>
+            <div class="p-6">
+                <div id="specializations-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -39,88 +74,526 @@
         routing = await routingResp.json();
         specializations = await specsResp.json();
         
+        renderModels();
         renderRouting();
         renderSpecializations();
-        renderModels();
+    }
+
+    function renderModels() {
+        const container = document.getElementById('models-grid');
+        if (models.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 dark:text-gray-400">No models configured. Click "Add Model" to add one.</p>';
+            return;
+        }
+        
+        container.innerHTML = models.map(m => `
+            <div class="border dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow group">
+                <div class="flex justify-between items-start">
+                    <div>
+                        <div class="font-medium text-gray-900 dark:text-white">${m.id}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            <span class="inline-block px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded text-xs mr-2">${m.provider}</span>
+                            <span class="text-gray-400">${m.reasoning_capability || 'medium'} | ${m.speed || 'fast'}</span>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1">
+                            Context: ${m.context_window?.toLocaleString() || '8,192'} | Cost: $${(m.cost_per_1k_tokens || 0).toFixed(6)}/1K
+                        </div>
+                    </div>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                        <button onclick="showEditModelModal('${m.id}')" class="p-1 text-gray-400 hover:text-indigo-600" title="Edit">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                        <button onclick="deleteModel('${m.id}')" class="p-1 text-gray-400 hover:text-red-600" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
     }
 
     function renderRouting() {
-        const container = document.getElementById('routing-table');
-        container.innerHTML = Object.entries(routing).map(([task, config]) => `
-            <div class="flex items-center gap-4">
-                <label class="w-32 text-sm font-medium text-gray-700 dark:text-gray-300">${task}</label>
-                <select class="routing-model flex-1 rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" data-task="${task}">
-                    ${models.map(m => `<option value="${m.id}" ${config.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
-                </select>
-            </div>
+        const tbody = document.getElementById('routing-tbody');
+        const entries = Object.entries(routing);
+        
+        if (entries.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">No routing entries. Click "Add Task" to add one.</td></tr>';
+            return;
+        }
+        
+        tbody.innerHTML = entries.map(([task, config]) => `
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
+                <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">${task}</td>
+                <td class="px-4 py-3">
+                    <select class="routing-model rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" data-task="${task}">
+                        ${models.map(m => `<option value="${m.id}" ${config.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
+                    </select>
+                </td>
+                <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">${config.provider || 'google'}</td>
+                <td class="px-4 py-3 text-right">
+                    <button onclick="deleteRoutingEntry('${task}')" class="text-red-600 hover:text-red-800 text-sm">Delete</button>
+                </td>
+            </tr>
         `).join('');
     }
 
     function renderSpecializations() {
         const container = document.getElementById('specializations-list');
-        container.innerHTML = Object.entries(specializations).map(([name, config]) => `
-            <details class="border dark:border-gray-700 rounded-md">
-                <summary class="px-4 py-2 cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-900">${name}</summary>
-                <div class="p-4 space-y-2">
-                    <div class="flex items-center gap-4">
-                        <label class="w-24 text-sm text-gray-600 dark:text-gray-400">Model:</label>
-                        <select class="spec-model rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" data-spec="${name}">
-                            ${models.map(m => `<option value="${m.id}" ${config.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
-                        </select>
-                    </div>
+        const entries = Object.entries(specializations);
+        
+        if (entries.length === 0) {
+            container.innerHTML = '<p class="text-gray-500 dark:text-gray-400 col-span-full">No specializations. Click "Add Specialization" to add one.</p>';
+            return;
+        }
+        
+        container.innerHTML = entries.map(([name, config]) => `
+            <div class="border dark:border-gray-700 rounded-lg p-4 hover:shadow-md transition-shadow group">
+                <div class="flex justify-between items-start">
                     <div>
-                        <label class="block text-sm text-gray-600 dark:text-gray-400 mb-1">Allowed Tools:</label>
-                        <input type="text" class="spec-tools w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" 
-                               data-spec="${name}" value="${(config.allowed_tools || []).join(', ')}">
+                        <div class="font-medium text-gray-900 dark:text-white">${name}</div>
+                        <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                            <span class="inline-block px-2 py-0.5 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded text-xs mr-2">${config.model}</span>
+                            <span class="text-gray-400">${config.provider || 'google'}</span>
+                        </div>
+                        <div class="text-xs text-gray-400 mt-1">
+                            Tools: ${config.allowed_tools?.length ? config.allowed_tools.join(', ') : 'none'}
+                        </div>
+                    </div>
+                    <div class="opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1">
+                        <button onclick="showEditSpecModal('${name}')" class="p-1 text-gray-400 hover:text-indigo-600" title="Edit">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path></svg>
+                        </button>
+                        <button onclick="deleteSpecialization('${name}')" class="p-1 text-gray-400 hover:text-red-600" title="Delete">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
                     </div>
                 </div>
-            </details>
+            </div>
         `).join('');
     }
 
-    function renderModels() {
-        const container = document.getElementById('models-list');
-        container.innerHTML = models.map(m => `
-            <div class="border dark:border-gray-700 rounded-md p-4">
-                <div class="font-medium text-gray-900 dark:text-white">${m.id}</div>
-                <div class="text-sm text-gray-500 dark:text-gray-400">${m.provider} | ${m.reasoning_capability} | ${m.speed}</div>
-            </div>
-        `).join('');
+    // Model CRUD
+    function showAddModelModal() {
+        openModal('Add Model', `
+            <form id="model-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model ID *</label>
+                    <input type="text" name="id" required placeholder="provider/model-name (e.g., google/gemini-2.0-flash)" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <p class="text-xs text-gray-500 mt-1">Format: provider/model-name (lowercase)</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider *</label>
+                    <input type="text" name="provider" required placeholder="google, openai, anthropic, etc." class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cost per 1K tokens</label>
+                        <input type="number" step="0.000001" name="cost_per_1k_tokens" value="0" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Context Window</label>
+                        <input type="number" name="context_window" value="8192" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reasoning</label>
+                        <select name="reasoning_capability" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            <option value="low">Low</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="high">High</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Speed</label>
+                        <select name="speed" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            <option value="ultra_fast">Ultra Fast</option>
+                            <option value="very_fast">Very Fast</option>
+                            <option value="fast" selected>Fast</option>
+                            <option value="medium">Medium</option>
+                            <option value="slow">Slow</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Add Model</button>
+                </div>
+            </form>
+        `);
+        
+        document.getElementById('model-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                id: form.id.value.trim(),
+                provider: form.provider.value.trim(),
+                cost_per_1k_tokens: parseFloat(form.cost_per_1k_tokens.value) || 0,
+                context_window: parseInt(form.context_window.value) || 8192,
+                reasoning_capability: form.reasoning_capability.value,
+                speed: form.speed.value
+            };
+            
+            try {
+                const resp = await fetch('/api/config/models', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.detail || 'Failed to add model');
+                
+                closeModal();
+                showToast('Model added successfully');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+    }
+
+    async function showEditModelModal(modelId) {
+        const model = models.find(m => m.id === modelId);
+        if (!model) return;
+        
+        openModal('Edit Model', `
+            <form id="model-form" class="space-y-4">
+                <div class="text-sm text-gray-500 mb-4">ID: <span class="font-mono">${modelId}</span></div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                    <input type="text" name="provider" value="${model.provider || ''}" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cost per 1K tokens</label>
+                        <input type="number" step="0.000001" name="cost_per_1k_tokens" value="${model.cost_per_1k_tokens || 0}" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Context Window</label>
+                        <input type="number" name="context_window" value="${model.context_window || 8192}" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Reasoning</label>
+                        <select name="reasoning_capability" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            <option value="low" ${model.reasoning_capability === 'low' ? 'selected' : ''}>Low</option>
+                            <option value="medium" ${model.reasoning_capability === 'medium' ? 'selected' : ''}>Medium</option>
+                            <option value="high" ${model.reasoning_capability === 'high' ? 'selected' : ''}>High</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Speed</label>
+                        <select name="speed" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            <option value="ultra_fast" ${model.speed === 'ultra_fast' ? 'selected' : ''}>Ultra Fast</option>
+                            <option value="very_fast" ${model.speed === 'very_fast' ? 'selected' : ''}>Very Fast</option>
+                            <option value="fast" ${model.speed === 'fast' ? 'selected' : ''}>Fast</option>
+                            <option value="medium" ${model.speed === 'medium' ? 'selected' : ''}>Medium</option>
+                            <option value="slow" ${model.speed === 'slow' ? 'selected' : ''}>Slow</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Save Changes</button>
+                </div>
+            </form>
+        `);
+        
+        document.getElementById('model-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                provider: form.provider.value.trim(),
+                cost_per_1k_tokens: parseFloat(form.cost_per_1k_tokens.value) || 0,
+                context_window: parseInt(form.context_window.value) || 8192,
+                reasoning_capability: form.reasoning_capability.value,
+                speed: form.speed.value
+            };
+            
+            try {
+                const resp = await fetch(`/api/config/models/${encodeURIComponent(modelId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.detail || 'Failed to update model');
+                
+                closeModal();
+                showToast('Model updated successfully');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+    }
+
+    async function deleteModel(modelId) {
+        try {
+            const usageResp = await fetch(`/api/config/models/${encodeURIComponent(modelId)}/usage`);
+            const usage = await usageResp.json();
+            
+            let warning = `Are you sure you want to delete model "${modelId}"?`;
+            if (usage.routing?.length || usage.specializations?.length) {
+                warning += `\n\nThis model is used by:`;
+                if (usage.routing?.length) warning += `\n• Routing tasks: ${usage.routing.join(', ')}`;
+                if (usage.specializations?.length) warning += `\n• Specializations: ${usage.specializations.join(', ')}`;
+                warning += `\n\nPlease update these references first.`;
+                alert(warning);
+                return;
+            }
+            
+            if (!confirm(warning)) return;
+            
+            const resp = await fetch(`/api/config/models/${encodeURIComponent(modelId)}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.detail || 'Failed to delete model');
+            
+            showToast('Model deleted successfully');
+            await loadAll();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    // Routing CRUD
+    function showAddRoutingModal() {
+        if (models.length === 0) {
+            showToast('Please add a model first', 'error');
+            return;
+        }
+        
+        openModal('Add Task Routing', `
+            <form id="routing-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Task Name *</label>
+                    <input type="text" name="task_name" required placeholder="e.g., planning, coding, fast" pattern="[a-z_]+" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <p class="text-xs text-gray-500 mt-1">Lowercase letters and underscores only</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model *</label>
+                    <select name="model" required class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        ${models.map(m => `<option value="${m.id}">${m.id}</option>`).join('')}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider (optional)</label>
+                    <input type="text" name="provider" placeholder="Auto-detected from model" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Add Task</button>
+                </div>
+            </form>
+        `);
+        
+        document.getElementById('routing-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const data = {
+                task_name: form.task_name.value.trim(),
+                model: form.model.value,
+                provider: form.provider.value.trim() || null
+            };
+            
+            try {
+                const resp = await fetch('/api/config/routing/entries', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.detail || 'Failed to add routing entry');
+                
+                closeModal();
+                showToast('Task routing added successfully');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+    }
+
+    async function deleteRoutingEntry(taskName) {
+        if (!confirm(`Delete routing entry "${taskName}"?`)) return;
+        
+        try {
+            const resp = await fetch(`/api/config/routing/${encodeURIComponent(taskName)}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.detail || 'Failed to delete routing entry');
+            
+            showToast('Routing entry deleted');
+            await loadAll();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
     }
 
     async function saveRouting() {
         const newRouting = {};
         document.querySelectorAll('.routing-model').forEach(sel => {
+            const model = models.find(m => m.id === sel.value);
             newRouting[sel.dataset.task] = {
                 model: sel.value,
-                provider: models.find(m => m.id === sel.value)?.provider || 'google'
+                provider: model?.provider || 'google'
             };
         });
-        await fetch('/api/config/routing', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ routing: newRouting })
-        });
-        alert('Routing saved');
+        
+        try {
+            const resp = await fetch('/api/config/routing', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_routing: newRouting })
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.detail || 'Failed to save routing');
+            
+            showToast('Routing saved successfully');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
     }
 
-    async function saveSpecializations() {
-        const newSpecs = {};
-        Object.keys(specializations).forEach(name => {
-            const modelSel = document.querySelector(`.spec-model[data-spec="${name}"]`);
-            const toolsInput = document.querySelector(`.spec-tools[data-spec="${name}"]`);
-            newSpecs[name] = {
-                model: modelSel.value,
-                provider: models.find(m => m.id === modelSel.value)?.provider || 'google',
-                allowed_tools: toolsInput.value.split(',').map(t => t.trim()).filter(t => t)
+    // Specializations CRUD
+    function showAddSpecModal() {
+        if (models.length === 0) {
+            showToast('Please add a model first', 'error');
+            return;
+        }
+        
+        openModal('Add Specialization', `
+            <form id="spec-form" class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Name *</label>
+                    <input type="text" name="name" required placeholder="e.g., coding, research, planner" pattern="[a-z_]+" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <p class="text-xs text-gray-500 mt-1">Lowercase letters and underscores only</p>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model *</label>
+                        <select name="model" required class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            ${models.map(m => `<option value="${m.id}">${m.id}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                        <input type="text" name="provider" value="google" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowed Tools</label>
+                    <input type="text" name="allowed_tools" placeholder="shell, filesystem, web, git" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <p class="text-xs text-gray-500 mt-1">Comma-separated tool names</p>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Add Specialization</button>
+                </div>
+            </form>
+        `);
+        
+        document.getElementById('spec-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const toolsStr = form.allowed_tools.value.trim();
+            const data = {
+                name: form.name.value.trim(),
+                model: form.model.value,
+                provider: form.provider.value.trim() || 'google',
+                allowed_tools: toolsStr ? toolsStr.split(',').map(t => t.trim()).filter(t => t) : []
             };
-        });
-        await fetch('/api/config/specializations', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ specializations: newSpecs })
-        });
-        alert('Specializations saved');
+            
+            try {
+                const resp = await fetch('/api/config/specializations', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.detail || 'Failed to add specialization');
+                
+                closeModal();
+                showToast('Specialization added successfully');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
+    }
+
+    async function deleteSpecialization(name) {
+        if (!confirm(`Delete specialization "${name}"?`)) return;
+        
+        try {
+            const resp = await fetch(`/api/config/specializations/${encodeURIComponent(name)}`, { method: 'DELETE' });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.detail || 'Failed to delete specialization');
+            
+            showToast('Specialization deleted');
+            await loadAll();
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
+    }
+
+    async function showEditSpecModal(specName) {
+        const spec = specializations[specName];
+        if (!spec) return;
+        
+        openModal('Edit Specialization', `
+            <form id="spec-edit-form" class="space-y-4">
+                <div class="text-sm text-gray-500 mb-4">Name: <span class="font-mono">${specName}</span></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model *</label>
+                        <select name="model" required class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                            ${models.map(m => `<option value="${m.id}" ${spec.model === m.id ? 'selected' : ''}>${m.id}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                        <input type="text" name="provider" value="${spec.provider || 'google'}" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Allowed Tools</label>
+                    <input type="text" name="allowed_tools" value="${(spec.allowed_tools || []).join(', ')}" placeholder="shell, filesystem, web, git" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                    <p class="text-xs text-gray-500 mt-1">Comma-separated tool names</p>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm">Cancel</button>
+                    <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700">Save Changes</button>
+                </div>
+            </form>
+        `);
+        
+        document.getElementById('spec-edit-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const form = e.target;
+            const toolsStr = form.allowed_tools.value.trim();
+            const data = {
+                model: form.model.value,
+                provider: form.provider.value.trim() || 'google',
+                allowed_tools: toolsStr ? toolsStr.split(',').map(t => t.trim()).filter(t => t) : []
+            };
+            
+            try {
+                const resp = await fetch(`/api/config/specializations/${encodeURIComponent(specName)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.detail || 'Failed to update specialization');
+                
+                closeModal();
+                showToast('Specialization updated successfully');
+                await loadAll();
+            } catch (err) {
+                showToast(err.message, 'error');
+            }
+        };
     }
 
     document.addEventListener('DOMContentLoaded', loadAll);

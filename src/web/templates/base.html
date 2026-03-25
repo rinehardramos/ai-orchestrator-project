@@ -44,7 +44,41 @@
 
     <div id="toast" class="fixed bottom-4 right-4 z-50"></div>
 
+    <div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+        <div class="fixed inset-0 bg-black/50" onclick="closeModal()"></div>
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-lg w-full mx-4 relative z-10 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between p-4 border-b dark:border-gray-700">
+                <h3 id="modal-title" class="text-lg font-medium text-gray-900 dark:text-white"></h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div id="modal-body" class="p-4"></div>
+        </div>
+    </div>
+
     <script>
+        function openModal(title, bodyHtml) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').innerHTML = bodyHtml;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('modal').classList.add('hidden');
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            const bgColor = type === 'success' ? 'bg-green-500' : type === 'error' ? 'bg-red-500' : 'bg-blue-500';
+            toast.innerHTML = `
+                <div class="${bgColor} text-white px-4 py-2 rounded-md shadow-lg">
+                    ${message}
+                </div>
+            `;
+            setTimeout(() => toast.innerHTML = '', 3000);
+        }
+
         document.body.addEventListener('htmx:afterSwap', function(evt) {
             if (evt.detail.target.id === 'toast') {
                 setTimeout(function() {

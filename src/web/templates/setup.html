@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Orchestrator Setup</title>
+</head>
+<body>
+    <h1>AI Orchestrator Setup</h1>
+    <div id="setup-container">
+        <p>System not configured.</p>
+        <button onclick="completeSetup()">Complete Setup</button>
+    </div>
+    <script>
+        async function completeSetup() {
+            const resp = await fetch('/api/setup/complete', { method: 'POST' });
+            if (resp.ok) {
+                window.location.reload();
+            } else {
+                const err = await resp.json();
+                alert('Setup failed: ' + err.detail);
+            }
+        }
+    </script>
+</body>
+</html>

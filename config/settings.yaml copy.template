@@ -1,0 +1,35 @@
+active_environment: "primary"
+
+genesis:
+  diagnostic:
+    provider: "openrouter"
+    model: "anthropic/claude-3.5-sonnet"
+    fallback_model: "openai/gpt-4o"
+    max_iterations: 3
+    verify_delay_sec: 5
+    timeout_sec: 120
+
+environments:
+  primary:
+    remote_worker:
+      host: "YOUR_WORKER_HOST"
+      user: "YOUR_USERNAME"
+      ssh_key_path: "~/.ssh/id_ed25519"
+      project_dir: "ai-orchestration-worker"
+    temporal:
+      host: "YOUR_TEMPORAL_HOST"
+      port: 7233
+      web_port: 8233
+    qdrant:
+      host: "YOUR_QDRANT_HOST"
+      port: 6333
+    redis:
+      host: "YOUR_REDIS_HOST"
+      port: 6379
+    lmstudio:
+      host: "YOUR_LMSTUDIO_HOST"
+      port: 1234
+    opik:
+      host: "YOUR_OPIK_HOST"
+      port: 8080
+      ui_port: 5173

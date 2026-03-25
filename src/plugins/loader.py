@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import re
+import sys
 from typing import Optional
 
 import yaml
@@ -34,7 +35,7 @@ from src.plugins.registry import registry
 log = logging.getLogger(__name__)
 
 
-def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
+async def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
                     node: str = "worker") -> None:
     """
     Synchronous version of load_tools for use in sync contexts.
@@ -415,18 +416,27 @@ def encrypt_credential(plaintext: str, secret_key: str) -> bytes:
 
 def _resolve_env_vars(obj):
     """
-    Recursively replace ${VAR_NAME} with os.environ[VAR_NAME] in any dict/list/str.
-    If the env var is not set, the placeholder is left as-is and a warning is logged.
+    Recursively replace ${VAR_NAME} or ${VAR_NAME:-default} with os.environ[VAR_NAME].
+    If the env var is not set, uses the default value if provided, otherwise leaves placeholder.
     """
     if isinstance(obj, str):
         def replacer(match):
-            var = match.group(1)
-            val = os.environ.get(var)
-            if val is None:
-                log.warning(f"Env var ${{{var}}} not set in environment")
-                return match.group(0)  # leave placeholder
-            return val
-        return re.sub(r'\$\{(\w+)\}', replacer, obj)
+            full = match.group(0)
+            inner = match.group(1)
+            if ':-' in inner:
+                var, default = inner.split(':-', 1)
+                val = os.environ.get(var)
+                if val is None:
+                    return default
+                return val
+            else:
+                var = inner
+                val = os.environ.get(var)
+                if val is None:
+                    log.warning(f"Env var ${{{var}}} not set in environment")
+                    return full
+                return val
+        return re.sub(r'\$\{([^}]+)\}', replacer, obj)
     if isinstance(obj, dict):
         return {k: _resolve_env_vars(v) for k, v in obj.items()}
     if isinstance(obj, list):

@@ -5,3 +5,5 @@ fastapi
 jinja2
 pyyaml
 httpx
+psycopg2-binary
+

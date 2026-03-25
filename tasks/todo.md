@@ -209,3 +209,43 @@ Telegram → Genesis (download) → Temporal → Worker (transcribe/analyze) →
 | Voice | Groq Whisper | <2s |
 | Photo | Gemini Flash | <3s |
 | Audio | GPT-4o-mini | <10s |
+
+---
+
+## DB-Only Configuration — Completed 2026-03-25
+
+### Implementation Summary
+
+**Created:**
+- `migrations/003_app_config.sql` — app_config and system_state tables
+- `migrations/004_defaults.sql` — Default configuration values
+- `src/config_db.py` — DB-only configuration loader
+- `scripts/migrate.py` — Master migration runner
+- `scripts/seed_noncritical_config.py` — Seeds defaults (no YAML dependency)
+- `scripts/complete_setup.py` — Marks setup complete
+- `scripts/validate_config.py` — Validates DB config
+
+**Modified:**
+- `src/plugins/loader.py` — Removed YAML fallback, added sys import
+- `src/config_db.py` — Added json import
+
+**Deleted:**
+- `config/bootstrap.yaml`
+- `config/cluster_nodes.yaml`
+- `config/jobs.yaml`
+- `config/media.yaml`
+- `config/profiles.yaml`
+- `config/schedules.yaml`
+- `config/tools.yaml`
+
+### Usage
+```bash
+# Set DATABASE_URL in .env
+export DATABASE_URL="postgres://user:pass@host:5432/db"
+
+# Run migrations
+python scripts/migrate.py
+
+# Or dry-run first
+python scripts/migrate.py --dry-run
+```
