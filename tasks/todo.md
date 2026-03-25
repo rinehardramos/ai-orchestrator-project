@@ -169,3 +169,43 @@ Wave 3 (parallel):  1.5  1.6  1.7  1.8  1.9  1.10
 - [x] 16. Update `worker.py` — use registry for tool schemas and execution
 - [x] 17. Update `scheduler.py` — use registry for result delivery
 - [x] 18. Update `genesis/main.py` — load tools and start listeners
+
+---
+
+## Telegram Media Handling — Completed 2026-03-25
+
+### Implementation Summary
+
+**Files Created:**
+- `config/media.yaml` — Configurable model tiers for transcription/vision
+- `src/tools_catalog/media/audio.py` — `transcribe_audio` tool (Groq/OpenAI/Gemini)
+- `src/tools_catalog/media/vision.py` — `analyze_image` tool (Gemini/GPT-4V/Claude)
+
+**Files Modified:**
+- `src/genesis/orchestrator/telegram_monitor.py` — Added media handlers
+- `src/execution/worker/worker.py` — Added media envelope detection
+- `config/tools.yaml` — Registered media tools
+
+### Features
+- [x] Voice message transcription (OGG/OGA → text via Groq Whisper <2s)
+- [x] Photo analysis (JPEG → description via Gemini Flash <3s)
+- [x] Audio file processing (MP3, WAV, M4A)
+- [x] Configurable model tiers in `config/media.yaml`
+- [x] Auto-injection of media tools based on content type
+- [x] Real-time status updates in Telegram chat
+- [x] /do command retained for explicit task submission
+
+### Bug Fix
+- Fixed `/do` command: changed `cmd.startswith("/do ")` to `command.startswith("/do ")`
+
+### Architecture
+```
+Telegram → Genesis (download) → Temporal → Worker (transcribe/analyze) → Response
+```
+
+### Latency Targets
+| Media Type | Model | Target |
+|------------|-------|--------|
+| Voice | Groq Whisper | <2s |
+| Photo | Gemini Flash | <3s |
+| Audio | GPT-4o-mini | <10s |
