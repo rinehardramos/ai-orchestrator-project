@@ -14,6 +14,7 @@ import json
 import yaml
 import logging
 from enum import Enum
+from typing import Any, Optional, Dict, List
 from openai import OpenAI
 
 try:
@@ -28,8 +29,22 @@ logger = logging.getLogger("ModelRouter")
 try:
     from src.config import load_settings
 except ImportError:
-    # If used as a standalone script or in sub-package without sys.path setup
     pass
+
+try:
+    from src.shared.budget.tracker import budget_tracker
+    from src.shared.budget.usage_extractor import UsageExtractor
+    BUDGET_TRACKING_ENABLED = True
+except ImportError:
+    BUDGET_TRACKING_ENABLED = False
+    budget_tracker = None
+    UsageExtractor = None
+
+def get_budget_summary() -> str:
+    """Get the last cached budget summary. Can be called from anywhere."""
+    if BUDGET_TRACKING_ENABLED and budget_tracker:
+        return budget_tracker._last_budget_summary or ""
+    return ""
 
 
 def _configure_opik():
@@ -111,19 +126,27 @@ _EXECUTE_KEYWORDS = {
     "execute", "run", "perform", "do", "action", "command",
 }
 
-# Approximate cost per 1 million tokens (prompt + completion combined).
+# Pricing per 1M tokens: {model: (input_price, output_price)}
 # Update these values if pricing changes — do not hardcode costs elsewhere.
-_COST_PER_1M_TOKENS: dict[str, float] = {
-    "thudm/glm-4-plus":               0.14,
-    "anthropic/claude-opus-4-5":     15.00,
-    "anthropic/claude-sonnet-4-6":    3.00,
-    "google/gemini-2.5-flash":        0.15,
-    "google/gemini-2.5-flash-lite":   0.075,
-    "gemini-2.5-flash":               0.15,
-    "gemini-2.5-flash-lite":          0.075,
-    "gemini-2.0-flash":               0.10,
-    "zhipuai/glm-5-pro":              0.50,
-    "default":                        1.00,
+_PRICING_PER_1M: dict[str, tuple[float, float]] = {
+    "thudm/glm-4-plus": (0.07, 0.07),
+    "anthropic/claude-opus-4-5": (15.00, 75.00),
+    "anthropic/claude-sonnet-4-6": (3.00, 15.00),
+    "anthropic/claude-3.5-sonnet": (3.00, 15.00),
+    "openai/gpt-4o": (2.50, 10.00),
+    "openai/gpt-4-turbo": (10.00, 30.00),
+    "google/gemini-2.5-flash": (0.15, 0.60),
+    "google/gemini-2.5-flash-lite": (0.075, 0.30),
+    "google/gemini-2.0-flash": (0.10, 0.40),
+    "google/gemini-pro": (0.50, 1.50),
+    "gemini-2.5-flash": (0.15, 0.60),
+    "gemini-2.5-flash-lite": (0.075, 0.30),
+    "gemini-2.0-flash": (0.10, 0.40),
+    "gemini-2.5-pro": (1.25, 10.00),
+    "gemini-3-flash-preview": (0.10, 0.40),
+    "zhipuai/glm-5-pro": (0.50, 0.50),
+    "openrouter/z-ai/glm-5": (0.50, 0.50),
+    "default": (0.50, 0.50),
 }
 
 
@@ -131,10 +154,9 @@ _COST_PER_1M_TOKENS: dict[str, float] = {
 class ModelRouter:
     """
     Routes LLM calls to the correct model and provider based on task type.
-    All model names and providers come from config/profiles.yaml.
+    All model names and providers come from database (providers table + app_config).
 
-    Phase 1: provider=openrouter → OpenAI SDK pointed at https://openrouter.ai/api/v1
-    Phase 3: provider=lmstudio   → OpenAI SDK pointed to local LMStudio/Ollama API
+    Providers are user-configurable via web UI or API.
     """
 
     def __init__(self):
@@ -147,33 +169,26 @@ class ModelRouter:
         # Load from DB
         try:
             from src.config_db import get_loader
-            config_data = get_loader().load_namespace("profiles")
+            from src.shared.providers import get_provider_manager
+            loader = get_loader()
+            config_data = loader.load_namespace("profiles")
+            self._specializations = loader.load_namespace("specializations") or {}
+            self._provider_manager = get_provider_manager()
         except Exception as e:
             logger.error(f"Could not load profiles from DB: {e}")
             config_data = {}
+            self._specializations = {}
+            self._provider_manager = None
             
         self._routing = config_data.get("task_routing", {})
-        self._specializations = config_data.get("specializations", {})
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
-        if not api_key:
-            logger.warning("OPENROUTER_API_KEY not set — OpenRouter calls will fail")
         
-        self._openrouter_client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key or "missing-key",
-        )
+        # Initialize clients lazily based on provider config
+        self._clients: Dict[str, Any] = {}
         
-        # Native Google Client
-        google_api_key = os.environ.get("GOOGLE_API_KEY", "")
-        if genai and google_api_key:
-            self._google_client = genai.Client(api_key=google_api_key)
-            logger.info("[GOOGLE] Native client initialized")
-        else:
-            self._google_client = None
-            if not google_api_key:
-                logger.warning("GOOGLE_API_KEY not set — native Google calls will fail")
-            if not genai:
-                logger.warning("google-genai package not installed — native Google calls will fail")
+        # Log available providers
+        if self._provider_manager:
+            providers = self._provider_manager.get_all_providers()
+            logger.info(f"Available providers: {list(providers.keys())}")
         
         try:
             from opik.integrations.openai import track_openai
@@ -215,6 +230,58 @@ class ModelRouter:
 
         entry = self._routing.get(task_type.value, {})
         return entry.get("provider", "openrouter")
+    
+    def _get_client(self, provider_name: str) -> tuple[Any, str]:
+        """
+        Get or create an OpenAI-compatible client for a provider.
+        Returns (client, api_base).
+        
+        For non-OpenAI-compatible providers (google_native), returns (None, None).
+        """
+        if provider_name in self._clients:
+            return self._clients[provider_name]
+        
+        # Get provider config from database
+        if self._provider_manager:
+            provider = self._provider_manager.get_provider(provider_name)
+        else:
+            provider = None
+        
+        if not provider:
+            # Fallback to hardcoded defaults
+            logger.warning(f"Provider '{provider_name}' not found in DB, using defaults")
+            if provider_name == "openrouter":
+                api_key = os.environ.get("OPENROUTER_API_KEY", "")
+                api_base = "https://openrouter.ai/api/v1"
+            elif provider_name == "lmstudio":
+                api_key = "lmstudio"
+                api_base = "http://localhost:1234/v1"
+            elif provider_name == "ollama":
+                api_key = "ollama"
+                api_base = "http://localhost:11434/v1"
+            else:
+                raise ValueError(f"Unknown provider: {provider_name}")
+        else:
+            api_key = self._provider_manager.get_api_key(provider_name) or "local"
+            api_base = provider.api_base
+            
+            if not api_base:
+                # Non-OpenAI-compatible provider (e.g., google_native)
+                return None, None
+        
+        # Create OpenAI client
+        client = OpenAI(base_url=api_base, api_key=api_key)
+        
+        # Wrap with Opik if available
+        try:
+            from opik.integrations.openai import track_openai
+            client = track_openai(client, project_name="ai-orchestration")
+        except ImportError:
+            pass
+        
+        self._clients[provider_name] = (client, api_base)
+        logger.info(f"Created client for {provider_name}: {api_base}")
+        return client, api_base
 
     # Reliable fallback used when the configured model is unavailable or invalid.
     # Must be a Google-native model so it routes through _call_google, not OpenRouter.
@@ -237,13 +304,13 @@ class ModelRouter:
 
         # ── Attempt 1: configured provider ────────────────────────────────
         try:
-            if provider == "lmstudio" or provider == "ollama":
-                return self._call_local(messages, model, tools)
+            if provider in ("lmstudio", "ollama"):
+                return self._call_local(messages, model, tools, provider)
             elif provider == "google":
                 return self._call_google(messages, model, tools)
             else:
-                # Default to openrouter
-                return self._call_remote(messages, model, tools)
+                # OpenRouter or other OpenAI-compatible provider
+                return self._call_remote(messages, model, tools, provider)
         except Exception as e:
             err = str(e)
             # Hard errors — no fallback makes sense
@@ -266,7 +333,7 @@ class ModelRouter:
         # ── Attempt 2: remote with original model (only if we came from local) ──
         if is_local:
             try:
-                return self._call_remote(messages, model, tools)
+                return self._call_remote(messages, model, tools, "openrouter")
             except Exception as e:
                 err = str(e)
                 if "401" in err or "Unauthorized" in err:
@@ -284,9 +351,14 @@ class ModelRouter:
         )
         return self._call_google(messages, self.SAFE_FALLBACK_MODEL, tools)
 
-    def _call_remote(self, messages: list[dict], model: str, tools: list) -> tuple:
-        """Call a cloud model via OpenRouter. Returns (response_message, cost_usd)."""
-        response = self._openrouter_client.chat.completions.create(
+    def _call_remote(self, messages: list[dict], model: str, tools: list, provider: str = "openrouter") -> tuple:
+        """Call a cloud model via OpenRouter or other OpenAI-compatible provider. Returns (response_message, cost_usd)."""
+        client, api_base = self._get_client(provider)
+        
+        if not client:
+            raise ValueError(f"No OpenAI-compatible client for provider '{provider}'")
+        
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
@@ -294,33 +366,41 @@ class ModelRouter:
         )
         usage = response.usage
         cost = self.compute_cost(model, usage.prompt_tokens, usage.completion_tokens)
+        
+        if BUDGET_TRACKING_ENABLED and budget_tracker:
+            try:
+                usage_record = UsageExtractor.extract_from_openrouter(response, model, cost)
+                if usage_record:
+                    budget_tracker.record_usage_sync(usage_record)
+            except Exception as e:
+                logger.warning(f"[BUDGET] Tracking failed: {e}")
+        
         return response.choices[0].message, cost
 
-    def _call_local(self, messages: list[dict], model: str, tools: list) -> tuple:
-        """
-        Call a local model via a standard OpenAI client pointed to local endpoint.
-        """
-        config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
-        api_base = "http://127.0.0.1:1234/v1"
-        if os.path.exists(config_path):
-            with open(config_path, "r") as f:
-                settings = yaml.safe_load(f)
-                env = settings.get("active_environment", "primary")
-                lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
-                if lmstudio:
-                    host = lmstudio.get("host", "127.0.0.1")
-                    port = lmstudio.get("port", 1234)
-                    api_base = f"http://{host}:{port}/v1"
+    def _call_local(self, messages: list[dict], model: str, tools: list, provider: str = "lmstudio") -> tuple:
+        """Call a local model via OpenAI-compatible endpoint (LMStudio, Ollama, etc.)."""
+        client, api_base = self._get_client(provider)
         
-        local_client = OpenAI(
-            base_url=api_base,
-            api_key="local-dummy-key"
-        )
+        if not client:
+            # Fallback to hardcoded config
+            config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../config/settings.yaml"))
+            api_base = "http://127.0.0.1:1234/v1"
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    settings = yaml.safe_load(f)
+                    env = settings.get("active_environment", "primary")
+                    lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
+                    if lmstudio:
+                        host = lmstudio.get("host", "127.0.0.1")
+                        port = lmstudio.get("port", 1234)
+                        api_base = f"http://{host}:{port}/v1"
+            
+            client = OpenAI(base_url=api_base, api_key="local")
         
         try:
             from opik.integrations.openai import track_openai
-            local_client = track_openai(
-                local_client,
+            client = track_openai(
+                client,
                 project_name=os.environ.get("OPIK_PROJECT_NAME", "ai-orchestration")
             )
         except Exception:
@@ -329,7 +409,7 @@ class ModelRouter:
         if model.startswith("openai/"):
             model = model.replace("openai/", "")
             
-        response = local_client.chat.completions.create(
+        response = client.chat.completions.create(
             model=model,
             messages=messages,
             tools=tools,
@@ -344,9 +424,22 @@ class ModelRouter:
         and maps function_call responses back to the OpenAI tool_calls interface.
         Falls back to OpenRouter if the native client is unavailable.
         """
+        # Initialize Google client if not already done
+        if not hasattr(self, '_google_client') or self._google_client is None:
+            if self._provider_manager:
+                api_key = self._provider_manager.get_api_key("google")
+            else:
+                api_key = os.environ.get("GOOGLE_API_KEY", "")
+            
+            if genai and api_key:
+                self._google_client = genai.Client(api_key=api_key)
+                logger.info("[GOOGLE] Native client initialized")
+            else:
+                self._google_client = None
+        
         if not self._google_client:
             logger.warning("[GOOGLE] Native client unavailable — routing through OpenRouter instead.")
-            return self._call_remote(messages, f"google/{model}" if not model.startswith("google/") else model, tools)
+            return self._call_remote(messages, f"google/{model}" if not model.startswith("google/") else model, tools, "openrouter")
 
         # Convert OpenAI-style messages to google-genai Contents
         contents = []
@@ -480,6 +573,14 @@ class ModelRouter:
             tc_id = f"call_{uuid.uuid4().hex[:16]}"
             openai_tool_calls.append(_ToolCall(tc_id, _FunctionCall(fc.name, args_str)))
 
+        if BUDGET_TRACKING_ENABLED and budget_tracker:
+            try:
+                usage_record = UsageExtractor.extract_from_google(response, bare_model, cost)
+                if usage_record:
+                    budget_tracker.record_usage_sync(usage_record)
+            except Exception as e:
+                logger.warning(f"[BUDGET] Tracking failed: {e}")
+
         return _Msg(text, openai_tool_calls if openai_tool_calls else None), cost
 
     def detect_task_type(self, description: str) -> TaskType:
@@ -499,6 +600,8 @@ class ModelRouter:
         return TaskType.AGENT_STEP
 
     def compute_cost(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
-        """Estimate cost in USD from token usage using the pricing table above."""
-        rate = _COST_PER_1M_TOKENS.get(model, _COST_PER_1M_TOKENS["default"])
-        return (prompt_tokens + completion_tokens) / 1_000_000 * rate
+        """Estimate cost in USD from token usage using separate input/output pricing."""
+        input_rate, output_rate = _PRICING_PER_1M.get(model, _PRICING_PER_1M["default"])
+        input_cost = (prompt_tokens / 1_000_000) * input_rate
+        output_cost = (completion_tokens / 1_000_000) * output_rate
+        return input_cost + output_cost

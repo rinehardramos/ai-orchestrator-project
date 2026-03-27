@@ -590,6 +590,19 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
                 embedding_dim = text_config.dim
         except Exception:
             pass
+        
+        # Resolve actual model name from reasoning level
+        actual_model = model_id
+        provider = "unknown"
+        try:
+            # Get model from specialization config
+            spec_conf = router._specializations.get(specialization, {})
+            if "model" in spec_conf:
+                actual_model = spec_conf["model"]
+            if "provider" in spec_conf:
+                provider = spec_conf["provider"]
+        except Exception:
+            pass
 
         return {
             "status": final_state.get("status", "completed"),
@@ -600,7 +613,9 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
             "duration_seconds": round(duration, 2),
             "mode": "agent",
             "artifact_files": artifact_files,
-            "model_id": model_id,
+            "model_id": actual_model,
+            "model_reasoning": model_id,
+            "provider": provider,
             "specialization": specialization,
             "embedding_model": embedding_model,
             "embedding_dim": embedding_dim,

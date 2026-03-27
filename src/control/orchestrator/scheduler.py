@@ -662,17 +662,23 @@ class TaskScheduler:
                     tool_calls = result.get('tool_call_count', 0)
                     duration = result.get('duration_seconds', 0)
                     model_id = result.get('model_id', 'unknown')
+                    model_reasoning = result.get('model_reasoning', '')
+                    provider = result.get('provider', 'unknown')
                     specialization = result.get('specialization', 'general')
                     embedding_model = result.get('embedding_model', 'unknown')
                     embedding_dim = result.get('embedding_dim', 0)
                     truncated = summary[:2000] + ('...' if len(summary) > 2000 else '')
                     artifact_note = f"\n📎 *Files:* {artifact_count} file(s) attached" if artifact_count else ""
+                    model_display = f"{model_id}" if model_id != 'unknown' else model_reasoning
+                    if provider and provider != 'unknown':
+                        model_display = f"{model_id} ({provider})"
                     self._send_text(
                         source,
                         plain=(
                             f"✅ Agent Task Succeeded\n"
                             f"ID: {task_id}\n"
-                            f"Model: {model_id} | Specialization: {specialization}\n"
+                            f"Model: {model_display}\n"
+                            f"Specialization: {specialization}\n"
                             f"Embedding: {embedding_model} ({embedding_dim}d)\n"
                             f"Cost: ${cost:.6f} USD  |  Tool calls: {tool_calls}  |  Duration: {duration:.1f}s\n"
                             f"Files: {artifact_count}{budget_summary}\n\n"
@@ -681,7 +687,7 @@ class TaskScheduler:
                         telegram=(
                             f"✅ *Agent Task Succeeded*\n"
                             f"ID: `{task_id}`\n"
-                            f"🤖 *Model:* `{model_id}`\n"
+                            f"🤖 *Model:* `{model_display}`\n"
                             f"🎯 *Specialization:* {specialization}\n"
                             f"🔢 *Embedding:* `{embedding_model}` ({embedding_dim}d)\n"
                             f"💰 *Cost:* ${cost:.6f} USD\n"
