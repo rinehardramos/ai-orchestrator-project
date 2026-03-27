@@ -1,13 +1,15 @@
 """
-Shared embedding module for all agents (worker, genesis, control).
-Uses local LMStudio embedding endpoint for code-aware embeddings.
+Dual embedding module for all agents (worker, genesis, control).
+Supports separate models for code and text content.
 
+Uses provider config from database to determine embedding endpoints.
 All agents use the same embedding model for vector compatibility in Qdrant.
 """
 import os
-import yaml
+import re
 import logging
-from src.config import load_settings
+from typing import Literal
+from dataclasses import dataclass
 
 logger = logging.getLogger("Embeddings")
 
@@ -24,95 +26,244 @@ except ImportError:
         return decorator
 
 
-def _load_embedding_config() -> dict:
+@dataclass
+class EmbeddingConfig:
+    """Configuration for a single embedding model."""
+    model: str
+    provider: str
+    dim: int
+    api_base: str = None
+    is_local: bool = True
+
+
+def _load_dual_embedding_config() -> dict[str, EmbeddingConfig]:
+    """Load dual embedding config from database.
+    
+    Expected config structure in app_config:
+    namespace: 'profiles', key: 'task_routing'
+    value.embeddings_text: {model, provider, dim}
+    value.embeddings_code: {model, provider, dim}
+    
+    Returns dict with 'text' and 'code' keys.
+    """
+    configs = {}
+    
     try:
         from src.config_db import get_loader
-        profiles = get_loader().load_namespace("profiles")
-        return profiles.get("task_routing", {}).get("embeddings", {})
+        from src.shared.providers import get_provider
+        loader = get_loader()
+        profiles = loader.load_namespace("profiles")
+        task_routing = profiles.get("task_routing", {})
+        
+        for embed_type in ["text", "code"]:
+            emb_key = f"embeddings_{embed_type}"
+            emb_config = task_routing.get(emb_key, {})
+            
+            if emb_config:
+                provider_name = emb_config.get("provider", "lmstudio")
+                provider = get_provider(provider_name)
+                
+                config = EmbeddingConfig(
+                    model=emb_config.get("model", "nomic-embed-text-v1.5"),
+                    provider=provider_name,
+                    dim=emb_config.get("dim", 768),
+                    is_local=provider.is_local if provider else True
+                )
+                
+                if provider:
+                    config.api_base = provider.api_base
+                    if provider.is_local and provider.config:
+                        host = provider.config.get("host", "localhost")
+                        port = provider.config.get("port")
+                        if port:
+                            config.api_base = f"http://{host}:{port}/v1"
+                
+                configs[embed_type] = config
+                logger.info(f"Loaded {embed_type} embedding: model={config.model}, provider={config.provider}, dim={config.dim}")
+        
+        if not configs:
+            raise ValueError("No embedding configs found in database")
+            
     except Exception as e:
         logger.error(f"Could not load embedding config from DB: {e}")
-        return {}
+        configs = _get_default_configs()
+    
+    return configs
 
 
-def get_embedder() -> "SentenceTransformerEmbedder":
+def _get_default_configs() -> dict[str, EmbeddingConfig]:
+    """Default embedding configurations."""
+    return {
+        "text": EmbeddingConfig(
+            model="nomic-embed-text-v1.5",
+            provider="lmstudio",
+            dim=768,
+            api_base="http://localhost:1234/v1",
+            is_local=True
+        ),
+        "code": EmbeddingConfig(
+            model="nomic-embed-code",
+            provider="lmstudio",
+            dim=3584,
+            api_base="http://localhost:1234/v1",
+            is_local=True
+        )
+    }
+
+
+def classify_content(text: str) -> Literal["text", "code"]:
+    """Classify content as code or text.
+    
+    Uses heuristics to detect code content:
+    - Code block markers
+    - Programming keywords/patterns
+    - File extensions in metadata
     """
-    Return the singleton embedder.
-    Model downloads and loads on first call (~2-5 seconds on GPU).
-    All subsequent calls are instant.
+    code_indicators = [
+        r'```[\w]*',  # Code blocks
+        r'^\s*(def|class|function|import|export|const|let|var)\s',
+        r'^\s*(if|for|while|try|catch)\s*[\({]',
+        r'[{}\[\];]\s*$',  # Brackets at line end
+        r'->\s*\w+',  # Arrow functions
+        r'=>\s*\{',  # JS arrow functions
+        r'::\s*\w+',  # Rust/PHP syntax
+        r'<\w+>',  # HTML/JSX tags
+        r'#include|#import|using\s+',  # C/C#/Java imports
+        r'from\s+\w+\s+import',  # Python imports
+    ]
+    
+    lines = text.split('\n')
+    code_lines = 0
+    
+    for line in lines:
+        for pattern in code_indicators:
+            if re.search(pattern, line, re.MULTILINE):
+                code_lines += 1
+                break
+    
+    code_ratio = code_lines / max(len(lines), 1)
+    return "code" if code_ratio > 0.15 else "text"
+
+
+def get_embedder() -> "DualEmbedder":
+    """
+    Return the singleton dual embedder.
     """
     global _embedder_instance
     if _embedder_instance is None:
-        _embedder_instance = SentenceTransformerEmbedder()
+        _embedder_instance = DualEmbedder()
     return _embedder_instance
 
 
-class SentenceTransformerEmbedder:
+class DualEmbedder:
+    """Manages two embedding models: one for code, one for text."""
 
     def __init__(self):
-        cfg = _load_embedding_config()
-        self.model_name = cfg.get("model", "nomic-embed-code")
-        self.dim = cfg.get("dim", 3584)
-        self._model = None
+        self._configs = _load_dual_embedding_config()
+        self._models = {}  # Lazy loaded
+        self._api_bases = {}
 
-    def _ensure_loaded(self):
-        if self._model is not None:
-            return
-            
-        cfg = _load_embedding_config()
-        self.provider = cfg.get("provider", "lmstudio")
+    def _get_model(self, embed_type: Literal["text", "code"]) -> tuple:
+        """Get model instance and config for embedding type."""
+        if embed_type not in self._configs:
+            embed_type = "text"  # Fallback to text
         
-        if self.provider in ["local", "lmstudio", "ollama"]:
-            # Load URL from settings
-            settings = load_settings()
-            lmstudio = settings.get("lmstudio", {})
-            self.api_base = f"http://{lmstudio.get('host', '127.0.0.1')}:{lmstudio.get('port', 1234)}/v1"
-            logger.info(f"Using local embeddings endpoint at {self.api_base}")
-            self._model = "local" # placeholder
-            return
-
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError:
-            raise RuntimeError(
-                "sentence-transformers not installed. "
-                "This module only runs on worker-sigbin. "
-                "The CNC node uses knowledge_base.py → OpenAI API for embeddings."
-            )
-        logger.info(f"Loading embedding model {self.model_name} ...")
-        self._model = SentenceTransformer(self.model_name, trust_remote_code=True)
-        logger.info("Embedding model ready.")
-
+        config = self._configs[embed_type]
+        return config, self._get_or_create_model(config)
+    
+    def _get_or_create_model(self, config: EmbeddingConfig):
+        """Get or create model for the given config."""
+        key = f"{config.provider}:{config.model}"
+        
+        if key in self._models:
+            return self._models[key]
+        
+        if config.provider in ["local", "lmstudio", "ollama"]:
+            self._api_bases[key] = config.api_base
+            self._models[key] = "api"  # Placeholder for API-based
+        else:
+            try:
+                from sentence_transformers import SentenceTransformer
+                logger.info(f"Loading embedding model {config.model} ...")
+                self._models[key] = SentenceTransformer(config.model, trust_remote_code=True)
+                logger.info("Embedding model ready.")
+            except ImportError:
+                raise RuntimeError(
+                    "sentence-transformers not installed. "
+                    "This module only runs on worker-sigbin. "
+                    "The CNC node uses knowledge_base.py → OpenAI API for embeddings."
+                )
+        
+        return self._models[key]
+    
+    def _embed_via_api(self, texts: list[str], config: EmbeddingConfig) -> list[list[float]]:
+        """Embed texts via API call."""
+        import requests
+        
+        resp = requests.post(
+            f"{config.api_base}/embeddings",
+            headers={"Authorization": "Bearer lmstudio"},
+            json={"model": config.model, "input": texts},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        return [d["embedding"] for d in resp.json()["data"]]
+    
     @track(name="embed_text")
-    def embed(self, text: str) -> list[float]:
+    def embed(self, text: str, embed_type: Literal["text", "code", "auto"] = "auto") -> list[float]:
         """Return a normalized embedding vector for a single string."""
-        self._ensure_loaded()
+        if embed_type == "auto":
+            embed_type = classify_content(text)
         
-        if getattr(self, "provider", "") in ["local", "lmstudio", "ollama"]:
-            import requests
-            resp = requests.post(
-                f"{self.api_base}/embeddings",
-                headers={"Authorization": "Bearer lmstudio"},
-                json={"model": self.model_name, "input": text},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            return resp.json()["data"][0]["embedding"]
-
-        return self._model.encode(text, normalize_embeddings=True).tolist()
+        config, model = self._get_model(embed_type)
+        
+        if config.provider in ["local", "lmstudio", "ollama"]:
+            result = self._embed_via_api([text], config)
+            return result[0]
+        
+        return model.encode(text, normalize_embeddings=True).tolist()
 
     @track(name="embed_batch")
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Return normalized embedding vectors for a list of strings (more efficient than looping)."""
-        self._ensure_loaded()
-        if getattr(self, "provider", "") in ["local", "lmstudio", "ollama"]:
-            import requests
-            resp = requests.post(
-                f"{self.api_base}/embeddings",
-                headers={"Authorization": "Bearer lmstudio"},
-                json={"model": self.model_name, "input": texts},
-                timeout=15,
-            )
-            resp.raise_for_status()
-            return [data["embedding"] for data in resp.json()["data"]]
+    def embed_batch(
+        self, 
+        texts: list[str], 
+        embed_type: Literal["text", "code", "auto"] = "auto"
+    ) -> list[list[float]]:
+        """Return normalized embedding vectors for a list of strings."""
+        if not texts:
+            return []
+        
+        if embed_type == "auto":
+            embed_type = classify_content(" ".join(texts[:5]))  # Sample first few
+        
+        config, model = self._get_model(embed_type)
+        
+        if config.provider in ["local", "lmstudio", "ollama"]:
+            return self._embed_via_api(texts, config)
+        
+        return [v.tolist() for v in model.encode(texts, normalize_embeddings=True)]
+    
+    def get_config(self, embed_type: Literal["text", "code"]) -> EmbeddingConfig:
+        """Get config for specific embedding type."""
+        return self._configs.get(embed_type)
+    
+    def get_collection_name(self, embed_type: Literal["text", "code"]) -> str:
+        """Get Qdrant collection name for embedding type."""
+        return f"knowledge_{embed_type}_v1"
 
-        return [v.tolist() for v in self._model.encode(texts, normalize_embeddings=True)]
+
+# Backwards compatibility
+class SentenceTransformerEmbedder:
+    """Legacy wrapper for backwards compatibility."""
+    
+    def __init__(self):
+        self._dual = get_embedder()
+        cfg = self._dual.get_config("text")
+        self.model_name = cfg.model
+        self.dim = cfg.dim
+
+    def embed(self, text: str) -> list[float]:
+        return self._dual.embed(text, "text")
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        return self._dual.embed_batch(texts, "text")

@@ -10,28 +10,15 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=postgres://temporal:temporal@postgres:5432/orchestrator
-    depends_on:
-      - postgres
+      - QDRANT_URL=http://qdrant:6333
+      - REDIS_URL=redis://redis:6379
+      - TEMPORAL_HOST_URL=temporal:7233
+      - PYTHONUNBUFFERED=1
     networks:
       - ai-network
-
-  postgres:
-    image: postgres:14
-    container_name: ai-postgres
-    environment:
-      - POSTGRES_USER=temporal
-      - POSTGRES_PASSWORD=temporal
-      - POSTGRES_DB=orchestrator
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - ai-network
+    restart: unless-stopped
 
 networks:
   ai-network:
-    driver: bridge
-
-volumes:
-  postgres_data:
+    external: true
+    name: worker_ai-network

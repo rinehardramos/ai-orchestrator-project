@@ -18,6 +18,75 @@
             </div>
         </div>
 
+        <!-- Embedding Model Section -->
+        <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
+            <div class="px-6 py-4 border-b dark:border-gray-700">
+                <h2 class="text-lg font-medium text-gray-900 dark:text-white">Embedding Models</h2>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Dual embedding system: separate models for text and code content.</p>
+            </div>
+            <div class="p-6 space-y-6">
+                <!-- Text Embeddings -->
+                <div class="border dark:border-gray-700 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Text Embeddings</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">For documents, articles, resumes, and general text content.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model</label>
+                            <select id="embedding-text-model" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                <option value="">-- Select or type custom --</option>
+                            </select>
+                            <input type="text" id="embedding-text-model-custom" class="mt-1 w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" placeholder="Or enter custom model name">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                            <select id="embedding-text-provider" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                <option value="lmstudio">LMStudio</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="google">Google</option>
+                                <option value="ollama">Ollama</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dimension</label>
+                            <input type="number" id="embedding-text-dim" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="768">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Code Embeddings -->
+                <div class="border dark:border-gray-700 rounded-lg p-4">
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Code Embeddings</h3>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">For source code, technical documentation, and API references.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Model</label>
+                            <select id="embedding-code-model" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                <option value="">-- Select or type custom --</option>
+                            </select>
+                            <input type="text" id="embedding-code-model-custom" class="mt-1 w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-sm" placeholder="Or enter custom model name">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Provider</label>
+                            <select id="embedding-code-provider" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                                <option value="lmstudio">LMStudio</option>
+                                <option value="openai">OpenAI</option>
+                                <option value="google">Google</option>
+                                <option value="ollama">Ollama</option>
+                                <option value="openrouter">OpenRouter</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dimension</label>
+                            <input type="number" id="embedding-code-dim" class="w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="768">
+                        </div>
+                    </div>
+                </div>
+                
+                <button onclick="saveEmbeddingConfig()" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Embedding Config</button>
+            </div>
+        </div>
+
         <!-- Task Routing Section -->
         <div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg">
             <div class="px-6 py-4 border-b dark:border-gray-700 flex justify-between items-center">
@@ -63,20 +132,115 @@
     let models = [];
     let routing = {};
     let specializations = {};
+    let embeddingConfig = {};
 
     async function loadAll() {
-        const [modelsResp, routingResp, specsResp] = await Promise.all([
+        const [modelsResp, routingResp, specsResp, embeddingResp] = await Promise.all([
             fetch('/api/config/models'),
             fetch('/api/config/routing'),
-            fetch('/api/config/specializations')
+            fetch('/api/config/specializations'),
+            fetch('/api/config/embeddings')
         ]);
         models = await modelsResp.json();
         routing = await routingResp.json();
         specializations = await specsResp.json();
+        embeddingConfig = await embeddingResp.json();
         
         renderModels();
         renderRouting();
         renderSpecializations();
+        renderEmbeddingConfig();
+    }
+
+    function populateEmbeddingModelDropdowns() {
+        const textSelect = document.getElementById('embedding-text-model');
+        const codeSelect = document.getElementById('embedding-code-model');
+        
+        const embeddingModels = models.filter(m => 
+            m.id.toLowerCase().includes('embed') || 
+            m.id.toLowerCase().includes('nomic') ||
+            m.provider === 'lmstudio' ||
+            m.provider === 'ollama'
+        );
+        
+        const allModels = models.length > 0 ? models : [];
+        const displayModels = embeddingModels.length > 0 ? embeddingModels : allModels;
+        
+        const optionsHtml = '<option value="">-- Select or type custom --</option>' +
+            displayModels.map(m => `<option value="${m.id}">${m.id} (${m.provider})</option>`).join('');
+        
+        textSelect.innerHTML = optionsHtml;
+        codeSelect.innerHTML = optionsHtml;
+    }
+
+    function renderEmbeddingConfig() {
+        populateEmbeddingModelDropdowns();
+        
+        const textConfig = embeddingConfig.text || {};
+        const codeConfig = embeddingConfig.code || {};
+        
+        const textModel = textConfig.model || '';
+        const codeModel = codeConfig.model || '';
+        
+        const textSelect = document.getElementById('embedding-text-model');
+        const codeSelect = document.getElementById('embedding-code-model');
+        
+        if (textSelect.querySelector(`option[value="${textModel}"]`)) {
+            textSelect.value = textModel;
+        } else if (textModel) {
+            document.getElementById('embedding-text-model-custom').value = textModel;
+        }
+        
+        if (codeSelect.querySelector(`option[value="${codeModel}"]`)) {
+            codeSelect.value = codeModel;
+        } else if (codeModel) {
+            document.getElementById('embedding-code-model-custom').value = codeModel;
+        }
+        
+        document.getElementById('embedding-text-provider').value = textConfig.provider || 'lmstudio';
+        document.getElementById('embedding-text-dim').value = textConfig.dim || 768;
+        
+        document.getElementById('embedding-code-provider').value = codeConfig.provider || 'lmstudio';
+        document.getElementById('embedding-code-dim').value = codeConfig.dim || 3584;
+    }
+
+    async function saveEmbeddingConfig() {
+        const textModel = document.getElementById('embedding-text-model').value || 
+                          document.getElementById('embedding-text-model-custom').value.trim();
+        const codeModel = document.getElementById('embedding-code-model').value || 
+                          document.getElementById('embedding-code-model-custom').value.trim();
+        
+        const data = {
+            text: {
+                model: textModel,
+                provider: document.getElementById('embedding-text-provider').value,
+                dim: parseInt(document.getElementById('embedding-text-dim').value) || 768
+            },
+            code: {
+                model: codeModel,
+                provider: document.getElementById('embedding-code-provider').value,
+                dim: parseInt(document.getElementById('embedding-code-dim').value) || 3584
+            }
+        };
+        
+        if (!textModel || !codeModel) {
+            showToast('Please select or enter model names for both text and code embeddings', 'error');
+            return;
+        }
+        
+        try {
+            const resp = await fetch('/api/config/embeddings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await resp.json();
+            if (!resp.ok) throw new Error(result.detail || 'Failed to save embedding config');
+            
+            showToast('Embedding config saved. Restart workers to apply changes.');
+        } catch (err) {
+            showToast(err.message, 'error');
+        }
     }
 
     function renderModels() {

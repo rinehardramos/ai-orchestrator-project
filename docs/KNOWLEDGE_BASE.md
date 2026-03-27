@@ -21,7 +21,7 @@ This knowledge base documents repeated operations, common pitfalls, and their re
 
 ## 4. Container Dependencies and Paths
 - **Issue:** Missing binaries (`terraform`, `pulumi`, `aws-cdk`) when executing shell commands inside the worker container.
-- **Resolution:** Install the required tools explicitly in `central_node/Dockerfile.worker` during the build phase. Remember to download architecture-appropriate binaries (e.g., `arm64` vs `amd64`) based on the host system architecture.
+- **Resolution:** Install the required tools explicitly in `src/execution/worker/Dockerfile.worker` during the build phase. Remember to download architecture-appropriate binaries (e.g., `arm64` vs `amd64`) based on the host system architecture.
 - **Issue:** "Directory not found" errors when looking for IaC tools inside the worker container.
 - **Resolution:** Verify the exact directory structure of the repository on the target node. For example, `iac-demo` contained an `infrastructure` subdirectory which housed the tools, requiring the base execution path to be updated to `iac-demo/infrastructure`.
 
@@ -80,3 +80,82 @@ This playbook handles full rebuilds and restarts of specific planes or individua
 **Important:**
 -   Always use `-i scripts/inventory.py` to ensure Ansible fetches the correct host details (user, IP, SSH key) from `config/cluster_nodes.yaml`.
 -   Use `--limit <hostname>` or `--limit <group_name>` to target specific hosts or groups defined in your inventory.
+
+## 8. Dual Embedding System with Named Vectors
+
+The knowledge store uses Qdrant named vectors to support dual embeddings in a single collection.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  KNOWLEDGE_V1 COLLECTION                         │
+│                  (Single Collection)                             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Each Point Has NAMED VECTORS:                                  │
+│  ┌─────────────────────┐  ┌─────────────────────┐              │
+│  │ vector["text"]      │  │ vector["code"]      │              │
+│  │ Dim: 768            │  │ Dim: 3584           │              │
+│  │ Model: nomic-text   │  │ Model: nomic-code   │              │
+│  │ For: docs, resumes  │  │ For: code, APIs     │              │
+│  └─────────────────────┘  └─────────────────────┘              │
+│                                                                  │
+│  Query: query_points(using="text" | "code")                     │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Benefits
+
+1. **Single Collection**: No need to manage multiple collections
+2. **Dual Search**: Query same content using text OR code similarity
+3. **Flexible Retrieval**: Use `search_both=True` to combine results
+4. **No Dimension Mismatch**: Each vector space is independent
+
+### Configuration
+
+Embedding models are configured via database (`app_config` table):
+
+```python
+# task_routing.embeddings_text
+{
+    "model": "nomic-embed-text-v1.5",
+    "provider": "lmstudio", 
+    "dim": 768
+}
+
+# task_routing.embeddings_code
+{
+    "model": "nomic-embed-code",
+    "provider": "lmstudio",
+    "dim": 3584
+}
+```
+
+### Usage
+
+```python
+from src.shared.memory.knowledge_store import get_store
+
+store = get_store()
+
+# Auto-detect content type and use appropriate vector
+results = store.query("How do I authenticate with OAuth?", embed_type="auto")
+
+# Search using text embeddings only
+results = store.query("machine learning basics", embed_type="text")
+
+# Search using code embeddings only
+results = store.query("def authenticate():", embed_type="code")
+
+# Search both vectors and merge results
+results = store.query("API authentication", search_both=True)
+```
+
+### Content Classification
+
+Content is automatically classified based on:
+1. File extension (`.py`, `.js` → code)
+2. Category metadata (`resume` → text)
+3. Code pattern detection (regex heuristics)

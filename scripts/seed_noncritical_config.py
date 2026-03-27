@@ -37,7 +37,8 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
             "analysis": {"provider": "google", "model": "gemini-2.5-flash"},
             "fast": {"provider": "google", "model": "gemini-2.5-flash-lite"},
             "execute": {"provider": "google", "model": "gemini-2.5-flash"},
-            "embeddings": {"provider": "lmstudio", "model": "text-embedding-nomic-embed-code", "dim": 3584, "collection_suffix": "_v4"},
+            "embeddings_text": {"provider": "lmstudio", "model": "nomic-embed-text-v1.5", "dim": 768},
+            "embeddings_code": {"provider": "lmstudio", "model": "nomic-embed-code", "dim": 3584},
         },
     },
     "jobs": {

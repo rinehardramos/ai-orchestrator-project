@@ -45,9 +45,18 @@ class ModelCreate(BaseModel):
 
     @field_validator('id')
     @classmethod
-    def validate_id(cls, v):
-        if not re.match(r'^[a-z0-9-]+/[a-z0-9-_.]+$', v):
-            raise ValueError('Model ID must be in format: provider/model-name (lowercase, alphanumeric, hyphens, underscores)')
+    def validate_id(cls, v, info):
+        provider = info.data.get('provider', '')
+        
+        # OpenRouter requires provider/model-name format
+        if provider == 'openrouter':
+            if not re.match(r'^[a-z0-9-]+/[a-z0-9-_.]+$', v):
+                raise ValueError('OpenRouter model ID must be in format: provider/model-name (e.g., openai/gpt-4o)')
+            return v
+        
+        # All other providers: allow flexible model ID (can be model-name or org/model)
+        if not re.match(r'^[a-z0-9-_.]+(/[a-z0-9-_.]+)?$', v):
+            raise ValueError('Model ID must be lowercase alphanumeric, hyphens, underscores, or dots (optionally: org/model)')
         return v
 
 
@@ -491,3 +500,253 @@ async def seed_config():
         return {"status": "success", "message": "Configuration seeded"}
     else:
         return {"status": "error", "message": result.stderr or result.stdout}
+
+
+class EmbeddingConfig(BaseModel):
+    model: str
+    provider: str
+    dim: Optional[int] = 768
+
+
+class DualEmbeddingConfig(BaseModel):
+    text: Optional[EmbeddingConfig] = None
+    code: Optional[EmbeddingConfig] = None
+
+
+@config_router.get("/embeddings")
+async def get_embedding_config():
+    """Get dual embedding model configuration."""
+    loader = _get_loader()
+    task_routing = loader.get("profiles", "task_routing", {})
+    
+    defaults = {
+        "text": {"model": "nomic-embed-text-v1.5", "provider": "lmstudio", "dim": 768},
+        "code": {"model": "nomic-embed-code", "provider": "lmstudio", "dim": 3584}
+    }
+    
+    result = {}
+    for embed_type in ["text", "code"]:
+        key = f"embeddings_{embed_type}"
+        result[embed_type] = task_routing.get(key, defaults[embed_type])
+    
+    return result
+
+
+@config_router.put("/embeddings")
+async def update_embedding_config(payload: DualEmbeddingConfig):
+    """Update dual embedding model configuration."""
+    loader = _get_loader()
+    profiles = loader.load_namespace("profiles")
+    task_routing = profiles.get("task_routing", {})
+    
+    if payload.text:
+        task_routing["embeddings_text"] = {
+            "model": payload.text.model,
+            "provider": payload.text.provider,
+            "dim": payload.text.dim
+        }
+    
+    if payload.code:
+        task_routing["embeddings_code"] = {
+            "model": payload.code.model,
+            "provider": payload.code.provider,
+            "dim": payload.code.dim
+        }
+    
+    profiles["task_routing"] = task_routing
+    loader.save_namespace("profiles", profiles)
+    
+    return {
+        "status": "success", 
+        "embeddings_text": task_routing.get("embeddings_text"),
+        "embeddings_code": task_routing.get("embeddings_code")
+    }
+
+
+# Provider Management
+
+class ProviderCreate(BaseModel):
+    name: str
+    display_name: str
+    provider_type: str  # openai_compatible, google_native, anthropic_native, openai_native
+    api_base: Optional[str] = None
+    api_key_env_var: Optional[str] = None
+    is_local: Optional[bool] = False
+    default_headers: Optional[Dict[str, str]] = None
+    config: Optional[Dict[str, Any]] = None
+
+    @field_validator('name')
+    @classmethod
+    def validate_name(cls, v):
+        if not re.match(r'^[a-z0-9_]+$', v):
+            raise ValueError('Provider name must be lowercase alphanumeric with underscores')
+        return v
+
+    @field_validator('provider_type')
+    @classmethod
+    def validate_type(cls, v):
+        valid_types = ['openai_compatible', 'google_native', 'anthropic_native', 'openai_native']
+        if v not in valid_types:
+            raise ValueError(f'Provider type must be one of: {", ".join(valid_types)}')
+        return v
+
+
+class ProviderUpdate(BaseModel):
+    display_name: Optional[str] = None
+    api_base: Optional[str] = None
+    api_key_env_var: Optional[str] = None
+    is_local: Optional[bool] = None
+    is_active: Optional[bool] = None
+    default_headers: Optional[Dict[str, str]] = None
+    config: Optional[Dict[str, Any]] = None
+
+
+@config_router.get("/providers")
+async def get_providers():
+    """Get all configured providers."""
+    loader = _get_loader()
+    conn = loader._get_conn()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        SELECT id, name, display_name, provider_type, api_base, 
+               api_key_env_var, is_local, is_active, default_headers, config
+        FROM providers
+        ORDER BY name
+    """)
+    
+    providers = []
+    for row in cur.fetchall():
+        providers.append({
+            "id": row[0],
+            "name": row[1],
+            "display_name": row[2],
+            "provider_type": row[3],
+            "api_base": row[4],
+            "api_key_env_var": row[5],
+            "is_local": row[6],
+            "is_active": row[7],
+            "default_headers": row[8] or {},
+            "config": row[9] or {}
+        })
+    
+    return providers
+
+
+@config_router.post("/providers")
+async def create_provider(payload: ProviderCreate):
+    """Create a new provider."""
+    loader = _get_loader()
+    conn = loader._get_conn()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO providers (name, display_name, provider_type, api_base, api_key_env_var, is_local, default_headers, config)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            payload.name,
+            payload.display_name,
+            payload.provider_type,
+            payload.api_base,
+            payload.api_key_env_var,
+            payload.is_local,
+            payload.default_headers or {},
+            payload.config or {}
+        ))
+        conn.commit()
+        provider_id = cur.fetchone()[0]
+        return {"status": "success", "id": provider_id, "name": payload.name}
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@config_router.put("/providers/{provider_name}")
+async def update_provider(provider_name: str, payload: ProviderUpdate):
+    """Update a provider configuration."""
+    loader = _get_loader()
+    conn = loader._get_conn()
+    cur = conn.cursor()
+    
+    # Build dynamic update
+    updates = []
+    values = []
+    if payload.display_name is not None:
+        updates.append("display_name = %s")
+        values.append(payload.display_name)
+    if payload.api_base is not None:
+        updates.append("api_base = %s")
+        values.append(payload.api_base)
+    if payload.api_key_env_var is not None:
+        updates.append("api_key_env_var = %s")
+        values.append(payload.api_key_env_var)
+    if payload.is_local is not None:
+        updates.append("is_local = %s")
+        values.append(payload.is_local)
+    if payload.is_active is not None:
+        updates.append("is_active = %s")
+        values.append(payload.is_active)
+    if payload.default_headers is not None:
+        updates.append("default_headers = %s")
+        values.append(payload.default_headers)
+    if payload.config is not None:
+        updates.append("config = %s")
+        values.append(payload.config)
+    
+    if not updates:
+        return {"status": "success", "message": "No changes"}
+    
+    values.append(provider_name)
+    
+    try:
+        cur.execute(f"""
+            UPDATE providers SET {', '.join(updates)}, updated_at = NOW()
+            WHERE name = %s
+        """, values)
+        conn.commit()
+        
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' not found")
+        
+        # Refresh provider manager
+        from src.shared.providers import get_provider_manager
+        get_provider_manager().refresh()
+        
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@config_router.delete("/providers/{provider_name}")
+async def delete_provider(provider_name: str):
+    """Delete a provider."""
+    loader = _get_loader()
+    conn = loader._get_conn()
+    cur = conn.cursor()
+    
+    # Check if provider is being used
+    cur.execute("SELECT COUNT(*) FROM app_config WHERE value::text LIKE %s", (f'%{provider_name}%',))
+    count = cur.fetchone()[0]
+    
+    if count > 0:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Cannot delete provider '{provider_name}'. It is referenced in {count} configuration(s)."
+        )
+    
+    cur.execute("DELETE FROM providers WHERE name = %s", (provider_name,))
+    conn.commit()
+    
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' not found")
+    
+    # Refresh provider manager
+    from src.shared.providers import get_provider_manager
+    get_provider_manager().refresh()
+    
+    return {"status": "success"}
