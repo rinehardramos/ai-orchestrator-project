@@ -1,0 +1,3 @@
+[submodule "src/mercenary/web"]
+	path = src/mercenary/web
+	url = git@github.com:rinehardramos/mercenary-web.git
