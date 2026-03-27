@@ -54,6 +54,16 @@ except ImportError:
 from src.execution.worker.model_router import ModelRouter, TaskType
 from src.execution.worker.embeddings import get_embedder
 
+# Budget tracking
+try:
+    from src.shared.budget.tracker import budget_tracker
+    import asyncpg
+    import redis.asyncio as redis
+    BUDGET_TRACKING_ENABLED = True
+except ImportError:
+    BUDGET_TRACKING_ENABLED = False
+    budget_tracker = None
+
 # opik tracing moved to top
 
 # Configure logging
@@ -66,27 +76,59 @@ temp_cfg = config.get("temporal", {})
 qdrant_cfg = config.get("qdrant", {})
 redis_cfg = config.get("redis", {})
 
-# Initialize memory store with config
+# Initialize memory store - prefer environment variables for Docker
+qdrant_url = os.environ.get("QDRANT_URL") or f"http://{qdrant_cfg.get('host', 'localhost')}:{qdrant_cfg.get('port', 6333)}"
+redis_url = os.environ.get("REDIS_URL") or f"redis://{redis_cfg.get('host', 'localhost')}:{redis_cfg.get('port', 6379)}"
+
 memory_store = HybridMemoryStore(
-    redis_url=f"redis://{redis_cfg.get('host', 'localhost')}:{redis_cfg.get('port', 6379)}",
-    qdrant_url=f"http://{qdrant_cfg.get('host', 'localhost')}:{qdrant_cfg.get('port', 6333)}"
+    redis_url=redis_url,
+    qdrant_url=qdrant_url
 )
 
 # Load plugin tools at startup
 _tools_loaded = False
+_last_config_check = 0
 
 async def _ensure_tools_loaded():
-    global _tools_loaded
+    global _tools_loaded, _last_config_check
     if not _tools_loaded and PLUGINS_AVAILABLE:
         try:
             await load_tools("config/bootstrap.yaml", node="worker")
             _tools_loaded = True
             logger.info(f"Loaded {len(registry._tools)} tools from plugin registry")
-            # Build the function map for tool lookup
             from src.execution.worker.tools import _build_plugin_fn_map
             _build_plugin_fn_map()
         except Exception as e:
             logger.warning(f"Could not load plugin tools: {e}")
+
+def _check_config_reload():
+    """Check if config has changed and reload if needed."""
+    global _last_config_check
+    import time
+    now = time.time()
+    if now - _last_config_check > 30:
+        _last_config_check = now
+        try:
+            if registry.check_and_reload_config():
+                from src.execution.worker.tools import _build_plugin_fn_map
+                _build_plugin_fn_map()
+                logger.info("Config reloaded, tool function map rebuilt")
+        except Exception as e:
+            logger.warning(f"Config reload check failed: {e}")
+
+
+def _get_knowledge_collections() -> tuple:
+    """Get knowledge and insights collection names from database config."""
+    try:
+        from src.config_db import get_loader
+        loader = get_loader()
+        config = loader.load_namespace("knowledge") or {}
+        return (
+            config.get("knowledge_collection", "knowledge_v1"),
+            config.get("insights_collection", "agent_insights_v4")
+        )
+    except Exception:
+        return ("knowledge_v1", "agent_insights_v4")
 
 # --- Agent Defaults (from jobs.yaml) ---
 def load_agent_defaults() -> dict:
@@ -156,6 +198,7 @@ class AgenticState(TypedDict):
     max_cost_usd: float
     total_cost_usd: float
     model_id: str
+    provider: str
     specialization: str
     artifacts: list[str]
     progress_log: list[str]
@@ -166,9 +209,10 @@ class AgenticState(TypedDict):
 
 def _fetch_qdrant_context(task_description: str) -> str:
     """Retrieve relevant past insights from Qdrant for the agent system prompt."""
+    _, insights_collection = _get_knowledge_collections()
     try:
         vector = get_embedder().embed(task_description)
-        results = memory_store.query_l2("agent_insights_v4", vector, limit=3)
+        results = memory_store.query_l2(insights_collection, vector, limit=3)
         if results:
             entries = []
             for r in results:
@@ -205,7 +249,8 @@ def agent_plan(state: AgenticState) -> AgenticState:
 @track(name="agent_step")
 def agent_step(state: AgenticState) -> AgenticState:
     """Core agent node: call LLM, get response (may include tool_calls or final text)."""
-    # Budget check
+    _check_config_reload()
+    
     if state["total_cost_usd"] >= state["max_cost_usd"]:
         logger.warning(f"Cost budget exceeded (${state['total_cost_usd']:.4f} >= ${state['max_cost_usd']:.4f}), forcing completion")
         return {
@@ -506,6 +551,7 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         duration = time.time() - start_time
 
         # Store insight to L2 if we completed successfully
+        _, insights_collection = _get_knowledge_collections()
         if final_state.get("summary") and memory_store.qdrant:
             try:
                 insight = f"Task: {task_description}\nResult: {final_state['summary'][:500]}"
@@ -515,8 +561,8 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
                     content=insight,
                     metadata={"task": task_description, "source": "agent", "tool_calls": final_state.get("tool_call_count", 0)},
                 )
-                memory_store.store_l2("agent_insights_v4", entry, vector=vector)
-                logger.info("[L2 Stored] Agent insight saved to Qdrant")
+                memory_store.store_l2(insights_collection, entry, vector=vector)
+                logger.info(f"[L2 Stored] Agent insight saved to Qdrant collection: {insights_collection}")
             except Exception as e:
                 logger.error(f"Failed to store agent insight in Qdrant: {e}")
 
@@ -761,11 +807,26 @@ class AIOrchestrationWorkflow:
 # --- Worker Runtime ---
 
 async def main():
-    temporal_host = f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
+    # Prefer environment variables for Docker/container deployments
+    temporal_host = os.environ.get("TEMPORAL_HOST_URL") or f"{temp_cfg.get('host', 'localhost')}:{temp_cfg.get('port', 7233)}"
     logger.info(f"Connecting to Temporal at {temporal_host}...")
 
     # Load plugin tools
     await _ensure_tools_loaded()
+
+    # Initialize budget tracker
+    if BUDGET_TRACKING_ENABLED and budget_tracker:
+        try:
+            redis_url = f"redis://{redis_cfg.get('host', 'localhost')}:{redis_cfg.get('port', 6379)}"
+            db_url = os.environ.get("DATABASE_URL", "postgresql://temporal:temporal@postgres:5432/orchestrator")
+            
+            redis_client = redis.from_url(redis_url)
+            db_pool = await asyncpg.create_pool(db_url, min_size=1, max_size=5)
+            
+            budget_tracker.initialize(redis_client=redis_client, db_pool=db_pool)
+            logger.info("Budget tracker initialized")
+        except Exception as e:
+            logger.warning(f"Could not initialize budget tracker: {e}")
 
     client = None
     for i in range(10):

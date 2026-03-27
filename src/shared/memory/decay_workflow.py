@@ -20,8 +20,19 @@ async def apply_belief_decay() -> dict:
     memory_store = HybridMemoryStore()
     if not memory_store.qdrant:
         return {"status": "skipped", "reason": "Qdrant not configured"}
-        
-    collections_to_decay = ["agent_insights_v4", "knowledge_base_v4"]
+    
+    # Get collection names from database config
+    try:
+        from src.config_db import get_loader
+        loader = get_loader()
+        config = loader.load_namespace("knowledge") or {}
+        knowledge_collection = config.get("knowledge_collection", "knowledge_v1")
+        insights_collection = config.get("insights_collection", "agent_insights_v4")
+    except Exception:
+        knowledge_collection = "knowledge_v1"
+        insights_collection = "agent_insights_v4"
+    
+    collections_to_decay = [insights_collection, knowledge_collection]
     total_decayed = 0
     
     for collection_name in collections_to_decay:

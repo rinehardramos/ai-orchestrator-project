@@ -27,6 +27,7 @@ class ConfigLoader:
         self._conn = None
         self._cache: dict[str, Any] = {}
         self._db_config: dict[str, Any] = {}
+        self._config_version: int = 0
         
     @property
     def database_url(self) -> str:
@@ -196,6 +197,44 @@ class ConfigLoader:
         )
         conn.commit()
         log.info("Setup marked as complete")
+
+    def get_config_version(self) -> int:
+        """Get current config version hash from database."""
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute("SELECT value FROM system_state WHERE key = 'config_version'")
+            row = cur.fetchone()
+            if row:
+                return int(row[0])
+            return 0
+        except Exception:
+            return 0
+
+    def bump_config_version(self) -> None:
+        """Increment config version to signal workers to reload."""
+        conn = self._get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO system_state (key, value) VALUES ('config_version', '1') "
+            "ON CONFLICT (key) DO UPDATE SET value = (CAST(COALESCE(system_state.value, '0') AS INTEGER) + 1)::text, updated_at = now()"
+        )
+        conn.commit()
+        self._config_version = self.get_config_version()
+        log.info(f"Config version bumped to {self._config_version}")
+
+    def has_config_changed(self) -> bool:
+        """Check if config has changed since last check."""
+        current_version = self.get_config_version()
+        if current_version != self._config_version:
+            self._config_version = current_version
+            return True
+        return False
+
+    def invalidate_cache(self) -> None:
+        """Clear the config cache to force reload from database."""
+        self._cache.clear()
+        log.info("Config cache invalidated")
 
 
 _loader: Optional[ConfigLoader] = None

@@ -96,8 +96,8 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
             "analysis": {"provider": "google", "model": "gemini-2.5-flash"},
             "fast": {"provider": "google", "model": "gemini-2.5-flash-lite"},
             "execute": {"provider": "google", "model": "gemini-2.5-flash"},
-            "embeddings_text": {"provider": "lmstudio", "model": "nomic-embed-text-v1.5", "dim": 768},
-            "embeddings_code": {"provider": "lmstudio", "model": "nomic-embed-code", "dim": 3584},
+            "embeddings_text": {"provider": "lmstudio", "model": "text-embedding-nomic-embed-text-v2-moe", "dim": 768},
+            "embeddings_code": {"provider": "lmstudio", "model": "text-embedding-nomic-embed-code", "dim": 3584},
         },
     },
     "jobs": {
@@ -137,9 +137,10 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "limits": {"max_file_size_mb": 25, "max_audio_duration_seconds": 3600, "timeout_seconds": 60},
     },
     "specializations": {
-        "general": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command", "email_send", "email_read_inbox", "email_search", "email_get", "email_delete", "drive_list", "drive_read", "drive_write", "drive_delete", "drive_search", "drive_create_folder", "drive_share"]},
+        "general": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["list_files", "read_file", "write_file", "search_web", "read_url_content", "task_complete", "git_clone", "run_command", "email_send", "email_read_inbox", "email_search", "email_get", "email_delete", "drive_list", "drive_read", "drive_write", "drive_delete", "drive_search", "drive_create_folder", "drive_share", "knowledge_query", "knowledge_list", "knowledge_ingest", "knowledge_delete"]},
         "coding": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["list_files", "read_file", "write_file", "run_command", "git_clone", "task_complete", "search_web"]},
-        "research": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["search_web", "read_url_content", "task_complete", "write_file"]},
+        "research": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["search_web", "read_url_content", "task_complete", "write_file", "knowledge_query", "knowledge_list"]},
+        "knowledge": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["knowledge_query", "knowledge_list", "knowledge_ingest", "knowledge_delete", "read_file", "write_file", "list_files", "task_complete"]},
         "image_generation": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["generate_image", "task_complete"]},
         "video_generation": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["generate_video", "task_complete"]},
         "audio_generation": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["generate_audio", "task_complete"]},
@@ -153,6 +154,10 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
             {"name": "worker-main", "host": "macbook.local", "role": "execution", "user": "rinehardramos", "project_dir": "/Users/rinehardramos/Projects/ai-orchestrator-project"},
             {"name": "worker-sigbin", "host": "192.168.100.100", "port": 22002, "role": "execution", "user": "sigbin"},
         ]
+    },
+    "knowledge": {
+        "knowledge_collection": "knowledge_v1",
+        "insights_collection": "agent_insights_v4",
     },
 }
 

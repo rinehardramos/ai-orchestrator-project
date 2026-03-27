@@ -70,13 +70,25 @@ def _load_dual_embedding_config() -> dict[str, EmbeddingConfig]:
                     is_local=provider.is_local if provider else True
                 )
                 
-                if provider:
-                    config.api_base = provider.api_base
-                    if provider.is_local and provider.config:
+                # Determine API base with environment variable override for Docker
+                if provider_name in ["lmstudio", "ollama", "local"]:
+                    env_host = os.environ.get(f"{provider_name.upper()}_HOST")
+                    env_port = os.environ.get(f"{provider_name.upper()}_PORT", "1234")
+                    if env_host:
+                        config.api_base = f"http://{env_host}:{env_port}/v1"
+                    elif provider and provider.api_base:
+                        config.api_base = provider.api_base
+                    elif provider and provider.config:
                         host = provider.config.get("host", "localhost")
-                        port = provider.config.get("port")
-                        if port:
-                            config.api_base = f"http://{host}:{port}/v1"
+                        port = provider.config.get("port", "1234")
+                        config.api_base = f"http://{host}:{port}/v1"
+                    else:
+                        # Final fallback to environment variables
+                        fallback_host = os.environ.get("LMSTUDIO_HOST", os.environ.get("OLLAMA_HOST", "localhost"))
+                        fallback_port = os.environ.get("LMSTUDIO_PORT", os.environ.get("OLLAMA_PORT", "1234"))
+                        config.api_base = f"http://{fallback_host}:{fallback_port}/v1"
+                elif provider:
+                    config.api_base = provider.api_base
                 
                 configs[embed_type] = config
                 logger.info(f"Loaded {embed_type} embedding: model={config.model}, provider={config.provider}, dim={config.dim}")
@@ -92,20 +104,24 @@ def _load_dual_embedding_config() -> dict[str, EmbeddingConfig]:
 
 
 def _get_default_configs() -> dict[str, EmbeddingConfig]:
-    """Default embedding configurations."""
+    """Default embedding configurations with environment variable override."""
+    lmstudio_host = os.environ.get("LMSTUDIO_HOST", "localhost")
+    lmstudio_port = os.environ.get("LMSTUDIO_PORT", "1234")
+    api_base = f"http://{lmstudio_host}:{lmstudio_port}/v1"
+    
     return {
         "text": EmbeddingConfig(
             model="nomic-embed-text-v1.5",
             provider="lmstudio",
             dim=768,
-            api_base="http://localhost:1234/v1",
+            api_base=api_base,
             is_local=True
         ),
         "code": EmbeddingConfig(
             model="nomic-embed-code",
             provider="lmstudio",
             dim=3584,
-            api_base="http://localhost:1234/v1",
+            api_base=api_base,
             is_local=True
         )
     }

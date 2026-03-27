@@ -140,7 +140,38 @@ class ToolRegistry:
         """Clear all registered tools. Caller must re-run load_tools() after."""
         self._tools.clear()
         self._fn_lookup.clear()
+        self._specializations = None
         log.info("Registry cleared — reload required")
+
+    def refresh_specializations(self) -> bool:
+        """
+        Reload specializations from database.
+        Returns True if specializations were reloaded.
+        """
+        try:
+            self._specializations = self._load_specializations()
+            log.info(f"Refreshed specializations: {list(self._specializations.keys())}")
+            return True
+        except Exception as e:
+            log.error(f"Failed to refresh specializations: {e}")
+            return False
+
+    def check_and_reload_config(self) -> bool:
+        """
+        Check if config has changed and reload if needed.
+        Returns True if reload happened.
+        """
+        try:
+            from src.config_db import get_loader
+            loader = get_loader()
+            if loader.has_config_changed():
+                log.info("Config change detected, reloading...")
+                loader.invalidate_cache()
+                self.refresh_specializations()
+                return True
+        except Exception as e:
+            log.warning(f"Config change check failed: {e}")
+        return False
 
     def _filter_by_specialization(self, schemas: list[dict],
                                    specialization: str) -> list[dict]:

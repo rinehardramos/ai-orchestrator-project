@@ -1,0 +1,34 @@
+services:
+  ai-worker:
+    build:
+      context: ../../..
+      dockerfile: src/execution/worker/Dockerfile.worker
+    image: ai-worker:local
+    env_file:
+      - ../../../.env
+    environment:
+      - PYTHONPATH=/app
+      - TEMPORAL_HOST_URL=host.docker.internal:7233
+      - QDRANT_URL=http://host.docker.internal:6333
+      - REDIS_URL=redis://host.docker.internal:6379
+      - DATABASE_URL=postgresql://temporal:temporal@host.docker.internal:5432/orchestrator
+      - LMSTUDIO_HOST=host.docker.internal
+      - LMSTUDIO_PORT=${LMSTUDIO_PORT:-1234}
+      - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://host.docker.internal:8080}
+      - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
+      - PYTHONUNBUFFERED=1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai-network
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  ai-network:
+    external: true
+    name: worker_ai-network

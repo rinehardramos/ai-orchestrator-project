@@ -25,6 +25,8 @@ MIGRATION_FILES = [
     "002_scheduled_tasks.sql",
     "003_app_config.sql",
     "004_defaults.sql",
+    "005_spreadsheets.sql",
+    "006_config_versioning.sql",
 ]
 
 DEFAULT_TOOLS = [
@@ -40,6 +42,8 @@ DEFAULT_TOOLS = [
     {"name": "http_client", "type": "webhook", "module": "src.tools_catalog.webhook.http_client", "enabled": True, "listen": False, "node": "worker", "description": "Make HTTP requests (GET, POST, PUT, DELETE)"},
     {"name": "google_drive", "type": "mcp", "module": "src.plugins.mcp_bridge", "enabled": False, "listen": False, "node": "worker", "description": "Google Drive via MCP: list, read, write, search files"},
     {"name": "gmail", "type": "email", "module": "src.tools_catalog.email.gmail", "enabled": True, "listen": False, "node": "worker", "description": "Gmail IMAP/SMTP integration"},
+    {"name": "knowledge", "type": "data", "module": "src.tools_catalog.data.knowledge", "enabled": True, "listen": False, "node": "both", "description": "Ingest and query documents for knowledge retrieval"},
+    {"name": "spreadsheet_query", "type": "data", "module": "src.tools_catalog.data.spreadsheet", "enabled": True, "listen": False, "node": "worker", "description": "Query and analyze spreadsheet data"},
 ]
 
 DEFAULT_TOOL_CONFIGS = [
@@ -100,7 +104,76 @@ def seed_tools(cur, dry_run: bool = False) -> None:
             log.error(f"  Failed to seed config {tool_name}.{key}: {e}")
 
 
-def run_migrations(dry_run: bool = False, reset: bool = False) -> None:
+def get_rollback_sql(migration_file: str) -> str:
+    """Extract rollback SQL from migration file (between DOWN comments)."""
+    path = MIGRATIONS_DIR / migration_file
+    if not path.exists():
+        return None
+    
+    with open(path, "r") as f:
+        content = f.read()
+    
+    # Find rollback section between DOWN and end of file or next marker
+    import re
+    match = re.search(r'--\s*DOWN.*?\n(.+?)(?=\n--\s*UP|\Z)', content, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    
+    # Alternative: look for rollback comment section
+    lines = content.split('\n')
+    in_rollback = False
+    rollback_lines = []
+    for line in lines:
+        if '-- DOWN' in line or '-- Rollback' in line:
+            in_rollback = True
+            continue
+        if in_rollback and line.startswith('--'):
+            continue
+        if in_rollback:
+            rollback_lines.append(line)
+    
+    return '\n'.join(rollback_lines).strip() if rollback_lines else None
+
+
+def rollback_migration(migration_file: str, dry_run: bool = False) -> bool:
+    """Rollback a specific migration."""
+    rollback_sql = get_rollback_sql(migration_file)
+    if not rollback_sql:
+        log.warning(f"No rollback SQL found in {migration_file}")
+        return False
+    
+    log.info(f"Rolling back: {migration_file}")
+    log.info(f"Rollback SQL:\n{rollback_sql[:500]}...")
+    
+    if dry_run:
+        log.info("  [DRY RUN] Would execute rollback")
+        return True
+    
+    try:
+        import psycopg2
+        db_url = get_database_url()
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+        
+        # Execute rollback statements
+        for statement in rollback_sql.split(';'):
+            statement = statement.strip()
+            if statement and not statement.startswith('--'):
+                try:
+                    cur.execute(statement)
+                except Exception as e:
+                    log.warning(f"  Statement failed (may be expected): {e}")
+        
+        conn.close()
+        log.info(f"  Rollback complete")
+        return True
+    except Exception as e:
+        log.error(f"  Rollback failed: {e}")
+        return False
+
+
+def run_migrations(dry_run: bool = False, reset: bool = False, rollback: str = None) -> None:
     try:
         import psycopg2
     except ImportError:
@@ -177,6 +250,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run database migrations")
     parser.add_argument("--dry-run", action="store_true", help="Show what would be done")
     parser.add_argument("--reset", action="store_true", help="Drop all tables first (DANGER)")
+    parser.add_argument("--rollback", type=str, help="Rollback a specific migration file (e.g., 006_config_versioning.sql)")
     args = parser.parse_args()
 
     if args.reset and not args.dry_run:
@@ -185,7 +259,10 @@ def main():
             print("Aborted.")
             sys.exit(1)
 
-    run_migrations(dry_run=args.dry_run, reset=args.reset)
+    if args.rollback:
+        rollback_migration(args.rollback, dry_run=args.dry_run)
+    else:
+        run_migrations(dry_run=args.dry_run, reset=args.reset)
 
 
 if __name__ == "__main__":

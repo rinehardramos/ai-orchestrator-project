@@ -70,34 +70,67 @@ class KnowledgeBaseClient:
                     qdrant_url = f"http://{host}:{port}"
 
         self.store = HybridMemoryStore(qdrant_url=qdrant_url)
-        self.collection_name = "knowledge_base_v4"
+        
+        # Get collection name from database config
+        try:
+            from src.config_db import get_loader
+            loader = get_loader()
+            config = loader.load_namespace("knowledge") or {}
+            self.collection_name = config.get("knowledge_collection", "knowledge_v1")
+        except Exception:
+            self.collection_name = "knowledge_v1"
 
         self._openai_key = os.environ.get("OPENAI_API_KEY", "dummy")
         
-        # Load embedding settings from profiles.yaml
-        profiles_path = os.path.join(project_root, "config/profiles.yaml")
-        provider = "openai"
-        self._embed_model = "nomic-embed-code"
+        # Default to LMStudio for embeddings
+        self._embed_model = "text-embedding-nomic-embed-code"
         self._embed_dim = _EMBED_DIM
-        self._api_base = "https://api.openai.com/v1"
+        lmstudio_host = os.environ.get("LMSTUDIO_HOST", "localhost")
+        lmstudio_port = os.environ.get("LMSTUDIO_PORT", "1234")
+        self._api_base = f"http://{lmstudio_host}:{lmstudio_port}/v1"
+        self._embed_provider = "lmstudio"
+        self._openai_key = "lmstudio"
         
-        if os.path.exists(profiles_path):
-            with open(profiles_path, 'r') as f:
-                prof = yaml.safe_load(f)
-                emb = prof.get("task_routing", {}).get("embeddings", {})
-                provider = emb.get("provider", "local")
+        try:
+            from src.config_db import get_loader
+            loader = get_loader()
+            profiles = loader.load_namespace("profiles")
+            emb = profiles.get("task_routing", {}).get("embeddings", {})
+            
+            if emb:
+                self._embed_provider = emb.get("provider", "lmstudio")
                 self._embed_model = emb.get("model", "text-embedding-nomic-embed-code")
                 self._embed_dim = emb.get("dim", _EMBED_DIM)
+        except Exception as e:
+            # Fallback to YAML if database not available
+            profiles_path = os.path.join(project_root, "config/profiles.yaml")
+            if os.path.exists(profiles_path):
+                with open(profiles_path, 'r') as f:
+                    prof = yaml.safe_load(f)
+                    emb = prof.get("task_routing", {}).get("embeddings", {})
+                    if emb:
+                        self._embed_provider = emb.get("provider", "lmstudio")
+                        self._embed_model = emb.get("model", "text-embedding-nomic-embed-code")
+                        self._embed_dim = emb.get("dim", _EMBED_DIM)
         
-        if provider == "local" or provider == "lmstudio" or provider == "ollama":
+        # Set API endpoint based on provider
+        if self._embed_provider in ["local", "lmstudio", "ollama"]:
+            # Get host/port from environment variables first
+            host = os.environ.get("LMSTUDIO_HOST", os.environ.get("OLLAMA_HOST", "localhost"))
+            port = os.environ.get("LMSTUDIO_PORT", os.environ.get("OLLAMA_PORT", "1234"))
+            self._api_base = f"http://{host}:{port}/v1"
+            self._openai_key = "lmstudio"
+            
+            # Check settings.yaml for custom host/port (fallback)
             if os.path.exists(settings_path):
                 with open(settings_path, 'r') as f:
                     settings = yaml.safe_load(f)
                     env = settings.get("active_environment", "primary")
                     lmstudio = settings.get("environments", {}).get(env, {}).get("lmstudio", {})
-                    if lmstudio:
-                        self._api_base = f"http://{lmstudio.get('host', '127.0.0.1')}:{lmstudio.get('port', 1234)}/v1"
-                        self._openai_key = "lmstudio"
+                    if lmstudio and not os.environ.get("LMSTUDIO_HOST"):
+                        host = lmstudio.get('host', 'localhost')
+                        port = lmstudio.get('port', 1234)
+                        self._api_base = f"http://{host}:{port}/v1"
 
     @track(name="embed_text")
     def embed_text(self, text: str) -> list[float]:
@@ -157,34 +190,40 @@ class KnowledgeBaseClient:
             print(f"✅ Ingested: {title}")
 
     def query_similar_issues(self, task_description: str, limit: int = 2) -> list[dict]:
-        vector = self.embed_text(task_description)
-        results = self.store.query_l2(self.collection_name, vector, limit)
-        
-        relevant_issues = []
-        for res in results:
-            if res.score > 0.3: # Threshold for relevance (lowered for nomic-embed-text-v2-moe)
-                payload = res.payload or {}
-                
-                # ── Boost Score On Retrieval ──
-                # If this knowledge is useful, reset its belief score so it outlives decay.
-                try:
-                    if "score" in payload:
-                        new_score = min(1.0, payload.get("score", 1.0) + 0.1) # Boost
-                        self.store.qdrant.set_payload(
-                            collection_name=self.collection_name,
-                            payload={"score": new_score},
-                            points=[res.id]
-                        )
-                except Exception as e:
-                    print(f"Failed to boost score for {res.id}: {e}")
-
-                relevant_issues.append({
-                    "title": payload.get("title", ""),
-                    "content": payload.get("content", ""),
-                    "belief_score": payload.get("score", 1.0),
-                    "similarity": res.score
-                })
-        return relevant_issues
+        # Use KnowledgeStore for named vector support
+        try:
+            from src.shared.memory.knowledge_store import KnowledgeStore
+            store = KnowledgeStore()
+            results = store.query(task_description, limit=limit)
+            
+            relevant_issues = []
+            for res in results:
+                if res.get("score", 0) > 0.3:
+                    relevant_issues.append({
+                        "title": res.get("section_title", res.get("doc_name", "")),
+                        "content": res.get("text", ""),
+                        "doc_name": res.get("doc_name", ""),
+                        "score": res.get("score", 0),
+                        "similarity": res.get("score", 0)
+                    })
+            return relevant_issues
+        except Exception as e:
+            # Fallback to HybridMemoryStore for single-vector collections
+            vector = self.embed_text(task_description)
+            results = self.store.query_l2(self.collection_name, vector, limit)
+            
+            relevant_issues = []
+            for res in results:
+                if res.score > 0.3:
+                    payload = res.payload or {}
+                    relevant_issues.append({
+                        "title": payload.get("title", ""),
+                        "content": payload.get("content", ""),
+                        "belief_score": payload.get("score", 1.0),
+                        "score": res.score,
+                        "similarity": res.score
+                    })
+            return relevant_issues
 
 if __name__ == "__main__":
     kb = KnowledgeBaseClient()

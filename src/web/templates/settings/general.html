@@ -9,6 +9,7 @@
             <nav class="flex -mb-px">
                 <button onclick="showTab('database')" class="tab-btn px-6 py-3 border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400 font-medium" data-tab="database">Database</button>
                 <button onclick="showTab('agent')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="agent">Agent Defaults</button>
+                <button onclick="showTab('knowledge')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="knowledge">Knowledge Base</button>
                 <button onclick="showTab('cluster')" class="tab-btn px-6 py-3 border-b-2 border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" data-tab="cluster">Cluster Nodes</button>
             </nav>
         </div>
@@ -85,6 +86,33 @@
                         <input type="number" name="activity_timeout_minutes" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
                     </div>
                     <button type="submit" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Agent Defaults</button>
+                </form>
+            </div>
+
+            <div id="tab-knowledge" class="tab-content hidden">
+                <div class="mb-6">
+                    <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">Qdrant Collections</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                        Configure the Qdrant collection names used for storing documents and agent insights.
+                        Changes will take effect after the next worker activity.
+                    </p>
+                </div>
+                
+                <form id="knowledge-form" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Knowledge Collection</label>
+                        <input type="text" name="knowledge_collection" placeholder="knowledge_v1" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Collection for storing ingested documents (resumes, reports, etc.)</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Insights Collection</label>
+                        <input type="text" name="insights_collection" placeholder="agent_insights_v4" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Collection for storing agent learning insights</p>
+                    </div>
+                    <div class="flex space-x-4">
+                        <button type="button" onclick="saveKnowledgeSettings()" class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700">Save Settings</button>
+                        <span id="knowledge-save-status" class="text-sm text-green-600 dark:text-green-400 hidden">Saved! Workers will reload on next activity.</span>
+                    </div>
                 </form>
             </div>
 
@@ -335,11 +363,57 @@
     }
 
     document.getElementById('agent-form').addEventListener('submit', saveAgentDefaults);
+
+    async function loadKnowledgeSettings() {
+        try {
+            const resp = await fetch('/api/config/knowledge');
+            const data = await resp.json();
+            const form = document.getElementById('knowledge-form');
+            if (data.knowledge_collection) {
+                form.querySelector('[name="knowledge_collection"]').value = data.knowledge_collection;
+            }
+            if (data.insights_collection) {
+                form.querySelector('[name="insights_collection"]').value = data.insights_collection;
+            }
+        } catch (e) {
+            console.error('Failed to load knowledge settings:', e);
+        }
+    }
+
+    async function saveKnowledgeSettings() {
+        const form = document.getElementById('knowledge-form');
+        const data = {};
+        form.querySelectorAll('input').forEach(input => {
+            if (input.value) data[input.name] = input.value;
+        });
+        
+        const statusEl = document.getElementById('knowledge-save-status');
+        statusEl.classList.add('hidden');
+        
+        try {
+            const resp = await fetch('/api/config/knowledge', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await resp.json();
+            if (result.status === 'success') {
+                statusEl.classList.remove('hidden');
+                setTimeout(() => statusEl.classList.add('hidden'), 3000);
+            } else {
+                alert('Failed to save: ' + (result.error || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Failed to save: ' + e.message);
+        }
+    }
+
     document.addEventListener('DOMContentLoaded', () => {
         loadDbSettings();
         checkDbStatus();
         loadSystemState();
         loadAgentDefaults();
+        loadKnowledgeSettings();
         loadCluster();
     });
 </script>

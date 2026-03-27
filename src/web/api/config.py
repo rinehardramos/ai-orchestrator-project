@@ -745,8 +745,77 @@ async def delete_provider(provider_name: str):
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail=f"Provider '{provider_name}' not found")
     
-    # Refresh provider manager
     from src.shared.providers import get_provider_manager
     get_provider_manager().refresh()
     
     return {"status": "success"}
+
+
+@config_router.post("/reload")
+async def reload_config():
+    """
+    Trigger config reload on all workers.
+    
+    Bumps the config version in the database, which signals workers
+    to reload their cached configuration on the next activity.
+    """
+    loader = _get_loader()
+    
+    loader.invalidate_cache()
+    loader.bump_config_version()
+    
+    from src.plugins.registry import registry
+    registry.refresh_specializations()
+    
+    return {
+        "status": "success",
+        "message": "Config version bumped, workers will reload on next activity",
+        "config_version": loader.get_config_version()
+    }
+
+
+@config_router.get("/version")
+async def get_config_version():
+    """Get current config version."""
+    loader = _get_loader()
+    return {
+        "config_version": loader.get_config_version()
+    }
+
+
+class KnowledgeConfig(BaseModel):
+    knowledge_collection: Optional[str] = None
+    insights_collection: Optional[str] = None
+
+
+@config_router.get("/knowledge")
+async def get_knowledge_config():
+    """Get knowledge base configuration."""
+    loader = _get_loader()
+    config = loader.load_namespace("knowledge") or {}
+    return {
+        "knowledge_collection": config.get("knowledge_collection", "knowledge_v1"),
+        "insights_collection": config.get("insights_collection", "agent_insights_v4"),
+    }
+
+
+@config_router.put("/knowledge")
+async def update_knowledge_config(payload: KnowledgeConfig):
+    """Update knowledge base configuration."""
+    loader = _get_loader()
+    
+    config = loader.load_namespace("knowledge") or {}
+    
+    if payload.knowledge_collection is not None:
+        config["knowledge_collection"] = payload.knowledge_collection
+    if payload.insights_collection is not None:
+        config["insights_collection"] = payload.insights_collection
+    
+    loader.save_namespace("knowledge", config)
+    loader.bump_config_version()
+    
+    return {
+        "status": "success",
+        "config": config,
+        "note": "Workers will use new collection names after next activity (auto-reload)"
+    }

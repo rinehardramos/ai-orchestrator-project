@@ -67,17 +67,24 @@ def classify_content_type(text: str, file_type: str = None, category: str = None
 
 class KnowledgeStore:
     """Document storage and retrieval using Qdrant with named vectors.
-    
     Single collection with dual named vectors:
     - "text": 768-dim embeddings for general text
     - "code": 3584-dim embeddings for code/technical content
     """
     
-    COLLECTION_NAME = "knowledge_v1"
     VECTOR_TEXT = "text"
     VECTOR_CODE = "code"
     
-    def __init__(self):
+    def __init__(self, collection_name: str = None):
+        if collection_name is None:
+            try:
+                from src.config_db import get_loader
+                loader = get_loader()
+                config = loader.load_namespace("knowledge") or {}
+                collection_name = config.get("knowledge_collection", "knowledge_v1")
+            except Exception:
+                collection_name = "knowledge_v1"
+        self.collection_name = collection_name
         self.embedder = KnowledgeBaseClient()
         self.qdrant = self.embedder.store.qdrant
         
@@ -119,12 +126,22 @@ class KnowledgeStore:
     def _get_api_base(self, provider: str) -> str:
         """Get API base URL for provider."""
         if provider in ["lmstudio", "local", "ollama"]:
-            from src.config import load_settings
-            settings = load_settings()
-            lmstudio = settings.get("lmstudio", {})
-            host = lmstudio.get("host", "127.0.0.1")
-            port = lmstudio.get("port", 1234)
-            return f"http://{host}:{port}/v1"
+            # Prefer environment variables
+            host = os.environ.get("LMSTUDIO_HOST", os.environ.get("OLLAMA_HOST"))
+            port = os.environ.get("LMSTUDIO_PORT", os.environ.get("OLLAMA_PORT", "1234"))
+            if host:
+                return f"http://{host}:{port}/v1"
+            
+            # Fallback to settings.yaml
+            try:
+                from src.config import load_settings
+                settings = load_settings()
+                lmstudio = settings.get("lmstudio", {})
+                host = lmstudio.get("host", "localhost")
+                port = lmstudio.get("port", 1234)
+                return f"http://{host}:{port}/v1"
+            except Exception:
+                return "http://localhost:1234/v1"
         return "http://localhost:1234/v1"
     
     def _ensure_collection(self):
@@ -133,8 +150,8 @@ class KnowledgeStore:
             raise RuntimeError("Qdrant not configured. Set QDRANT_URL environment variable.")
         
         try:
-            collection = self.qdrant.get_collection(self.COLLECTION_NAME)
-            logger.info(f"Collection '{self.COLLECTION_NAME}' exists with {collection.points_count} points")
+            collection = self.qdrant.get_collection(self.collection_name)
+            logger.info(f"Collection '{self.collection_name}' exists with {collection.points_count} points")
             return
         except Exception:
             pass
@@ -142,17 +159,17 @@ class KnowledgeStore:
         text_dim = self._configs.get("text", {}).get("dim", 768)
         code_dim = self._configs.get("code", {}).get("dim", 3584)
         
-        logger.info(f"Creating Qdrant collection '{self.COLLECTION_NAME}' with named vectors: text={text_dim}, code={code_dim}")
+        logger.info(f"Creating Qdrant collection '{self.collection_name}' with named vectors: text={text_dim}, code={code_dim}")
         
         self.qdrant.create_collection(
-            collection_name=self.COLLECTION_NAME,
+            collection_name=self.collection_name,
             vectors_config={
                 self.VECTOR_TEXT: VectorParams(size=text_dim, distance=Distance.COSINE),
                 self.VECTOR_CODE: VectorParams(size=code_dim, distance=Distance.COSINE),
             }
         )
         
-        logger.info(f"Collection '{self.COLLECTION_NAME}' created successfully")
+        logger.info(f"Collection '{self.collection_name}' created successfully")
     
     def _embed_text(self, text: str, embed_type: Literal["text", "code"]) -> list[float]:
         """Generate embedding using the appropriate model."""
@@ -234,7 +251,7 @@ class KnowledgeStore:
         
         if points:
             self.qdrant.upsert(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 points=points
             )
         
@@ -325,7 +342,7 @@ class KnowledgeStore:
         
         try:
             results = self.qdrant.query_points(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 query=vector,
                 using=vector_name,
                 limit=limit,
@@ -352,7 +369,7 @@ class KnowledgeStore:
         for vector_name, vector in [(self.VECTOR_TEXT, text_vector), (self.VECTOR_CODE, code_vector)]:
             try:
                 results = self.qdrant.query_points(
-                    collection_name=self.COLLECTION_NAME,
+                    collection_name=self.collection_name,
                     query=vector,
                     using=vector_name,
                     limit=limit * 2,
@@ -402,7 +419,7 @@ class KnowledgeStore:
         
         try:
             result = self.qdrant.scroll(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 limit=1000,
                 with_payload=True
             )
@@ -421,7 +438,7 @@ class KnowledgeStore:
                         "tags": payload.get("tags", []),
                         "chunks": 0,
                         "created_at": payload.get("created_at"),
-                        "collection": self.COLLECTION_NAME,
+                        "collection": self.collection_name,
                     }
                 
                 if doc_id:
@@ -452,12 +469,12 @@ class KnowledgeStore:
         
         try:
             self.qdrant.delete(
-                collection_name=self.COLLECTION_NAME,
+                collection_name=self.collection_name,
                 points_selector=Filter(
                     must=[FieldCondition(key="doc_id", match=MatchValue(value=doc_id))]
                 )
             )
-            logger.info(f"Deleted document {doc_id} from collection {self.COLLECTION_NAME}")
+            logger.info(f"Deleted document {doc_id} from collection {self.collection_name}")
             return True
         except Exception as e:
             logger.error(f"Failed to delete document {doc_id}: {e}")
@@ -491,9 +508,9 @@ class KnowledgeStore:
             return {}
         
         try:
-            collection = self.qdrant.get_collection(self.COLLECTION_NAME)
+            collection = self.qdrant.get_collection(self.collection_name)
             return {
-                "name": self.COLLECTION_NAME,
+                "name": self.collection_name,
                 "points_count": collection.points_count,
                 "vectors_config": {
                     name: {"size": v.size, "distance": v.distance.value}
