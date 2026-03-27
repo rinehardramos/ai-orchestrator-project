@@ -40,7 +40,7 @@ class MercenaryConfig:
     def from_env(cls) -> "MercenaryConfig":
         return cls(
             API_HOST=os.environ.get("MERCENARY_API_HOST", "0.0.0.0"),
-            API_PORT=int(os.environ.get("MERCENARY_API_PORT", "8001")),
+            API_PORT=int(os.environ.get("PORT", os.environ.get("MERCENARY_API_PORT", "8001"))),
             SECRET_KEY=os.environ.get("MERCENARY_SECRET_KEY", "dev-secret-key"),
             DATABASE_URL=os.environ.get("MERCENARY_DATABASE_URL", "postgresql://mercenary:mercenary@localhost:5433/mercenary_db"),
             TEMPORAL_HOST=os.environ.get("TEMPORAL_HOST_URL", "localhost:7233"),
