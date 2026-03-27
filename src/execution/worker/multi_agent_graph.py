@@ -575,11 +575,12 @@ except ImportError:
 async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
     """Run the multi-agent Orchestrator loop pipeline."""
     task_description = task_payload.get("description", "")
+    specialization = task_payload.get("specialization", "general")
     logger.info(f"[ORCHESTRATOR] Starting Multi-Agent Pipeline for: {task_description[:50]}...")
 
     initial_state = {
         "user_prompt": task_description,
-        "specialization": task_payload.get("specialization", "general"),
+        "specialization": specialization,
         "execution_plan": None,
         "completed_subtasks": {},
         "shared_artifacts": {},
@@ -600,6 +601,19 @@ async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
 
     duration = time.time() - start_time
     
+    # Get embedding model info
+    embedding_model = "unknown"
+    embedding_dim = 0
+    try:
+        from src.execution.worker.embeddings import get_embedder
+        emb = get_embedder()
+        text_config = emb._configs.get("text")
+        if text_config:
+            embedding_model = text_config.model
+            embedding_dim = text_config.dim
+    except Exception:
+        pass
+    
     return {
         "status": final_state.get("status", "completed"),
         "summary": final_state.get("final_summary", ""),
@@ -609,4 +623,8 @@ async def run_orchestrator(task_payload: dict, model_id: str) -> dict:
         "duration_seconds": round(duration, 2),
         "mode": "agent",
         "artifact_files": final_state.get("artifact_files", []),
+        "model_id": model_id,
+        "specialization": specialization,
+        "embedding_model": embedding_model,
+        "embedding_dim": embedding_dim,
     }

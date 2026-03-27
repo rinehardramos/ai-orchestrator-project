@@ -578,6 +578,18 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         })
 
         artifact_files = _collect_artifacts(workspace_dir)
+        
+        # Get embedding model info
+        embedding_model = "unknown"
+        embedding_dim = 0
+        try:
+            emb = get_embedder()
+            text_config = emb._configs.get("text")
+            if text_config:
+                embedding_model = text_config.model
+                embedding_dim = text_config.dim
+        except Exception:
+            pass
 
         return {
             "status": final_state.get("status", "completed"),
@@ -588,6 +600,10 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
             "duration_seconds": round(duration, 2),
             "mode": "agent",
             "artifact_files": artifact_files,
+            "model_id": model_id,
+            "specialization": specialization,
+            "embedding_model": embedding_model,
+            "embedding_dim": embedding_dim,
         }
     finally:
         cleanup_workspace(workspace_dir)
