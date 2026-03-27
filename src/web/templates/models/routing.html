@@ -157,17 +157,25 @@
         const codeSelect = document.getElementById('embedding-code-model');
         
         const embeddingModels = models.filter(m => 
+            m.type === 'embedding' ||
             m.id.toLowerCase().includes('embed') || 
-            m.id.toLowerCase().includes('nomic') ||
-            m.provider === 'lmstudio' ||
-            m.provider === 'ollama'
+            m.id.toLowerCase().includes('nomic')
         );
         
-        const allModels = models.length > 0 ? models : [];
-        const displayModels = embeddingModels.length > 0 ? embeddingModels : allModels;
+        const llmModels = models.filter(m => 
+            m.type !== 'embedding' && 
+            !m.id.toLowerCase().includes('embed')
+        );
+        
+        const allModels = [...embeddingModels, ...llmModels];
         
         const optionsHtml = '<option value="">-- Select or type custom --</option>' +
-            displayModels.map(m => `<option value="${m.id}">${m.id} (${m.provider})</option>`).join('');
+            (embeddingModels.length > 0 ? '<optgroup label="Embedding Models">' + 
+            embeddingModels.map(m => `<option value="${m.id}">${m.id} (${m.provider})${m.dim ? ` - ${m.dim}d` : ''}</option>`).join('') + 
+            '</optgroup>' : '') +
+            (llmModels.length > 0 ? '<optgroup label="LLM Models">' + 
+            llmModels.map(m => `<option value="${m.id}">${m.id} (${m.provider})</option>`).join('') + 
+            '</optgroup>' : '');
         
         textSelect.innerHTML = optionsHtml;
         codeSelect.innerHTML = optionsHtml;

@@ -24,11 +24,70 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "default_model": "gemini/gemini-2.5-flash",
         "fallback_model": "openai/gpt-4o-mini",
         "models": [
+            # === GOOGLE GEMINI ===
             {"id": "gemini-2.5-flash-lite", "provider": "google", "cost_per_1k_tokens": 1.0e-05, "context_window": 1000000, "reasoning_capability": "low", "speed": "ultra_fast"},
             {"id": "gemini-2.5-flash", "provider": "google", "cost_per_1k_tokens": 0.0001, "context_window": 1000000, "reasoning_capability": "medium", "speed": "very_fast"},
-            {"id": "gpt-4o", "provider": "openai", "cost_per_1k_tokens": 0.005, "context_window": 128000, "reasoning_capability": "high", "speed": "fast"},
+            {"id": "gemini-2.5-pro-preview-05-06", "provider": "google", "cost_per_1k_tokens": 0.00125, "context_window": 1000000, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "gemini-2.0-flash", "provider": "google", "cost_per_1k_tokens": 0.0001, "context_window": 1000000, "reasoning_capability": "medium", "speed": "very_fast"},
+            {"id": "gemini-2.0-flash-lite", "provider": "google", "cost_per_1k_tokens": 5.0e-06, "context_window": 1000000, "reasoning_capability": "low", "speed": "ultra_fast"},
+            {"id": "gemini-1.5-flash", "provider": "google", "cost_per_1k_tokens": 7.5e-05, "context_window": 1000000, "reasoning_capability": "medium", "speed": "very_fast"},
+            {"id": "gemini-1.5-pro", "provider": "google", "cost_per_1k_tokens": 0.00125, "context_window": 2000000, "reasoning_capability": "high", "speed": "medium"},
+            
+            # === ANTHROPIC CLAUDE ===
             {"id": "claude-3-5-sonnet-20241022", "provider": "anthropic", "cost_per_1k_tokens": 0.003, "context_window": 200000, "reasoning_capability": "high", "speed": "fast"},
+            {"id": "claude-3-5-haiku-20241022", "provider": "anthropic", "cost_per_1k_tokens": 0.0008, "context_window": 200000, "reasoning_capability": "medium", "speed": "very_fast"},
+            {"id": "claude-sonnet-4-20250514", "provider": "anthropic", "cost_per_1k_tokens": 0.003, "context_window": 200000, "reasoning_capability": "high", "speed": "fast"},
+            {"id": "claude-opus-4-20250514", "provider": "anthropic", "cost_per_1k_tokens": 0.015, "context_window": 200000, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "claude-3-opus-20240229", "provider": "anthropic", "cost_per_1k_tokens": 0.015, "context_window": 200000, "reasoning_capability": "high", "speed": "medium"},
+            
+            # === OPENAI ===
+            {"id": "gpt-4o", "provider": "openai", "cost_per_1k_tokens": 0.005, "context_window": 128000, "reasoning_capability": "high", "speed": "fast"},
+            {"id": "gpt-4o-mini", "provider": "openai", "cost_per_1k_tokens": 0.00015, "context_window": 128000, "reasoning_capability": "medium", "speed": "very_fast"},
+            {"id": "gpt-4-turbo", "provider": "openai", "cost_per_1k_tokens": 0.01, "context_window": 128000, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "gpt-3.5-turbo", "provider": "openai", "cost_per_1k_tokens": 0.0005, "context_window": 16384, "reasoning_capability": "low", "speed": "very_fast"},
+            {"id": "o1-preview", "provider": "openai", "cost_per_1k_tokens": 0.015, "context_window": 128000, "reasoning_capability": "high", "speed": "slow"},
+            {"id": "o1-mini", "provider": "openai", "cost_per_1k_tokens": 0.003, "context_window": 128000, "reasoning_capability": "high", "speed": "medium"},
+            
+            # === ZHIPU GLM ===
+            {"id": "glm-4-plus", "provider": "openrouter", "cost_per_1k_tokens": 0.00005, "context_window": 128000, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "glm-4-flash", "provider": "openrouter", "cost_per_1k_tokens": 0.00001, "context_window": 128000, "reasoning_capability": "low", "speed": "ultra_fast"},
+            {"id": "glm-4-air", "provider": "openrouter", "cost_per_1k_tokens": 0.00001, "context_window": 128000, "reasoning_capability": "low", "speed": "very_fast"},
+            {"id": "glm-4-long", "provider": "openrouter", "cost_per_1k_tokens": 0.0001, "context_window": 1000000, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "glm-5", "provider": "litellm", "cost_per_1k_tokens": 0.00001, "context_window": 128000, "reasoning_capability": "medium", "speed": "very_fast"},
+            
+            # === DEEPSEEK ===
+            {"id": "deepseek/deepseek-chat", "provider": "openrouter", "cost_per_1k_tokens": 0.00014, "context_window": 64000, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "deepseek/deepseek-reasoner", "provider": "openrouter", "cost_per_1k_tokens": 0.00055, "context_window": 64000, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "deepseek/deepseek-coder", "provider": "openrouter", "cost_per_1k_tokens": 0.00014, "context_window": 64000, "reasoning_capability": "medium", "speed": "fast"},
+            
+            # === META LLAMA ===
+            {"id": "meta-llama/llama-3.1-405b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.002, "context_window": 131072, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "meta-llama/llama-3.1-70b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.0003, "context_window": 131072, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "meta-llama/llama-3.1-8b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00002, "context_window": 131072, "reasoning_capability": "low", "speed": "very_fast"},
+            {"id": "meta-llama/llama-3.2-90b-vision-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00035, "context_window": 131072, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "meta-llama/llama-3.2-11b-vision-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00002, "context_window": 131072, "reasoning_capability": "low", "speed": "very_fast"},
+            
+            # === MISTRAL ===
+            {"id": "mistralai/mistral-large-2411", "provider": "openrouter", "cost_per_1k_tokens": 0.002, "context_window": 128000, "reasoning_capability": "high", "speed": "medium"},
+            {"id": "mistralai/mistral-small-2409", "provider": "openrouter", "cost_per_1k_tokens": 0.0001, "context_window": 128000, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "mistralai/codestral-mamba", "provider": "openrouter", "cost_per_1k_tokens": 0.00025, "context_window": 256000, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "mistralai/pixtral-12b", "provider": "openrouter", "cost_per_1k_tokens": 0.0001, "context_window": 128000, "reasoning_capability": "low", "speed": "fast"},
+            
+            # === QWEN ===
+            {"id": "qwen/qwen-2.5-72b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00035, "context_window": 131072, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "qwen/qwen-2.5-32b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00008, "context_window": 131072, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "qwen/qwen-2.5-coder-32b-instruct", "provider": "openrouter", "cost_per_1k_tokens": 0.00008, "context_window": 131072, "reasoning_capability": "medium", "speed": "fast"},
+            {"id": "qwen/qwq-32b-preview", "provider": "openrouter", "cost_per_1k_tokens": 0.00012, "context_window": 32768, "reasoning_capability": "high", "speed": "medium"},
+            
+            # === LOCAL ===
             {"id": "llama-3.1-8b-local", "provider": "lmstudio", "cost_per_1k_tokens": 0.0, "context_window": 128000, "reasoning_capability": "low", "speed": "fast"},
+            
+            # === EMBEDDING MODELS ===
+            {"id": "nomic-embed-text-v1.5", "provider": "lmstudio", "cost_per_1k_tokens": 0.0, "context_window": 8192, "reasoning_capability": "low", "speed": "ultra_fast", "type": "embedding", "dim": 768},
+            {"id": "nomic-embed-code", "provider": "lmstudio", "cost_per_1k_tokens": 0.0, "context_window": 8192, "reasoning_capability": "low", "speed": "ultra_fast", "type": "embedding", "dim": 3584},
+            {"id": "text-embedding-3-small", "provider": "openai", "cost_per_1k_tokens": 0.00002, "context_window": 8191, "reasoning_capability": "low", "speed": "ultra_fast", "type": "embedding", "dim": 1536},
+            {"id": "text-embedding-3-large", "provider": "openai", "cost_per_1k_tokens": 0.00013, "context_window": 8191, "reasoning_capability": "low", "speed": "ultra_fast", "type": "embedding", "dim": 3072},
+            {"id": "text-embedding-ada-002", "provider": "openai", "cost_per_1k_tokens": 0.0001, "context_window": 8191, "reasoning_capability": "low", "speed": "ultra_fast", "type": "embedding", "dim": 1536},
         ],
         "task_routing": {
             "planning": {"model": "gemini-2.5-flash", "provider": "google"},
