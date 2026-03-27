@@ -12,6 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from fastapi import FastAPI
 from src.web.admin import create_admin_router
+from src.web.api.internal import internal_router
 
 app = FastAPI(
     title="AI Orchestrator Admin",
@@ -20,6 +21,7 @@ app = FastAPI(
 )
 
 app.include_router(create_admin_router())
+app.include_router(internal_router)
 
 
 @app.get("/")
