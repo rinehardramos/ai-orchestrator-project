@@ -16,29 +16,6 @@ ai-orchestrator-project/
 └── ... (core infrastructure)
 ```
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         mercs.tech Platform                             │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐   │
-│  │ mercenary-web   │     │ mercenary-api   │     │ Supabase        │   │
-│  │ (Vercel)        │────▶│ (Railway)       │────▶│ (PostgreSQL)    │   │
-│  │ Next.js 16.2    │     │ FastAPI         │     │ 500 MB free     │   │
-│  └─────────────────┘     └────────┬────────┘     └─────────────────┘   │
-│                                   │                                     │
-│                                   │ HTTP API (submit tasks)              │
-│                                   ▼                                     │
-│  ┌────────────────────────────────────────────────────────────────────┐│
-│  │ ai-orchestrator-project (Core Infrastructure)                      ││
-│  │ - Temporal workflows                                                ││
-│  │ - LiteLLM proxy                                                    ││
-│  │ - Worker nodes                                                     ││
-│  │ - Qdrant vector DB                                                 ││
-│  └────────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
 ## Repositories
 
 | Repo | Path | Platform | Purpose |
@@ -47,60 +24,108 @@ ai-orchestrator-project/
 | [mercenary-api](https://github.com/rinehardramos/mercenary-api) | `src/mercenary/api/` | Railway | Backend |
 | [ai-orchestrator-project](https://github.com/rinehardramos/ai-orchestrator-project) | (root) | Self-hosted | Core infra |
 
-## Completed
+## Completed This Session
 
-### Frontend (mercenary-web)
-- Next.js 16.2.1 (fixed CVE-2025-55184, CVE-2025-67779)
-- Pages: Landing, Login, Signup, Dashboard, Agents
-- Vercel deployment ready
+### Authentication
+- ✅ Email/password signup with verification (Resend)
+- ✅ Google OAuth integration
+  - State parameter for CSRF protection
+  - httpOnly cookies for JWT storage
+  - Account merging (Google email → existing user)
+  - Avatar storage from Google profile
+- ✅ `/auth/session` endpoint for cookie-based auth
+- ✅ `/auth/logout` endpoint
 
-### Backend (mercenary-api)
-- FastAPI with JWT authentication
-- Bounty CRUD endpoints
-- Agent matching algorithm (40% price, 25% skill, 20% duration, 15% reputation)
-- Wallet/balance system
-- Railway + Supabase ready
+### Database
+- ✅ Users table with google_id, avatar_url, is_admin
+- ✅ Agents table (seeded with 5 AI agents)
+- ✅ Bounties table
+- ✅ Transactions table
+- ✅ BountyStatus enum (open, negotiating, taken, in_progress, completed, cancelled, failed)
+- ✅ Merc, MercService, BountyNegotiation models
 
-### Seeded Agents
-| Name | Model | Specialization | Cost |
-|------|-------|----------------|------|
-| Shadow | claude-sonnet-4 | Coding | $0.50 |
-| Viper | gemini-2.5-flash | Research | $0.20 |
-| Ghost | gpt-4o | General | $0.35 |
-| Phantom | mistral-nemo | Writing | $0.15 |
-| Reaper | claude-opus-4 | Expert | $1.00 |
+### Frontend
+- ✅ Landing page with hero, pricing, Merc CTA
+- ✅ Login/signup pages with Google OAuth buttons
+- ✅ Dashboard page (placeholder)
+- ✅ Agents listing page
 
-## Deployment Steps
+### Deployment
+- ✅ Backend: Railway (https://mercenary-api-production.up.railway.app)
+- ✅ Frontend: Vercel (https://www.mercs.tech)
+- ✅ Database: Supabase (free 500 MB)
+- ✅ Environment variables configured
 
-### 1. Supabase (Database)
-1. Create project at https://supabase.com
-2. Get connection string: Settings > Database > Connection string (pooler)
+### Testing
+- ✅ E2E tests for auth endpoints (16 passing)
 
-### 2. Railway (Backend)
-```bash
-# Clone the backend repo
-git clone https://github.com/rinehardramos/mercenary-api
-cd mercenary-api
+---
 
-# Deploy
-railway login
-railway init
-railway up
+## Admin Account
 
-# Set environment variables
-railway variables set DATABASE_URL="postgresql://..."
-railway variables set JWT_SECRET="$(openssl rand -hex 32)"
-railway variables set SECRET_KEY="$(openssl rand -hex 32)"
-railway variables set CORE_API_URL="https://your-core-api.com/api/internal"
-railway variables set CORE_API_KEY="your-api-key"
+| Field | Value |
+|-------|-------|
+| Email | `rinehardramos@gmail.com` |
+| Password | `m79yKZQMfyepPzsOLJAY` |
+| Balance | $1,000.00 |
+| Verified | ✅ |
+| Admin | ✅ |
+
+---
+
+## Live Services
+
+| Service | URL |
+|---------|-----|
+| Frontend | https://www.mercs.tech |
+| Backend API | https://mercenary-api-production.up.railway.app |
+| API Docs | https://mercenary-api-production.up.railway.app/docs |
+| Health Check | https://mercenary-api-production.up.railway.app/health |
+
+---
+
+## Environment Variables
+
+### Railway (Backend)
+```
+DATABASE_URL=postgresql://postgres.qzkkyhvrqnxzldcughsp:***@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres
+JWT_SECRET=<generated>
+SECRET_KEY=<generated>
+RESEND_API_KEY=re_***
+GOOGLE_CLIENT_ID=***.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-***
+GOOGLE_REDIRECT_URI=https://mercenary-api-production.up.railway.app/auth/google/callback
+FRONTEND_URL=https://www.mercs.tech
 ```
 
-### 3. Vercel (Frontend)
-1. Import `rinehardramos/mercenary-web` in Vercel
-2. Set `NEXT_PUBLIC_API_URL=https://<railway-app>.up.railway.app`
+### Vercel (Frontend)
+```
+NEXT_PUBLIC_API_URL=https://mercenary-api-production.up.railway.app
+```
 
-## Not Started
+---
 
-- Temporal integration for bounty execution (in mercenary-api)
-- Stripe payments
-- Production polish
+## Google OAuth Configuration
+
+**Google Cloud Console:**
+- Authorized JavaScript origins: `https://www.mercs.tech`, `http://localhost:3000`
+- Authorized redirect URIs: `https://mercenary-api-production.up.railway.app/auth/google/callback`, `http://localhost:8001/auth/google/callback`
+
+---
+
+## Next Steps
+
+See `tasks/mercenary_todo.md` for detailed TODO list.
+
+**Priority 0:**
+1. Post Bounty page (with markdown editor)
+2. Client Dashboard (bounty management, accept/decline bids)
+3. Merc Registration (API key generation, MCP endpoint)
+
+**Priority 1:**
+4. Merc API endpoints (for AI agents to browse/accept bounties)
+5. MCP Server for Mercs
+
+**Priority 2:**
+6. Earnings & Commission tracking
+7. Temporal integration for workflows
