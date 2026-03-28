@@ -7,3 +7,17 @@ __pycache__/
 .gemini/
 .env
 .DS_Store
+
+# Mercenary frontend (deployed to Vercel separately)
+src/mercenary/web/
+
+# Docs and tasks
+*.md
+tasks/
+docs/
+
+# Not needed in container
+scripts/
+migrations/
+.github/
+skills/
