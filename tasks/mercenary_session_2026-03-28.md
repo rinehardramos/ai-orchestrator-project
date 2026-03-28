@@ -4,39 +4,54 @@
 
 ## Overview
 
-Created and deployed the "Agent Mercenaries Marketplace" - a bounty-based platform where users post tasks with price/duration and AI agents automatically claim and complete them.
+Created the "Agent Mercenaries Marketplace" - a bounty-based platform where users post tasks with price/duration and AI agents automatically claim and complete them.
 
-## Architecture
+## Architecture - Separate Repositories
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Vercel        │     │   Railway       │     │   Supabase      │
-│   (Frontend)    │────▶│   (FastAPI)     │────▶│   (PostgreSQL)  │
-│   Next.js 16.2  │     │   Port: 8001    │     │   500 MB free   │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         mercs.tech Platform                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐   │
+│  │ mercenary-web   │     │ mercenary-api   │     │ Supabase        │   │
+│  │ (Vercel)        │────▶│ (Railway)       │────▶│ (PostgreSQL)    │   │
+│  │ Next.js 16.2    │     │ FastAPI         │     │ 500 MB free     │   │
+│  └─────────────────┘     └────────┬────────┘     └─────────────────┘   │
+│                                   │                                     │
+│                                   │ HTTP API (submit tasks)              │
+│                                   ▼                                     │
+│  ┌────────────────────────────────────────────────────────────────────┐│
+│  │ ai-orchestrator-project (Core Infrastructure)                      ││
+│  │ - Temporal workflows                                                ││
+│  │ - LiteLLM proxy                                                    ││
+│  │ - Worker nodes                                                     ││
+│  │ - Qdrant vector DB                                                 ││
+│  └────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
 ```
+
+## Repositories
+
+| Repo | Platform | Purpose |
+|------|----------|---------|
+| [mercenary-web](https://github.com/rinehardramos/mercenary-web) | Vercel | Frontend (Next.js) |
+| [mercenary-api](https://github.com/rinehardramos/mercenary-api) | Railway | Backend (FastAPI) |
+| [ai-orchestrator-project](https://github.com/rinehardramos/ai-orchestrator-project) | Self-hosted | Core infrastructure |
 
 ## Completed
 
-### Frontend (Submodule)
-- Created `src/mercenary/web` as independent git submodule
-- Repo: https://github.com/rinehardramos/mercenary-web
+### Frontend (mercenary-web)
 - Next.js 16.2.1 (fixed CVE-2025-55184, CVE-2025-67779)
 - Pages: Landing, Login, Signup, Dashboard, Agents
 - Vercel deployment ready
 
-### Backend
+### Backend (mercenary-api)
 - FastAPI with JWT authentication
 - Bounty CRUD endpoints
 - Agent matching algorithm (40% price, 25% skill, 20% duration, 15% reputation)
 - Wallet/balance system
-- Database models and repositories
-
-### Deployment
-- Railway configuration (`railway.toml`)
-- Supabase database setup guide
-- Environment variables documented
-- CORS configured for production domains
+- Railway + Supabase ready
 
 ### Seeded Agents
 | Name | Model | Specialization | Cost |
@@ -47,41 +62,37 @@ Created and deployed the "Agent Mercenaries Marketplace" - a bounty-based platfo
 | Phantom | mistral-nemo | Writing | $0.15 |
 | Reaper | claude-opus-4 | Expert | $1.00 |
 
-## Files Created/Modified
-
-### New Files
-- `src/mercenary/web/` - Submodule (separate repo)
-- `src/mercenary/railway.toml` - Railway deployment config
-- `src/mercenary/RAILWAY_DEPLOY.md` - Deployment guide
-- `src/mercenary/SUPABASE_DEPLOY.md` - Database setup guide
-- `.gitmodules` - Submodule tracking
-
-### Modified
-- `src/mercenary/main.py` - Added CORS for production domains
-- `src/mercenary/config.py` - Support Railway's PORT env var
-- `src/mercenary/docker-compose.yml` - Already existed
-
 ## Deployment Steps
 
-1. **Supabase**: Create project, get connection string
-2. **Railway**: 
-   ```bash
-   railway login
-   railway init
-   railway up
-   railway variables set MERCENARY_DATABASE_URL="..."
-   railway variables set MERCENARY_JWT_SECRET="$(openssl rand -hex 32)"
-   railway variables set MERCENARY_SECRET_KEY="$(openssl rand -hex 32)"
-   ```
-3. **Vercel**: Import `rinehardramos/mercenary-web`, set `NEXT_PUBLIC_API_URL`
+### 1. Supabase (Database)
+1. Create project at https://supabase.com
+2. Get connection string: Settings > Database > Connection string (pooler)
+
+### 2. Railway (Backend)
+```bash
+# Clone the backend repo
+git clone https://github.com/rinehardramos/mercenary-api
+cd mercenary-api
+
+# Deploy
+railway login
+railway init
+railway up
+
+# Set environment variables
+railway variables set DATABASE_URL="postgresql://..."
+railway variables set JWT_SECRET="$(openssl rand -hex 32)"
+railway variables set SECRET_KEY="$(openssl rand -hex 32)"
+railway variables set CORE_API_URL="https://your-core-api.com/api/internal"
+railway variables set CORE_API_KEY="your-api-key"
+```
+
+### 3. Vercel (Frontend)
+1. Import `rinehardramos/mercenary-web` in Vercel
+2. Set `NEXT_PUBLIC_API_URL=https://<railway-app>.up.railway.app`
 
 ## Not Started
 
-- Week 2: Temporal integration for bounty execution
-- Week 4: Stripe payments, production polish
-
-## Security Fixes
-
-- Upgraded Next.js 14.2.0 → 16.2.1
-- Fixed CVE-2025-55184 (DoS via Image Optimizer)
-- Fixed CVE-2025-67779 (HTTP request smuggling)
+- Temporal integration for bounty execution (in mercenary-api)
+- Stripe payments
+- Production polish

@@ -1,6 +1,15 @@
 """
-Mercenary Marketplace - Self-contained bounty system.
-Communicates with orchestrator core via internal API only.
+Mercenary Marketplace - Bounty-based AI agent platform.
+
+This package now lives in a separate repository for independent deployment.
+
+Repositories:
+- Frontend: https://github.com/rinehardramos/mercenary-web (Vercel)
+- Backend: https://github.com/rinehardramos/mercenary-api (Railway)
+- Database: Supabase
+
+The mercenary service connects to the core orchestrator via internal API
+when submitting tasks for execution.
 """
 
-__version__ = "0.1.0"
+__all__ = []
