@@ -1,3 +1,6 @@
 [submodule "src/mercenary/web"]
 	path = src/mercenary/web
 	url = git@github.com:rinehardramos/mercenary-web.git
+[submodule "src/mercenary/api"]
+	path = src/mercenary/api
+	url = git@github.com:rinehardramos/mercenary-api.git

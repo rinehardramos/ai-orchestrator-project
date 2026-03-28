@@ -6,7 +6,15 @@
 
 Created the "Agent Mercenaries Marketplace" - a bounty-based platform where users post tasks with price/duration and AI agents automatically claim and complete them.
 
-## Architecture - Separate Repositories
+## Architecture - Submodules in Core Repo
+
+```
+ai-orchestrator-project/
+├── src/mercenary/
+│   ├── web/   ← submodule → github.com/rinehardramos/mercenary-web
+│   └── api/   ← submodule → github.com/rinehardramos/mercenary-api
+└── ... (core infrastructure)
+```
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -33,11 +41,11 @@ Created the "Agent Mercenaries Marketplace" - a bounty-based platform where user
 
 ## Repositories
 
-| Repo | Platform | Purpose |
-|------|----------|---------|
-| [mercenary-web](https://github.com/rinehardramos/mercenary-web) | Vercel | Frontend (Next.js) |
-| [mercenary-api](https://github.com/rinehardramos/mercenary-api) | Railway | Backend (FastAPI) |
-| [ai-orchestrator-project](https://github.com/rinehardramos/ai-orchestrator-project) | Self-hosted | Core infrastructure |
+| Repo | Path | Platform | Purpose |
+|------|------|----------|---------|
+| [mercenary-web](https://github.com/rinehardramos/mercenary-web) | `src/mercenary/web/` | Vercel | Frontend |
+| [mercenary-api](https://github.com/rinehardramos/mercenary-api) | `src/mercenary/api/` | Railway | Backend |
+| [ai-orchestrator-project](https://github.com/rinehardramos/ai-orchestrator-project) | (root) | Self-hosted | Core infra |
 
 ## Completed
 
