@@ -25,6 +25,11 @@ requests
 beautifulsoup4
 prometheus-client>=0.17.0
 
+# --- Auth & Security ---
+PyJWT
+bcrypt
+psycopg2-binary
+
 # --- Development & Linting (can be moved to a dev-requirements.txt) ---
 flake8
 pytest

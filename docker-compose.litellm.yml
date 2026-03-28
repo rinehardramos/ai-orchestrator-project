@@ -1,0 +1,52 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm
+    ports:
+      - "4000:4000"
+    environment:
+      - LITELLM_MASTER_KEY=sk-litellm-local-key
+      - DATABASE_URL=postgresql://litellm:litellm@postgres-litellm:5432/litellm
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - STORE_MODEL_IN_DB=True
+      - SET_VERBOSE=False
+    volumes:
+      - ./config/litellm_config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      postgres-litellm:
+        condition: service_healthy
+    networks:
+      - ai-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  postgres-litellm:
+    image: postgres:15-alpine
+    container_name: postgres-litellm
+    environment:
+      - POSTGRES_USER=litellm
+      - POSTGRES_PASSWORD=litellm
+      - POSTGRES_DB=litellm
+    volumes:
+      - litellm_db:/var/lib/postgresql/data
+    networks:
+      - ai-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  litellm_db:
+
+networks:
+  ai-network:
+    external: true
+    name: worker_ai-network

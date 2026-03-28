@@ -8,7 +8,7 @@ set -e
 # --- Configuration & Defaults ---
 ENV_FILE=".env"
 NETWORK_NAME="worker_ai-network"
-COMPOSE_WORKER_FILE="src/execution/worker/docker-compose.yml"
+COMPOSE_WORKER_FILE="src/execution/worker/docker-compose.worker.yml"
 COMPOSE_CONTROL_FILE="src/control/docker-compose.control.yml"
 COMPOSE_CNC_FILE="docker-compose.cnc.yml"
 COMPOSE_OBSERVABILITY_FILE="src/observability/docker-compose.observability.yml"

@@ -77,7 +77,7 @@ def update_credentials(tool_name: str, client_id: str, client_secret: str, refre
     conn.commit()
     conn.close()
     print(f"\nCredentials updated for {tool_name}")
-    print("Restart the worker to load the new credentials: docker restart central_node-ai-worker-1")
+    print("Restart the worker to load the new credentials: docker restart deploy-ai-worker-1")
 
 
 def main():

@@ -1,8 +1,9 @@
 """
 Document Processor - Parse and chunk documents for knowledge ingestion.
 
-Supports: PDF, DOCX, TXT, MD files
+Supports: PDF, DOCX, TXT, MD, HTML, XLSX, XLS, CSV, TSV files
 Chunking strategy: Semantic (section/header-based) with smart section detection
+Spreadsheets: Converted to row-based text chunks for semantic search
 """
 
 import os
@@ -42,7 +43,8 @@ RESUME_SECTIONS = [
 class DocumentProcessor:
     """Parse and chunk documents for knowledge ingestion."""
     
-    SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt', '.md', '.html'}
+    SUPPORTED_EXTENSIONS = {'.pdf', '.docx', '.doc', '.txt', '.md', '.html', '.xlsx', '.xls', '.csv', '.tsv'}
+    SPREADSHEET_EXTENSIONS = {'.xlsx', '.xls', '.csv', '.tsv'}
     
     def __init__(self):
         self.max_chunk_tokens = 1500
@@ -73,6 +75,8 @@ class DocumentProcessor:
                 return self._extract_text_file(file_path), None
             elif file_type == 'html':
                 return self._extract_html(file_path), None
+            elif file_type in ('xlsx', 'xls', 'csv', 'tsv'):
+                return self._extract_spreadsheet(file_path), None
         except Exception as e:
             return "", f"Error extracting {file_path}: {e}"
         
@@ -134,6 +138,28 @@ class DocumentProcessor:
             element.decompose()
         
         return soup.get_text(separator='\n', strip=True)
+    
+    def _extract_spreadsheet(self, file_path: str) -> str:
+        """Extract text from spreadsheet files (XLSX, XLS, CSV, TSV)."""
+        from src.shared.spreadsheet_processor import SpreadsheetProcessor
+        
+        processor = SpreadsheetProcessor()
+        info, rows = processor.parse_file(file_path)
+        
+        text_parts = []
+        text_parts.append(f"[SPREADSHEET: {info.name}]")
+        text_parts.append(f"Type: {info.file_type}")
+        if info.sheet_name:
+            text_parts.append(f"Sheet: {info.sheet_name}")
+        text_parts.append(f"Rows: {info.row_count}, Columns: {info.column_count}")
+        text_parts.append(f"Headers: {', '.join(info.column_headers)}")
+        text_parts.append("")
+        
+        for row in rows:
+            row_text = processor.generate_row_text(row, info.column_headers)
+            text_parts.append(f"[ROW:{row.row_index}] {row_text}")
+        
+        return "\n".join(text_parts)
     
     def _detect_section_header(self, line: str) -> Optional[str]:
         """Detect if a line is a section header."""

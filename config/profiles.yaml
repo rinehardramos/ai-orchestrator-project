@@ -1,0 +1,29 @@
+# =============================================================================
+# Task Routing Profiles
+# Configures model selection and embedding settings
+# =============================================================================
+
+task_routing:
+  embeddings:
+    provider: "lmstudio"
+    model: "text-embedding-nomic-embed-code"
+    dim: 3584
+  
+  defaults:
+    provider: "lmstudio"
+    model: "mistralai/mistral-nemo-instruct-2407"
+    fallback_model: "mistralai/mistral-nemo-instruct-2407"
+  
+  specializations:
+    code:
+      provider: "lmstudio"
+      model: "mistralai/mistral-nemo-instruct-2407"
+    analysis:
+      provider: "lmstudio"
+      model: "mistralai/mistral-nemo-instruct-2407"
+    creative:
+      provider: "lmstudio"
+      model: "mistralai/mistral-nemo-instruct-2407"
+    general:
+      provider: "lmstudio"
+      model: "mistralai/mistral-nemo-instruct-2407"

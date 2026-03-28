@@ -45,9 +45,9 @@ def create_pulumi_program(infra_id: str, task_env: dict, env_name: str = None):
             )
             
             # Read files directly into UserData strings
-            docker_compose = open('central_node/docker-compose.yml').read()
-            worker_py = open('central_node/worker.py').read()
-            dockerfile = open('central_node/Dockerfile.worker').read()
+            docker_compose = open('src/control/docker-compose.core.yml').read()
+            worker_py = open('src/execution/worker/worker.py').read()
+            dockerfile = open('src/execution/worker/Dockerfile.worker').read()
             hybrid_store = open('src/memory/hybrid_store.py').read()
             
             def create_user_data(args):
@@ -62,18 +62,18 @@ usermod -aG docker ec2-user
 curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-aarch64 -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
-mkdir -p /home/ec2-user/project/central_node
+mkdir -p /home/ec2-user/project/src/control
 mkdir -p /home/ec2-user/project/src/memory
 
-cat <<'EOF' > /home/ec2-user/project/central_node/docker-compose.yml
+cat <<'EOF' > /home/ec2-user/project/src/control/docker-compose.core.yml
 {docker_compose}
 EOF
 
-cat <<'EOF' > /home/ec2-user/project/central_node/worker.py
+cat <<'EOF' > /home/ec2-user/project/src/execution/worker/worker.py
 {worker_py}
 EOF
 
-cat <<'EOF' > /home/ec2-user/project/central_node/Dockerfile.worker
+cat <<'EOF' > /home/ec2-user/project/src/execution/worker/Dockerfile.worker
 {dockerfile}
 EOF
 
@@ -89,7 +89,7 @@ export STATUS_TABLE_NAME='{table}'
 export AWS_REGION='us-east-1'
 export GOOGLE_API_KEY='{api_key}'
 
-/usr/local/bin/docker-compose -f central_node/docker-compose.yml up --build -d
+/usr/local/bin/docker-compose -f src/control/docker-compose.core.yml up --build -d
 """
 
             user_data = pulumi.Output.all(task_queue.url, status_table.name, google_api_key).apply(create_user_data)
@@ -133,8 +133,8 @@ export GOOGLE_API_KEY='{api_key}'
             # 2. Copy necessary files to the remote host
             # We use a trigger to force re-sync when files or environment change
             sync_files = command.local.Command("sync-files-to-worker",
-                create=f"scp -P {remote_port} -r central_node src requirements.txt .dockerignore {remote_user}@{remote_host}:{project_dir}/",
-                triggers=[str(os.path.getmtime("central_node/docker-compose.worker.yml")), env_name, str(remote_port)],
+                create=f"scp -P {remote_port} -r deploy src requirements.txt .dockerignore {remote_user}@{remote_host}:{project_dir}/",
+                triggers=[str(os.path.getmtime("src/execution/worker/docker-compose.worker.yml")), env_name, str(remote_port)],
                 opts=pulumi.ResourceOptions(depends_on=[mkdir_cmd])
             )
 
@@ -145,7 +145,7 @@ export GOOGLE_API_KEY='{api_key}'
             redis_url = f"redis://{settings.get('redis', {}).get('host', 'localhost')}:{settings.get('redis', {}).get('port', 6379)}"
             
             def build_deploy_cmd(api_key):
-                return f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{api_key}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f central_node/docker-compose.worker.yml up --build -d'"
+                return f"bash -l -c 'cd {project_dir} && GOOGLE_API_KEY=\"{api_key}\" TEMPORAL_HOST_URL=\"{temporal_host}\" QDRANT_URL=\"{qdrant_url}\" REDIS_URL=\"{redis_url}\" docker compose -f src/execution/worker/docker-compose.worker.yml up --build -d'"
 
             deploy_cmd = command.remote.Command("deploy-docker-stack",
                 create=google_api_key.apply(build_deploy_cmd),

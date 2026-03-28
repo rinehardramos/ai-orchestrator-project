@@ -22,6 +22,7 @@ COPY . .
 
 # Ensure Python output is unbuffered
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 # Default command
 CMD ["python", "-m", "src.execution.worker.worker"]

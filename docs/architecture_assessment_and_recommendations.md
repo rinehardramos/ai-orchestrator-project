@@ -23,7 +23,7 @@ The Raspberry Pi must act strictly as an **L0 Gateway** (Control Node).
 - **Constraints:** *Never* run vector databases (Qdrant), model inference (unless tiny local models), or heavy state machines directly on the Pi.
 
 ### B. The Heavy Central Node (Dev Environment / AWS EC2)
-The central node will house the actual execution environment. It should be provisioned dynamically and run a full Dockerized stack (see `central_node/docker-compose.yml`):
+The central node will house the actual execution environment. It should be provisioned dynamically and run a full Dockerized stack (see `src/control/docker-compose.core.yml`):
 - **Temporal Server:** For distributed workflow orchestration, handling timeouts, and resurrecting agent states if a pod crashes.
 - **Langgraph Workers:** Running the actual cyclical reasoning graphs. Each step in the Langgraph should ideally be wrapped in a Temporal Activity to ensure the graph's execution state is durable.
 - **Tiered Memory Services:** Redis (L1) and Qdrant (L2) containers.

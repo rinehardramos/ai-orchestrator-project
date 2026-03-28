@@ -1,10 +1,14 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from src.genesis.orchestrator.notifier import TelegramNotifier
+from src.control.orchestrator.notifier import TelegramNotifier
 
-@patch("src.genesis.orchestrator.notifier.load_settings")
-@patch("src.genesis.orchestrator.notifier.requests.post")
-def test_telegram_notifier_success(mock_post, mock_load_settings):
+@pytest.mark.skip(reason="Patch path needs update after move")
+def test_telegram_notifier_success():
+    pass
+
+@patch("src.control.orchestrator.notifier.load_settings")
+@patch("src.control.orchestrator.notifier.requests.post")
+def test_telegram_notifier_success_real(mock_post, mock_load_settings):
     # Setup mock configuration
     mock_load_settings.return_value = {
         "telegram": {
@@ -30,7 +34,7 @@ def test_telegram_notifier_success(mock_post, mock_load_settings):
     assert kwargs["json"]["chat_id"] == "12345"
     assert kwargs["json"]["text"] == "Test message"
 
-@patch("src.genesis.orchestrator.notifier.load_settings")
+@patch("src.control.orchestrator.notifier.load_settings")
 def test_telegram_notifier_disabled(mock_load_settings):
     # Setup mock configuration with missing telegram
     mock_load_settings.return_value = {}

@@ -1,0 +1,45 @@
+model_list:
+  # OpenRouter models (proxied through LiteLLM)
+  - model_name: glm-5
+    litellm_params:
+      model: openrouter/z-ai/glm-5
+      api_key: os.environ/OPENROUTER_API_KEY
+  
+  - model_name: gpt-4o
+    litellm_params:
+      model: openrouter/openai/gpt-4o
+      api_key: os.environ/OPENROUTER_API_KEY
+  
+  - model_name: claude-3.5-sonnet
+    litellm_params:
+      model: openrouter/anthropic/claude-3.5-sonnet
+      api_key: os.environ/OPENROUTER_API_KEY
+  
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: openrouter/google/gemini-2.5-flash-preview
+      api_key: os.environ/OPENROUTER_API_KEY
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  
+  # Enable cost tracking
+  disable_spend_logs: false
+  
+  # Logging
+  set_verbose: false
+
+router_settings:
+  # Enable fallbacks
+  enable_pre_call_checks: true
+  
+  # Rate limiting
+  rpm: 1000
+
+litellm_settings:
+  # Drop params not supported by provider
+  drop_params: true
+  
+  # Store model in DB for tracking
+  store_model_in_db: true

@@ -20,7 +20,7 @@ load_settings()
 from src.genesis.analyzer.task_analyzer import TaskAnalyzer, AnalyzerResult
 from src.genesis.cli import show_plan
 from src.genesis.iac.pulumi_wrapper import provision_worker, destroy_worker
-from src.genesis.orchestrator.scheduler import TaskScheduler
+from src.control.orchestrator.scheduler import TaskScheduler
 from src.genesis.utils.system_monitor import SystemMonitor
 
 # Plugin system imports

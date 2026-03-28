@@ -83,7 +83,7 @@ temporal:
 
 Run the worker script:
 ```bash
-python central_node/worker.py
+python src/execution/worker/worker.py
 ```
 
 If successful, you should see output similar to:

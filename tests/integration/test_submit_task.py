@@ -1,5 +1,5 @@
 import asyncio
-from src.genesis.orchestrator.scheduler import TaskScheduler
+from src.control.orchestrator.scheduler import TaskScheduler
 
 async def main():
     print("Initializing TaskScheduler...")

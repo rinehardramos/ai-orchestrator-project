@@ -166,7 +166,7 @@ async def _run_and_monitor(client, workflow_id: str):
     use_legacy_worker = os.environ.get("LEGACY_WORKER", "0") == "1"
 
     if use_legacy_worker:
-        # Old central_node/worker.py: run(self, task: str)
+        # Old src/execution/worker/worker.py: run(self, task: str)
         handle = await client.start_workflow(
             "AIOrchestrationWorkflow",
             args=[TEST_TASK],

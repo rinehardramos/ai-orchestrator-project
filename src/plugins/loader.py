@@ -35,7 +35,7 @@ from src.plugins.registry import registry
 log = logging.getLogger(__name__)
 
 
-async def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
+def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
                     node: str = "worker") -> None:
     """
     Synchronous version of load_tools for use in sync contexts.
@@ -112,46 +112,6 @@ async def load_tools_sync(bootstrap_path: str = "config/bootstrap.yaml",
     except Exception as e:
         log.error(f"DB load failed: {e}")
         sys.exit(1)
-
-        
-    tools_config = await _load_tool_configs(bootstrap)
-    
-    if not tools_config:
-        log.error("No tools configured in database.")
-        log.error("Run: python scripts/migrate_yaml_to_db.py")
-        sys.exit(1)
-    
-    loaded = 0
-    skipped = 0
-    for name, entry in tools_config.items():
-        if not isinstance(entry, dict) or "module" not in entry:
-            continue
-        if not entry.get("enabled", False):
-            continue
-        tool_node = entry.get("node", "both")
-        if tool_node != "both" and tool_node != node:
-            continue
-        
-        try:
-            module = importlib.import_module(entry["module"])
-            tool_class = getattr(module, "tool_class", None)
-            if tool_class is None:
-                log.warning(f"Tool {name}: module {entry['module']} has no 'tool_class' export")
-                skipped += 1
-                continue
-            
-            instance = tool_class()
-            instance.name = name
-            instance.listen = entry.get("listen", instance.listen)
-            instance.node = entry.get("node", instance.node)
-            instance.initialize(entry.get("config", {}))
-            registry.register(instance)
-            loaded += 1
-        except Exception as e:
-            log.warning(f"Failed to load tool '{name}': {e}")
-            skipped += 1
-    
-    log.info(f"Sync loader complete — {loaded} loaded, {skipped} skipped (node={node})")
 
 
 async def load_tools(bootstrap_path: str = "config/bootstrap.yaml",

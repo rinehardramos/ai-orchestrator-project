@@ -79,7 +79,7 @@ class TaskExecutor:
     
     async def _execute_agent_task(self, task: ScheduledTaskInDB) -> Tuple[str, Dict]:
         """Execute an agent task via Temporal."""
-        from src.genesis.orchestrator.scheduler import TaskScheduler
+        from src.control.orchestrator.scheduler import TaskScheduler
         from src.genesis.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement
         
         payload = task.task_payload

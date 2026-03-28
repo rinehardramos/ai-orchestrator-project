@@ -102,12 +102,12 @@
           {% if plane == 'all' %}
           {
             "services": "ai-worker collector web dispatcher selector genesis",
-            "files": ["src/execution/worker/docker-compose.yml", "src/observability/docker-compose.observability.yml", "src/control/docker-compose.control.yml", "docker-compose.genesis.yml"]
+            "files": ["src/execution/worker/docker-compose.worker.yml", "src/observability/docker-compose.observability.yml", "src/control/docker-compose.control.yml", "docker-compose.genesis.yml"]
           }
           {% elif plane == 'execution' %}
           {
             "services": "temporal qdrant redis ai-worker",
-            "files": ["src/execution/worker/docker-compose.yml"]
+            "files": ["src/control/docker-compose.core.yml", "src/execution/worker/docker-compose.worker.yml"]
           }
           {% elif plane == 'observability' %}
           {

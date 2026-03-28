@@ -27,9 +27,9 @@ REMOTE_HOST=""
 SSH_USER="${SSH_USER:-$(whoami)}"
 SSH_KEY="${SSH_KEY:-}"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/ai-orchestrator-project}"
-# CONTAINER_NAME can be overridden via env var; defaults to the standalone central_node container
+# CONTAINER_NAME can be overridden via env var; defaults to the standalone deploy container
 # but we will also check for the generic 'ai-worker' as a fallback.
-WORKER_CONTAINER="${WORKER_CONTAINER:-central_node-ai-worker-1}"
+WORKER_CONTAINER="${WORKER_CONTAINER:-deploy-ai-worker-1}"
 FALLBACK_CONTAINER="ai-worker"
 
 # ── Argument Parsing ─────────────────────────────────────────────────────────
@@ -99,14 +99,14 @@ remote_reload() {
   # 2. Restart the container on the remote machine
   log "REMOTE" "Restarting containers on $host..."
   ssh_cmd "$host" "cd $REMOTE_PROJECT_DIR && docker restart $WORKER_CONTAINER 2>/dev/null || \
-    docker compose -f src/execution/worker/docker-compose.yml restart ai-worker"
+    docker compose -f src/execution/worker/docker-compose.worker.yml restart ai-worker"
 
   sleep 2
 
   # 3. Tail the remote logs briefly
   log "REMOTE" "Last 10 lines from remote worker:"
   ssh_cmd "$host" "docker logs $WORKER_CONTAINER --tail 10 2>/dev/null || \
-    docker compose -f $REMOTE_PROJECT_DIR/src/execution/worker/docker-compose.yml logs --tail 10 ai-worker"
+    docker compose -f $REMOTE_PROJECT_DIR/src/execution/worker/docker-compose.worker.yml logs --tail 10 ai-worker"
 
   log "✅" "Remote reload of $host complete."
 }

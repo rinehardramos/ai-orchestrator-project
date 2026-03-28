@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from src.genesis.analyzer.task_analyzer import TaskAnalyzer, TaskRequirement
-from src.genesis.orchestrator.scheduler import TaskScheduler
+from src.control.orchestrator.scheduler import TaskScheduler
 
 
 def check_tool_success(result: dict, expected_tool: str) -> tuple[bool, str]:

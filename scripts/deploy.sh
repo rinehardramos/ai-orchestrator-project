@@ -21,7 +21,7 @@ REMOTE_HOST=""
 SSH_USER="${SSH_USER:-$(whoami)}"
 SSH_KEY="${SSH_KEY:-}"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-~/ai-orchestrator-project}"
-COMPOSE_FILE="src/execution/worker/docker-compose.yml"
+COMPOSE_FILE="src/execution/worker/docker-compose.worker.yml"
 
 # ── Argument Parsing ─────────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do

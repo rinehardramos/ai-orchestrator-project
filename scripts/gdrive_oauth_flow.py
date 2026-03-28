@@ -216,7 +216,7 @@ def main():
     if save_credentials(args.tool, args.client_id, args.client_secret, refresh_token):
         print(f"\nCredentials saved for {args.tool}")
         print("\nRestart the worker to load the new credentials:")
-        print("  docker restart central_node-ai-worker-1")
+        print("  docker restart deploy-ai-worker-1")
     else:
         print("\nFailed to save credentials")
         sys.exit(1)

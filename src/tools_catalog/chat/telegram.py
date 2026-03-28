@@ -17,7 +17,7 @@ import os
 from typing import Callable
 
 from src.plugins.base import Tool, Envelope, ToolContext
-from src.genesis.orchestrator.notifier import TelegramNotifier
+from src.control.orchestrator.notifier import TelegramNotifier
 
 log = logging.getLogger(__name__)
 
