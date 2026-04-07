@@ -137,9 +137,16 @@ The ingestor exposes four top-level operations:
 | `sync --full` | Walk the entire vault, re-chunk every file, upsert all points regardless of hash. Use after embedding-model or schema changes. |
 | `sync --incremental` (default) | Walk the vault, compute hashes, upsert only chunks whose hash differs, delete chunks that disappeared, prune orphaned points whose source file is gone. |
 | `sync --path <file>` | Sync exactly one file (used by MCP `sync_vault(path=...)` for "I just saved this note" flows). |
-| `daemon` | Run a `watchdog` observer on the vault, debounce events (coalesce rapid saves within ~500ms), and run `sync --path` for each affected file. No polling fallback in v1. |
+| `watch` (alias: `daemon`) | **Real-time sync.** Run a `watchdog` observer on the vault, debounce events (coalesce rapid saves within ~500ms), and run `sync --path` for each affected file. Intended to be the primary long-running mode so that saving a note in Obsidian makes it searchable within ~1 second. On startup, runs one incremental sync to catch anything missed while the daemon was down, then enters the watch loop. |
 
-**Why `watchdog` only (no polling):** the vault is on a local filesystem on the Genesis node, which is the only place this daemon runs. `watchdog` on macOS uses FSEvents, which is reliable for local disks. A periodic full reconciliation was considered for network-filesystem robustness but rejected as YAGNI for v1 since the vault is local. It can be added behind a config flag if needed.
+**Real-time sync behavior:**
+- **Create / modify:** debounce 500ms (coalesce rapid saves from Obsidian's autosave), re-parse, re-hash, upsert only changed chunks. Typical end-to-end latency from `Cmd-S` to searchable: well under one second on a local vault.
+- **Delete:** remove all points whose `vault_path` matches the deleted file.
+- **Rename / move:** handled as delete-old + add-new (watchdog emits both events). Deterministic UUIDv5 IDs ensure the old points are cleanly removed.
+- **Startup reconciliation:** before entering the watch loop, run one incremental sync. This catches edits made while the daemon was stopped and guarantees the index matches disk on boot.
+- **Backpressure:** a bounded in-memory queue of pending paths; if Qdrant is slow, events coalesce by path (duplicates collapse) rather than growing unbounded.
+
+**Why `watchdog` only (no polling):** the vault is on a local filesystem on the Genesis node, which is the only place this daemon runs. `watchdog` on macOS uses FSEvents, which is reliable for local disks. The startup reconciliation covers the one gap (events missed while the daemon was down). A periodic full reconciliation was considered for network-filesystem robustness but rejected as YAGNI for v1 since the vault is local.
 
 ## 7. Analyze Function
 
@@ -213,21 +220,55 @@ Qdrant connection reuses the existing `qdrant` settings block — no duplication
 
 ## 11. Testing Strategy
 
-- **Unit tests** for `parser.py`: frontmatter variants, heading splits at each depth, preamble handling, wikilink and attachment extraction, oversized-chunk detection.
-- **Unit tests** for `analyzer.py`: synthetic vaults with known pathologies (all orphans, all dupes, oversized chunks, missing attachments) and verify the report fields.
-- **Integration tests** for `ingestor.py` against a local in-process Qdrant (or a tmpdir-scoped test collection): full sync, incremental sync with a modified chunk, sync after deleting a section, sync after deleting a whole file.
-- **Daemon test:** fixture vault + `watchdog` + simulated file writes; assert correct debouncing and single-file sync calls.
-- **MCP smoke test:** spawn the server, call each tool, assert schemas.
+Tests are a first-class deliverable and land in the **same step** as each module — no rollout step ships without its tests. All tests live under `tests/ingestion/obsidian/` mirroring the package layout. Run with the existing project test runner (`pytest`).
+
+### 11.1 Unit tests
+
+- **`test_parser.py`** — frontmatter variants (none, valid, malformed, unicode), heading splits at depths 1–6, preamble handling, files with no headings, wikilink extraction (`[[Note]]`, `[[Note|alias]]`, `[[Note#heading]]`), markdown link extraction, attachment reference extraction, oversized-chunk warning, inline `#tag` extraction.
+- **`test_attachments.py`** — processor registry lookup by extension, unknown-extension fallback to reference-only, PDF processor happy path, processor-raises-exception falls back gracefully.
+- **`test_analyzer.py`** — synthetic fixture vaults with known pathologies (all-orphans, all-dupes, oversized-chunk file, missing-attachment file, empty vault) and assert each report field. Assert `apply_optimization` is a no-op without an explicit action and rejects unknown actions.
+
+### 11.2 Integration tests
+
+Run against an ephemeral Qdrant collection (generated collection name per test, deleted in teardown) so tests exercise real vector upserts and deletes, not mocks.
+
+- **`test_sync_full.py`** — fixture vault → full sync → assert every chunk is retrievable by a known query and payloads match.
+- **`test_sync_incremental_no_change.py`** — full sync, then incremental sync; assert zero embedding calls on the second pass (hash diff short-circuits).
+- **`test_sync_incremental_edit.py`** — modify one section of one file; incremental sync; assert only the affected chunk is re-embedded and sibling chunks are untouched.
+- **`test_sync_section_deleted.py`** — remove a heading section; assert its point is deleted and others remain.
+- **`test_sync_file_deleted.py`** — delete a whole file; assert all its points are removed.
+- **`test_sync_file_renamed.py`** — rename a file; assert old points are removed and new points exist under the new path.
+- **`test_single_path_sync.py`** — `sync --path` scopes correctly to one file.
+
+### 11.3 Real-time sync tests
+
+- **`test_watcher_debounce.py`** — write a file five times in 100ms; assert exactly one sync call fires after debounce.
+- **`test_watcher_create.py`** — create a new file in a running watcher; assert it's searchable within a bounded time window (poll with timeout).
+- **`test_watcher_modify.py`** — modify a tracked file; assert the new content is searchable and old chunk is gone.
+- **`test_watcher_delete.py`** — delete a file; assert its points are removed.
+- **`test_watcher_rename.py`** — rename/move a file; assert old points gone, new points present.
+- **`test_watcher_startup_reconciliation.py`** — modify the vault while the watcher is stopped, restart, assert the modification is picked up by the initial incremental sync before the watch loop begins.
+- **`test_watcher_backpressure.py`** — simulate slow Qdrant; burst 100 events for the same path; assert the queue coalesces rather than growing and the final state is consistent.
+
+### 11.4 MCP tests
+
+- **`test_mcp_server.py`** — spawn the stdio server as a subprocess, call each tool with valid and invalid arguments, assert response schemas, assert `apply_vault_optimization` rejects unknown actions.
+
+### 11.5 Fixtures
+
+A single `tests/ingestion/obsidian/fixtures/vault/` directory with hand-crafted notes covering: deep heading nesting, code blocks, frontmatter, wikilinks, attachments, an oversized note, a preamble-only note, a UTF-8 note with emoji. Tests copy this to a tmpdir so they can mutate it freely.
 
 ## 12. Rollout
 
-1. Land the package with CLI + library + tests. No MCP, no daemon. Usable standalone.
-2. Add daemon mode.
-3. Add MCP server and register it with Claude Code.
-4. Add analyze + optimizations.
-5. Enable the PDF attachment processor by default once integration is verified.
+Every step includes its own tests. No step merges without green tests for the code it introduces.
 
-Each step is independently shippable and testable. This ordering matches the dependency graph: MCP and daemon both depend on a working core; analyze is easier to validate once real data exists in the collection; attachments are the highest-risk integration and come last.
+1. **Core + CLI.** `parser.py`, `ingestor.py`, `cli.py` with `sync --full`, `sync --incremental`, `sync --path`. Unit tests for parser, integration tests for all three sync modes. Usable standalone.
+2. **Real-time watcher.** `watcher.py` with debounce, startup reconciliation, and backpressure. All real-time sync tests (§11.3). This is the intended primary long-running mode.
+3. **MCP server.** `mcp_server.py` exposing `search_vault`, `get_note`, `sync_vault`. MCP tests (§11.4). Register with Claude Code.
+4. **Analyze + optimizations.** `analyzer.py` with report + `prune`/`rechunk`/`resync` actions. MCP tools `analyze_vault` and `apply_vault_optimization`. Analyzer unit tests.
+5. **Attachment processors.** Enable the PDF processor by default once its integration test passes. Leave audio/video/image-caption processors registered-but-disabled.
+
+This ordering matches the dependency graph: real-time sync and MCP both depend on a working core; analyze is easier to validate once real data exists in the collection; attachments are the highest-risk integration and come last.
 
 ## 13. Open Questions
 
