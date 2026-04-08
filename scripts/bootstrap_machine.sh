@@ -229,7 +229,7 @@ case $ROLE_CHOICE in
         prompt_if_empty "TEMPORAL_HOST" "Enter Controller IP (for Temporal/Qdrant)"
         # Update existing hosts to the new IP if provided
         local ctrl_ip=$(grep '^TEMPORAL_HOST=' "$ENV_FILE" | cut -d'=' -f2-)
-        update_env "QDRANT_HOST" "$ctrl_ip"
+        update_env "QDRANT_URL" "http://$ctrl_ip:6333"
         update_env "REDIS_HOST" "$ctrl_ip"
         prompt_if_empty "TELEGRAM_BOT_TOKEN" "Enter Telegram Bot Token"
         prompt_if_empty "TELEGRAM_CHAT_ID" "Enter Telegram Chat ID"

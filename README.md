@@ -45,7 +45,7 @@ Examples:
 - `DATABASE_URL=postgres://user:pass@postgres:5432/orchestrator`
 - `REDIS_URL=redis://:pass@redis:6379`
 - `TEMPORAL_HOST=temporal:7233`
-- `QDRANT_HOST=qdrant:6333`
+- `QDRANT_URL=http://qdrant:6333`
 
 Genesis-only values (example):
 

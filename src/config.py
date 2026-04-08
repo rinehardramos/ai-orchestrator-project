@@ -55,9 +55,24 @@ def load_settings(env_name: str = None):
         if "temporal" not in config: config["temporal"] = {}
         config["temporal"]["port"] = int(os.environ.get("TEMPORAL_PORT"))
         
-    if os.environ.get("QDRANT_HOST"):
-        if "qdrant" not in config: config["qdrant"] = {}
-        config["qdrant"]["host"] = os.environ.get("QDRANT_HOST")
+    # Canonical Qdrant env var: QDRANT_URL (full http://host:port).
+    # The legacy host-only var has been retired — see tasks/lessons.md.
+    if os.environ.get("QDRANT_URL"):
+        if "qdrant" not in config:
+            config["qdrant"] = {}
+        qdrant_url = os.environ.get("QDRANT_URL")
+        config["qdrant"]["url"] = qdrant_url
+        # Keep legacy host/port keys populated for code that still reads them.
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(qdrant_url)
+            if parsed.hostname:
+                config["qdrant"]["host"] = parsed.hostname
+            if parsed.port:
+                config["qdrant"]["port"] = parsed.port
+        except Exception:
+            pass
 
     if os.environ.get("REDIS_HOST"):
         if "redis" not in config: config["redis"] = {}

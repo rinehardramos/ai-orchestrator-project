@@ -104,8 +104,9 @@ class ObsidianVaultIngestor:
             self.embedder = embedder
 
         # Fallback: construct a QdrantClient directly if the embedder's
-        # HybridMemoryStore came back with qdrant=None. This happens when
-        # the project uses QDRANT_HOST/PORT instead of QDRANT_URL.
+        # HybridMemoryStore came back with qdrant=None. Uses QDRANT_URL
+        # (the canonical env var) or the active environment's qdrant
+        # block in settings.yaml.
         if qdrant is None:
             qdrant = self._build_qdrant_fallback()
 
@@ -115,18 +116,14 @@ class ObsidianVaultIngestor:
 
     @staticmethod
     def _build_qdrant_fallback():
-        """Build a QdrantClient from env vars or project settings.yaml.
+        """Build a QdrantClient from ``QDRANT_URL`` or project settings.yaml.
 
-        Needed because HybridMemoryStore only honors ``QDRANT_URL``, but the
-        project commonly sets ``QDRANT_HOST``/``QDRANT_PORT`` (or nests the
-        qdrant block under ``environments.<env>.qdrant`` in settings.yaml).
+        ``QDRANT_URL`` is the canonical env var across this codebase (see
+        tasks/lessons.md). When it is absent, fall back to the qdrant block
+        under ``environments.<active_environment>.qdrant`` in
+        ``config/settings.yaml``.
         """
         url = os.environ.get("QDRANT_URL")
-        if not url:
-            host = os.environ.get("QDRANT_HOST")
-            port = os.environ.get("QDRANT_PORT", "6333")
-            if host:
-                url = f"http://{host}:{port}"
         if not url:
             try:
                 import yaml

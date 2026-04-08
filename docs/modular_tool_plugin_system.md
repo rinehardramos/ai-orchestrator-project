@@ -333,7 +333,7 @@ env: production
 database_url: ${DATABASE_URL}
 redis_url: ${REDIS_URL}
 temporal_host: ${TEMPORAL_HOST}
-qdrant_host: ${QDRANT_HOST}
+qdrant_url: ${QDRANT_URL}
 secret_key: ${CONFIG_SECRET_KEY}
 ```
 
