@@ -1,0 +1,20 @@
+version: '3.8'
+
+# Build helper for the shared MCP image.
+#
+# Usage:
+#   docker compose -f docker/mcp/docker-compose.mcp.yml build
+#
+# After build, each MCP is invoked one-shot by Claude Code via
+# `docker run --rm -i mcp-servers:latest python -m <package>` — see
+# docker/mcp/README.md for the `claude mcp add` commands.
+
+services:
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mcp-servers:latest
+    # This service is build-only. Do not `up` it; each MCP server is
+    # spawned on-demand by Claude Code via `docker run --rm -i`.
+    command: ["python", "-c", "print('mcp-servers image built. Use docker run -i to spawn an MCP.')"]

@@ -25,6 +25,31 @@ services:
       - ai-network
     restart: unless-stopped
 
+  # ── Worker API (HTTP front for worker CRUD + task dispatch) ───────────────
+  worker-api:
+    build:
+      context: ../../
+      dockerfile: src/control/Dockerfile.control
+    image: ghcr.io/rinehardramos/ai-orchestrator-project/control:latest
+    container_name: control-worker-api
+    command: ["uvicorn", "src.control.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8100:8000"
+    environment:
+      - CONTROL_API_KEY=${CONTROL_API_KEY:?CONTROL_API_KEY is required for worker-api}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://temporal:temporal@postgres:5432/orchestrator}
+      - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-temporal:7233}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - REDIS_URL=redis://redis:6379
+      - OFFLINE_QUEUE_DB=/app/data/offline_queue.db
+    volumes:
+      - ../../data:/app/data
+    depends_on:
+      - postgres
+    networks:
+      - ai-network
+    restart: unless-stopped
+
   # ── Model Selector (Constraint-based Scaling) ──────────────────────────────
   selector:
     build:
