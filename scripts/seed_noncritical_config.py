@@ -147,6 +147,10 @@ DEFAULT_CONFIG: dict[str, dict[str, object]] = {
         "planner": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["task_complete"]},
         "copywriting": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["write_file", "read_file", "task_complete", "submit_for_review"]},
         "quality_control": {"model": "gemini-2.5-flash", "provider": "google", "allowed_tools": ["read_file", "task_complete", "delegate_task"]},
+        # Assistant: runs whatever the AGENT INSTRUCTIONS Obsidian note says,
+        # via a local Gemma model in LM Studio. Triggered by
+        # `python -m src.genesis.cli.run_assistant`.
+        "assistant": {"model": "gemma-4-26b-a4b", "provider": "lmstudio", "allowed_tools": ["list_files", "read_file", "write_file", "search_web", "read_url_content", "knowledge_query", "knowledge_list", "task_complete"]},
     },
     "cluster_nodes": {
         "nodes": [
