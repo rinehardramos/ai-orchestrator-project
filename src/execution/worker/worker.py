@@ -52,6 +52,7 @@ except ImportError:
     ToolContext = None
 
 from src.execution.worker.model_router import ModelRouter, TaskType
+from src.execution.worker import llm_trace
 from src.execution.worker.embeddings import get_embedder
 
 # Budget tracking
@@ -118,17 +119,18 @@ def _check_config_reload():
 
 
 def _get_knowledge_collections() -> tuple:
-    """Get knowledge and insights collection names from database config."""
+    """Return (knowledge, insights, vault) collection names from DB config."""
     try:
         from src.config_db import get_loader
         loader = get_loader()
         config = loader.load_namespace("knowledge") or {}
         return (
             config.get("knowledge_collection", "knowledge_v1"),
-            config.get("insights_collection", "agent_insights_v4")
+            config.get("insights_collection", "agent_insights_v4"),
+            config.get("vault_collection", "obsidian_vault_v1"),
         )
     except Exception:
-        return ("knowledge_v1", "agent_insights_v4")
+        return ("knowledge_v1", "agent_insights_v4", "obsidian_vault_v1")
 
 # --- Agent Defaults (from jobs.yaml) ---
 def load_agent_defaults() -> dict:
@@ -139,7 +141,7 @@ def load_agent_defaults() -> dict:
         if jobs_config:
             defaults.update(jobs_config)
     except Exception as e:
-        log.error(f"Could not load agent defaults from DB: {e}")
+        logger.error(f"Could not load agent defaults from DB: {e}")
         # Use hardcoded defaults if DB unavailable, but log an error
     return defaults
 
@@ -155,14 +157,18 @@ def generate_content_with_tools(messages: list[dict], task_type: TaskType = Task
     """
     tool_schemas = get_tool_schemas(specialization)
     errors = []
-    
-    # Try the specific task type first
+
+    # Try the specific task type first.
+    # NOTE: specialization MUST be forwarded to the router — without it the
+    # router defaults to 'general' and ignores per-specialization model/provider
+    # config (e.g. the 'assistant' spec's gemma-4-26b-a4b on lmstudio is
+    # silently replaced with the default Gemini model).
     try:
-        return router.call_llm(messages, task_type, tool_schemas)
+        return router.call_llm(messages, task_type, tool_schemas, specialization=specialization)
     except Exception as e:
         errors.append(f"{task_type.value}: {str(e)}")
         logger.warning(f"Router failed for primary task_type '{task_type.value}': {e}")
-        
+
         # If it's an Auth error (401), don't bother with local fallbacks as they likely won't help or will use wrong model
         if "401" in str(e) or "Unauthorized" in str(e):
             raise ValueError(f"Authentication failed for {task_type.value}. Please check your API keys. Error: {e}")
@@ -174,7 +180,7 @@ def generate_content_with_tools(messages: list[dict], task_type: TaskType = Task
                 continue
             try:
                 logger.info(f"Attempting fallback to task_type={fallback_type.value}...")
-                result = router.call_llm(messages, fallback_type, tool_schemas)
+                result = router.call_llm(messages, fallback_type, tool_schemas, specialization=specialization)
                 logger.info(f"Tool-call fallback succeeded with task_type={fallback_type.value}")
                 return result
             except Exception as fe:
@@ -208,21 +214,47 @@ class AgenticState(TypedDict):
 
 
 def _fetch_qdrant_context(task_description: str) -> str:
-    """Retrieve relevant past insights from Qdrant for the agent system prompt."""
-    _, insights_collection = _get_knowledge_collections()
+    """Pre-flight: retrieve relevant chunks from the user's Obsidian vault.
+
+    Runs once before the first LLM call so the agent always starts with the
+    most relevant notes already in its system prompt. The agent can also call
+    the ``recall_memory`` tool mid-loop for additional lookups.
+    """
+    _, insights_collection, vault_collection = _get_knowledge_collections()
+    entries: list[str] = []
     try:
-        vector = get_embedder().embed(task_description)
-        results = memory_store.query_l2(insights_collection, vector, limit=3)
-        if results:
-            entries = []
-            for r in results:
-                payload = r.payload or {}
-                if r.score > 0.5:
-                    entries.append(f"- [{r.score:.2f}] {payload.get('content', '')[:300]}")
-            if entries:
-                return "\n".join(entries)
+        vector = get_embedder().embed(task_description, embed_type="text")
+        # 1. Vault first — user's notes are the highest-signal source.
+        vault_results = memory_store.query_l2(vault_collection, vector, limit=5)
+        for r in vault_results or []:
+            payload = r.payload or {}
+            if r.score > 0.4:
+                source = payload.get("source") or payload.get("path") or payload.get("vault_path") or "?"
+                content = (payload.get("content") or payload.get("text") or "")[:300]
+                entries.append(f"- [{r.score:.2f}] ({source}) {content}")
+        # 2. Past agent insights as a secondary source.
+        insight_results = memory_store.query_l2(insights_collection, vector, limit=3)
+        for r in insight_results or []:
+            payload = r.payload or {}
+            if r.score > 0.5:
+                entries.append(f"- [{r.score:.2f}] {payload.get('content', '')[:300]}")
+        try:
+            llm_trace.emit(
+                "memory_preflight",
+                vault_collection=vault_collection,
+                insights_collection=insights_collection,
+                hits=len(entries),
+            )
+        except Exception:
+            pass
+        if entries:
+            return "\n".join(entries)
     except Exception as e:
         logger.warning(f"Qdrant context fetch failed: {e}")
+        try:
+            llm_trace.emit("memory_preflight_error", msg=str(e))
+        except Exception:
+            pass
     return "No relevant past insights found."
 
 
@@ -274,6 +306,13 @@ def agent_step(state: AgenticState) -> AgenticState:
                 task_description = msg.get("content", "")
                 break
         detected_type = router.detect_task_type(task_description)
+        llm_trace.emit(
+            "prompt_in",
+            step=state["tool_call_count"],
+            task_type=getattr(detected_type, "value", str(detected_type)),
+            specialization=state.get("specialization", "general"),
+            messages=state["messages"],
+        )
         response_msg, cost = generate_content_with_tools(
             state["messages"],
             task_type=detected_type,
@@ -305,6 +344,15 @@ def agent_step(state: AgenticState) -> AgenticState:
                 for tc in response_msg.tool_calls
             ]
 
+        llm_trace.emit(
+            "llm_out",
+            step=state["tool_call_count"],
+            cost_usd=round(cost, 6),
+            cumulative_cost_usd=round(new_cost, 6),
+            content=msg_dict["content"],
+            tool_calls=msg_dict.get("tool_calls"),
+        )
+
         return {
             "messages": state["messages"] + [msg_dict],
             "total_cost_usd": new_cost,
@@ -312,6 +360,7 @@ def agent_step(state: AgenticState) -> AgenticState:
         }
     except Exception as e:
         logger.error(f"Agent LLM call failed: {e}")
+        llm_trace.emit("error", where="agent_step", msg=str(e))
         return {
             "messages": state["messages"] + [{"role": "assistant", "content": f"LLM call failed: {e}"}],
             "error": str(e),
@@ -343,6 +392,7 @@ def tool_executor(state: AgenticState) -> AgenticState:
             args = {}
 
         new_count += 1
+        llm_trace.emit("tool_call", step=new_count, name=fn_name, args=args)
 
         # Try plugin registry first (namespaced functions like gmail_blackopstech047__email_read_inbox)
         result_str = None
@@ -397,6 +447,7 @@ def tool_executor(state: AgenticState) -> AgenticState:
                     result_str = f"ERROR: Tool '{fn_name}' raised: {e}"
 
         logger.info(f"[Tool] {fn_name}({list(args.keys())}) -> {result_str[:200] if result_str else 'None'}")
+        llm_trace.emit("tool_result", step=new_count, name=fn_name, result=result_str)
         new_log.append(f"tool: {fn_name} (step {new_count})")
 
         # Check for task_complete signal
@@ -518,6 +569,15 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
 
     task_id = str(uuid.uuid4())
     workspace_dir = task_payload.get("workspace_dir") or create_workspace(task_id)
+    llm_trace.set_task(task_id)
+    llm_trace.emit(
+        "task_start",
+        specialization=specialization,
+        model_id=model_id,
+        max_tool_calls=max_tool_calls,
+        max_cost_usd=max_cost_usd,
+        description=task_description,
+    )
 
     try:
         # Build initial user message
@@ -551,7 +611,7 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         duration = time.time() - start_time
 
         # Store insight to L2 if we completed successfully
-        _, insights_collection = _get_knowledge_collections()
+        _, insights_collection, _vault = _get_knowledge_collections()
         if final_state.get("summary") and memory_store.qdrant:
             try:
                 insight = f"Task: {task_description}\nResult: {final_state['summary'][:500]}"

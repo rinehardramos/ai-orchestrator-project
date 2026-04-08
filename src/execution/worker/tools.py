@@ -312,6 +312,320 @@ def git_push(workspace_dir: str, path: str = ".", remote: str = "origin", branch
         return f"ERROR: {_sanitize(str(e))}"
 
 
+# ── Gmail (IMAP/SMTP) ─────────────────────────────────────────────────────
+# Reads credentials from env: GMAIL_USERNAME + GMAIL_APP_PASSWORD (a Google
+# App Password — Gmail rejects regular account passwords for IMAP/SMTP).
+# Optional overrides: GMAIL_IMAP_HOST, GMAIL_SMTP_HOST, GMAIL_SMTP_PORT.
+
+def _gmail_creds() -> tuple[str | None, str | None]:
+    return os.environ.get("GMAIL_USERNAME"), os.environ.get("GMAIL_APP_PASSWORD")
+
+
+def _gmail_decode_header(header: str) -> str:
+    if not header:
+        return ""
+    from email.header import decode_header as _dh
+    parts = []
+    for part, enc in _dh(header):
+        if isinstance(part, bytes):
+            parts.append(part.decode(enc or "utf-8", errors="replace"))
+        else:
+            parts.append(part)
+    return "".join(parts)
+
+
+def _gmail_body_preview(msg, full: bool = False) -> str:
+    body = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain":
+                payload = part.get_payload(decode=True)
+                if payload:
+                    body = payload.decode("utf-8", errors="replace")
+                    break
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            body = payload.decode("utf-8", errors="replace")
+    return body if full else body[:500]
+
+
+def _gmail_format_list(emails: list[dict]) -> str:
+    if not emails:
+        return "No emails found."
+    lines = [f"Found {len(emails)} email(s):\n"]
+    for i, e in enumerate(emails, 1):
+        lines.append(f"{i}. ID: {e['id']}")
+        lines.append(f"   From: {e['from']}")
+        lines.append(f"   Subject: {e['subject']}")
+        lines.append(f"   Date: {e['date']}")
+        if "preview" in e:
+            lines.append(f"   Preview: {e['preview']}")
+        lines.append("")
+    return "\n".join(lines)
+
+
+def gmail_send(workspace_dir: str, to: str, subject: str, body: str,
+               cc: str = "", bcc: str = "") -> str:
+    """Send an email via Gmail SMTP. Recipients comma-separated."""
+    user, pw = _gmail_creds()
+    if not user or not pw:
+        return "ERROR: GMAIL_USERNAME or GMAIL_APP_PASSWORD not set in worker env."
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        smtp_host = os.environ.get("GMAIL_SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.environ.get("GMAIL_SMTP_PORT", "587"))
+
+        msg = MIMEMultipart()
+        msg["From"] = user
+        msg["To"] = to
+        msg["Subject"] = subject
+        if cc:
+            msg["Cc"] = cc
+        if bcc:
+            msg["Bcc"] = bcc
+        msg.attach(MIMEText(body, "plain"))
+
+        recipients = [a.strip() for a in to.split(",") if a.strip()]
+        if cc:
+            recipients += [a.strip() for a in cc.split(",") if a.strip()]
+        if bcc:
+            recipients += [a.strip() for a in bcc.split(",") if a.strip()]
+
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            server.starttls()
+            server.login(user, pw)
+            server.sendmail(user, recipients, msg.as_string())
+        return f"Email sent successfully to: {to}"
+    except Exception as e:
+        return f"gmail_send failed: {e}"
+
+
+def gmail_create_draft(workspace_dir: str, to: str, subject: str, body: str,
+                       cc: str = "", bcc: str = "") -> str:
+    """Create an email DRAFT in Gmail (does NOT send).
+
+    Appends a fully-formed RFC822 message with the ``\\Draft`` flag to the
+    ``[Gmail]/Drafts`` folder via IMAP. The draft appears in the user's Gmail
+    web interface and Gmail apps, ready for the user to review and send
+    manually.
+    """
+    user, pw = _gmail_creds()
+    if not user or not pw:
+        return "ERROR: GMAIL_USERNAME or GMAIL_APP_PASSWORD not set in worker env."
+    try:
+        import imaplib
+        import time
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        from email.utils import formatdate, make_msgid
+
+        imap_host = os.environ.get("GMAIL_IMAP_HOST", "imap.gmail.com")
+        imap_port = int(os.environ.get("GMAIL_IMAP_PORT", "993"))
+        drafts_folder = os.environ.get("GMAIL_DRAFTS_FOLDER", "[Gmail]/Drafts")
+
+        msg = MIMEMultipart()
+        msg["From"] = user
+        msg["To"] = to
+        msg["Subject"] = subject
+        if cc:
+            msg["Cc"] = cc
+        if bcc:
+            msg["Bcc"] = bcc
+        msg["Date"] = formatdate(localtime=True)
+        msg["Message-ID"] = make_msgid()
+        msg.attach(MIMEText(body, "plain"))
+
+        with imaplib.IMAP4_SSL(imap_host, imap_port) as mail:
+            mail.login(user, pw)
+            status, _ = mail.append(
+                drafts_folder,
+                "\\Draft",
+                imaplib.Time2Internaldate(time.time()),
+                msg.as_string().encode("utf-8"),
+            )
+            if status != "OK":
+                return f"ERROR: APPEND to {drafts_folder} failed: {status}"
+
+        return (
+            f"Draft created in {drafts_folder}. To: {to}  Subject: {subject!r}  "
+            f"({len(body)} chars body). Visible in Gmail web/apps for review."
+        )
+    except Exception as e:
+        return f"gmail_create_draft failed: {e}"
+
+
+def gmail_read_inbox(workspace_dir: str, folder: str = "INBOX",
+                     unread_only: bool = True, limit: int = 10,
+                     mark_read: bool = False) -> str:
+    """Read recent emails from a Gmail folder via IMAP."""
+    user, pw = _gmail_creds()
+    if not user or not pw:
+        return "ERROR: GMAIL_USERNAME or GMAIL_APP_PASSWORD not set in worker env."
+    try:
+        import imaplib
+        import email as _email
+        imap_host = os.environ.get("GMAIL_IMAP_HOST", "imap.gmail.com")
+        imap_port = int(os.environ.get("GMAIL_IMAP_PORT", "993"))
+
+        with imaplib.IMAP4_SSL(imap_host, imap_port) as mail:
+            mail.login(user, pw)
+            mail.select(folder)
+            status, messages = mail.search(None, "(UNSEEN)" if unread_only else "ALL")
+            if status != "OK":
+                return "ERROR: Failed to search inbox."
+            ids = messages[0].split()[-limit:] if messages[0] else []
+            results = []
+            for eid in reversed(ids):
+                fs, data = mail.fetch(eid, "(RFC822)")
+                if fs != "OK":
+                    continue
+                msg = _email.message_from_bytes(data[0][1])
+                preview = _gmail_body_preview(msg)
+                results.append({
+                    "id": eid.decode(),
+                    "from": _gmail_decode_header(msg.get("From", "")),
+                    "subject": _gmail_decode_header(msg.get("Subject", "")),
+                    "date": msg.get("Date", ""),
+                    "preview": preview[:200] + ("…" if len(preview) > 200 else ""),
+                })
+                if mark_read:
+                    mail.store(eid, "+FLAGS", "\\Seen")
+            return _gmail_format_list(results)
+    except Exception as e:
+        return f"gmail_read_inbox failed: {e}"
+
+
+def gmail_search(workspace_dir: str, query: str, folder: str = "INBOX",
+                 limit: int = 10) -> str:
+    """IMAP search query (e.g. 'FROM \"alice@example.com\"', 'SUBJECT \"invoice\"')."""
+    user, pw = _gmail_creds()
+    if not user or not pw:
+        return "ERROR: GMAIL_USERNAME or GMAIL_APP_PASSWORD not set in worker env."
+    try:
+        import imaplib
+        import email as _email
+        imap_host = os.environ.get("GMAIL_IMAP_HOST", "imap.gmail.com")
+        imap_port = int(os.environ.get("GMAIL_IMAP_PORT", "993"))
+        with imaplib.IMAP4_SSL(imap_host, imap_port) as mail:
+            mail.login(user, pw)
+            mail.select(folder)
+            status, messages = mail.search(None, f"({query})")
+            if status != "OK":
+                return "ERROR: Search failed."
+            ids = messages[0].split()[-limit:] if messages[0] else []
+            results = []
+            for eid in reversed(ids):
+                fs, data = mail.fetch(eid, "(RFC822)")
+                if fs != "OK":
+                    continue
+                msg = _email.message_from_bytes(data[0][1])
+                results.append({
+                    "id": eid.decode(),
+                    "from": _gmail_decode_header(msg.get("From", "")),
+                    "subject": _gmail_decode_header(msg.get("Subject", "")),
+                    "date": msg.get("Date", ""),
+                })
+            return _gmail_format_list(results)
+    except Exception as e:
+        return f"gmail_search failed: {e}"
+
+
+def read_vault_note(workspace_dir: str, path: str) -> str:
+    """Fetch the full content of a specific Obsidian note by its vault-relative path.
+
+    Use this when the user names a specific note (e.g. ``AGENT INSTRUCTIONS 2.md``)
+    or when ``recall_memory`` returns a promising source path you want the full
+    body of. Concatenates every chunk of the note in heading order.
+    """
+    try:
+        from src.config_db import get_loader
+        from qdrant_client import QdrantClient
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+
+        collection = (
+            (get_loader().load_namespace("knowledge") or {}).get("vault_collection")
+            or "obsidian_vault_v1"
+        )
+        qdrant_url = os.environ.get("QDRANT_URL", "http://host.docker.internal:6333")
+        client = QdrantClient(url=qdrant_url)
+
+        # Try the exact path first; fall back to a basename match if no hits.
+        def _scroll(value: str):
+            return client.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(
+                    must=[FieldCondition(key="vault_path", match=MatchValue(value=value))]
+                ),
+                limit=200,
+                with_payload=True,
+                with_vectors=False,
+            )[0]
+
+        points = _scroll(path)
+        if not points and "/" not in path:
+            # Try a forgiving lookup: scan and match by basename.
+            all_pts, _ = client.scroll(
+                collection_name=collection,
+                limit=500,
+                with_payload=["vault_path"],
+                with_vectors=False,
+            )
+            candidates = [p.payload.get("vault_path") for p in all_pts if p.payload]
+            target = next(
+                (c for c in candidates if c and (c == path or c.endswith("/" + path) or c.split("/")[-1] == path)),
+                None,
+            )
+            if target:
+                points = _scroll(target)
+
+        if not points:
+            return f"Note not found in vault: {path!r}"
+
+        chunks = sorted(
+            (p.payload for p in points if p.payload),
+            key=lambda pl: pl.get("chunk_index", 0),
+        )
+        actual_path = chunks[0].get("vault_path", path)
+        body = "\n\n".join((c.get("content") or "") for c in chunks)
+        return f"--- {actual_path} ({len(chunks)} chunks) ---\n{body}"
+    except Exception as e:
+        return f"read_vault_note failed: {e}"
+
+
+def recall_memory(workspace_dir: str, query: str, k: int = 5) -> str:
+    """Semantic search over the user's Obsidian vault (long-term memory).
+
+    Use this whenever you need background knowledge, prior decisions, project
+    context, or any information from the user's notes that isn't in the current
+    conversation. Returns top-k matching note chunks with their source paths.
+    """
+    try:
+        from src.shared.memory.hybrid_store import HybridMemoryStore
+        from src.execution.worker.embeddings import get_embedder
+        from src.config_db import get_loader
+        collection = (
+            (get_loader().load_namespace("knowledge") or {}).get("vault_collection")
+            or "obsidian_vault_v1"
+        )
+        store = HybridMemoryStore()
+        vector = get_embedder().embed(query, embed_type="text")
+        results = store.query_l2(collection, vector, limit=max(1, min(k, 20)))
+        if not results:
+            return f"No relevant notes found in {collection} for: {query!r}"
+        lines = []
+        for r in results:
+            payload = r.payload or {}
+            source = payload.get("source") or payload.get("path") or payload.get("vault_path") or "?"
+            content = (payload.get("content") or payload.get("text") or "").strip()
+            lines.append(f"[score={r.score:.3f}] {source}\n{content[:600]}")
+        return "\n---\n".join(lines)
+    except Exception as e:
+        return f"recall_memory failed: {e}"
+
+
 def memory_search(workspace_dir: str, query: str) -> str:
     """Semantic search for past insights in Qdrant L2."""
     try:
@@ -461,6 +775,35 @@ def delegate_task(workspace_dir: str, task_description: str, specialization: str
         "task_description": task_description,
         "specialization": specialization
     })
+
+
+def browser_exec(
+    workspace_dir: str,
+    action: str,
+    url: str = "",
+    selector: str = "",
+    text: str = "",
+    script: str = "",
+    cdp_url: str = "",
+    headless: bool = True,
+    timeout_ms: int = 0,
+    frame: str = "",
+) -> str:
+    """Drive a real browser via Playwright. Supports CDP attach + headless launch."""
+    from src.execution.worker.browser import browser_exec as _impl
+
+    return _impl(
+        workspace_dir=workspace_dir,
+        action=action,
+        url=url,
+        selector=selector,
+        text=text,
+        script=script,
+        cdp_url=cdp_url,
+        headless=headless,
+        timeout_ms=timeout_ms,
+        frame=frame,
+    )
 
 
 # ── Tool Registry ──
@@ -661,6 +1004,153 @@ TOOL_REGISTRY: list[dict] = [
         },
     },
     {
+        "name": "gmail_send",
+        "fn": gmail_send,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "gmail_send",
+                "description": (
+                    "SEND an email immediately via Gmail SMTP. The message is delivered "
+                    "to recipients right away. Use gmail_create_draft instead if the user "
+                    "only wants to draft/compose an email for review."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "string", "description": "Recipient(s), comma-separated"},
+                        "subject": {"type": "string", "description": "Email subject"},
+                        "body": {"type": "string", "description": "Plain-text body"},
+                        "cc": {"type": "string", "description": "CC recipients (optional)", "default": ""},
+                        "bcc": {"type": "string", "description": "BCC recipients (optional)", "default": ""},
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            },
+        },
+    },
+    {
+        "name": "gmail_create_draft",
+        "fn": gmail_create_draft,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "gmail_create_draft",
+                "description": (
+                    "Create an email DRAFT in the user's Gmail (does NOT send). "
+                    "The draft appears in Gmail web/apps for the user to review "
+                    "and send manually. Use this whenever the user asks you to "
+                    "compose, draft, or prepare an email."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "string", "description": "Recipient(s), comma-separated"},
+                        "subject": {"type": "string", "description": "Email subject"},
+                        "body": {"type": "string", "description": "Plain-text body"},
+                        "cc": {"type": "string", "description": "CC recipients (optional)", "default": ""},
+                        "bcc": {"type": "string", "description": "BCC recipients (optional)", "default": ""},
+                    },
+                    "required": ["to", "subject", "body"],
+                },
+            },
+        },
+    },
+    {
+        "name": "gmail_read_inbox",
+        "fn": gmail_read_inbox,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "gmail_read_inbox",
+                "description": "Read recent messages from a Gmail folder (default INBOX, unread only).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "folder": {"type": "string", "default": "INBOX"},
+                        "unread_only": {"type": "boolean", "default": True},
+                        "limit": {"type": "integer", "default": 10},
+                        "mark_read": {"type": "boolean", "default": False},
+                    },
+                },
+            },
+        },
+    },
+    {
+        "name": "gmail_search",
+        "fn": gmail_search,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "gmail_search",
+                "description": (
+                    "Search Gmail using IMAP query syntax. Examples: "
+                    "'FROM \"alice@example.com\"', 'SUBJECT \"invoice\"', 'SINCE 1-Jan-2026'."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "IMAP search expression"},
+                        "folder": {"type": "string", "default": "INBOX"},
+                        "limit": {"type": "integer", "default": 10},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    },
+    {
+        "name": "read_vault_note",
+        "fn": read_vault_note,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "read_vault_note",
+                "description": (
+                    "Fetch the FULL content of a specific Obsidian note by its "
+                    "vault-relative path (e.g. 'AGENT INSTRUCTIONS 2.md'). Use this "
+                    "whenever the user names a specific note, or after recall_memory "
+                    "surfaces a path you want to read in full. Returns all chunks "
+                    "of the note concatenated in heading order."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Vault-relative path or basename of the note (e.g. 'EOS REPORT.md')",
+                        },
+                    },
+                    "required": ["path"],
+                },
+            },
+        },
+    },
+    {
+        "name": "recall_memory",
+        "fn": recall_memory,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "recall_memory",
+                "description": (
+                    "Semantic search over the user's Obsidian vault. Use this BEFORE "
+                    "asking the user for context, whenever you need prior decisions, "
+                    "project background, instructions, or domain knowledge. Returns "
+                    "top-k matching note chunks with their source file paths."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Natural language query"},
+                        "k": {"type": "integer", "description": "Number of results (1-20)", "default": 5},
+                    },
+                    "required": ["query"],
+                },
+            },
+        },
+    },
+    {
         "name": "memory_search",
         "fn": memory_search,
         "schema": {
@@ -840,6 +1330,80 @@ TOOL_REGISTRY: list[dict] = [
                         "specialization": {"type": "string", "description": "Specialization required for the task", "default": "general"},
                     },
                     "required": ["task_description"],
+                },
+            },
+        },
+    },
+    {
+        "name": "browser_exec",
+        "fn": browser_exec,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "browser_exec",
+                "description": (
+                    "Drive a real browser via Playwright. Use to navigate, click, fill forms, "
+                    "read page text, take screenshots, run JS, or wait for elements on pages that "
+                    "require JavaScript rendering. Attaches to an existing Chrome (port 9222) when "
+                    "cdp_url or CHROME_CDP_URL is set — reuses the user's logged-in session, so "
+                    "OAuth/SSO flows just work. Otherwise launches a fresh headless Chromium. "
+                    "The session persists across calls within the same task; call action='close' "
+                    "when done. Screenshots land in <workspace>/.browser/."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": [
+                                "navigate", "click", "fill", "get_text", "get_html",
+                                "screenshot", "wait_for", "eval_js", "close",
+                            ],
+                            "description": "The browser action to perform.",
+                        },
+                        "url": {"type": "string", "description": "Target URL for 'navigate'."},
+                        "selector": {
+                            "type": "string",
+                            "description": (
+                                "CSS or Playwright selector for click/fill/get_text/get_html/"
+                                "wait_for. For get_text and get_html, omit to read the whole page."
+                            ),
+                        },
+                        "text": {"type": "string", "description": "Value to type for 'fill'."},
+                        "script": {"type": "string", "description": "JS source for 'eval_js'."},
+                        "cdp_url": {
+                            "type": "string",
+                            "description": (
+                                "Chrome DevTools Protocol endpoint (e.g. 'http://localhost:9222'). "
+                                "Overrides CHROME_CDP_URL env var. Empty → launch fresh headless."
+                            ),
+                            "default": "",
+                        },
+                        "headless": {
+                            "type": "boolean",
+                            "description": "When launching (not CDP-attaching), run without a window.",
+                            "default": True,
+                        },
+                        "timeout_ms": {
+                            "type": "integer",
+                            "description": "Per-action timeout override. 0 → default 15000ms.",
+                            "default": 0,
+                        },
+                        "frame": {
+                            "type": "string",
+                            "description": (
+                                "CSS selector for an <iframe> element. When set, "
+                                "'selector' resolves INSIDE that iframe instead of "
+                                "the top document. Use for Google Identity Services "
+                                "OAuth buttons (frame=\"iframe[src*='accounts.google.com']\"), "
+                                "reCAPTCHA, Stripe Elements, embedded YouTube, and any "
+                                "cross-origin embed. Leave empty for normal top-document "
+                                "selectors."
+                            ),
+                            "default": "",
+                        },
+                    },
+                    "required": ["action"],
                 },
             },
         },

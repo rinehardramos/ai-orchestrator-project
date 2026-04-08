@@ -189,10 +189,19 @@ async def dispatch_task(
     try:
         from src.control.orchestrator.scheduler import TaskScheduler
 
+        # scheduler.submit_agent_task reads analysis_result['llm_model_id']
+        # and analysis_result['model_details']['provider'] when pushing to
+        # Temporal — pull both from the loaded spec so we don't hardcode
+        # the model name (matches src/genesis/run_assistant.py).
+        spec = ns[req.specialization] or {}
         scheduler = TaskScheduler("dummy-temporal-queue", "dummy-qdrant-db")
         task_id = await scheduler.submit_agent_task(
             task_description=req.task_description,
-            analysis_result={"specialization": req.specialization},
+            analysis_result={
+                "specialization": req.specialization,
+                "llm_model_id": spec.get("model"),
+                "model_details": {"provider": spec.get("provider")},
+            },
             max_tool_calls=req.max_tool_calls,
             max_cost_usd=req.max_cost_usd,
         )

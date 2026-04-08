@@ -37,10 +37,24 @@ services:
       - "8100:8000"
     environment:
       - CONTROL_API_KEY=${CONTROL_API_KEY:?CONTROL_API_KEY is required for worker-api}
-      - DATABASE_URL=${DATABASE_URL:-postgresql://temporal:temporal@postgres:5432/orchestrator}
-      - TEMPORAL_HOST_URL=${TEMPORAL_HOST_URL:-temporal:7233}
-      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
-      - REDIS_URL=redis://redis:6379
+      # DATABASE_URL is composed from the same POSTGRES_* vars the postgres
+      # service in docker-compose.core.yml uses, so worker-api cannot drift
+      # from the actual db credentials. Defaults match that service exactly:
+      # user=temporal, password=temporal, db=temporal (postgres:14 defaults
+      # POSTGRES_DB to POSTGRES_USER when unset — no 'orchestrator' db exists).
+      - POSTGRES_USER=${POSTGRES_USER:-temporal}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-temporal}
+      - POSTGRES_HOST=${POSTGRES_HOST:-postgres}
+      - POSTGRES_PORT=${POSTGRES_PORT:-5432}
+      - POSTGRES_DB=${POSTGRES_DB:-temporal}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-temporal}:${POSTGRES_PASSWORD:-temporal}@${POSTGRES_HOST:-postgres}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-temporal}
+      # src/config.py reads TEMPORAL_HOST/TEMPORAL_PORT/REDIS_HOST — must
+      # match those names, not the *_URL form, or load_settings() falls back
+      # to "localhost" which inside the container is the container itself.
+      - TEMPORAL_HOST=${TEMPORAL_HOST_INTERNAL:-temporal}
+      - TEMPORAL_PORT=${TEMPORAL_PORT_INTERNAL:-7233}
+      - REDIS_HOST=${REDIS_HOST_INTERNAL:-redis}
+      - QDRANT_URL=${QDRANT_URL_INTERNAL:-http://qdrant:6333}
       - OFFLINE_QUEUE_DB=/app/data/offline_queue.db
     volumes:
       - ../../data:/app/data
@@ -64,8 +78,10 @@ services:
       - OBSIDIAN_COLLECTION=${OBSIDIAN_COLLECTION:-obsidian_vault_v1}
       - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
       - EMBEDDING_URL=${EMBEDDING_URL:-http://host.docker.internal:1234/v1}
-      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-nomic-embed-code}
-      - EMBEDDING_DIM=${EMBEDDING_DIM:-3584}
+      # Single nomic-text v1.5 embedder across the whole stack — small (~500MB),
+      # 768d, English. Worker, knowledge_base, and watcher all read this.
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-nomic-embed-text-v1.5}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-768}
       - OBSIDIAN_DEBOUNCE_MS=${OBSIDIAN_DEBOUNCE_MS:-500}
     volumes:
       - ${OBSIDIAN_VAULT_HOST_PATH:-${HOME}/Projects/obsidian-notes/obsidian-notes}:/vault

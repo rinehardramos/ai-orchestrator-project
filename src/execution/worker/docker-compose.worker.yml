@@ -11,14 +11,32 @@ services:
       - TEMPORAL_HOST_URL=host.docker.internal:7233
       - QDRANT_URL=http://host.docker.internal:6333
       - REDIS_URL=redis://host.docker.internal:6379
-      - DATABASE_URL=postgresql://temporal:temporal@host.docker.internal:5432/orchestrator
+      - DATABASE_URL=postgresql://temporal:temporal@host.docker.internal:5432/temporal
+      - CHROME_CDP_URL=${CHROME_CDP_URL:-}
+      - LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-4096}
+      - WORKER_KEEP_WORKSPACES=${WORKER_KEEP_WORKSPACES:-1}
       - LMSTUDIO_HOST=host.docker.internal
       - LMSTUDIO_PORT=${LMSTUDIO_PORT:-1234}
       - OPIK_URL_OVERRIDE=${OPIK_URL_OVERRIDE:-http://host.docker.internal:8080}
       - OPIK_PROJECT_NAME=${OPIK_PROJECT_NAME:-ai-orchestration}
       - PYTHONUNBUFFERED=1
+      # Gmail (IMAP/SMTP) — used by gmail_create_draft / gmail_read_inbox / gmail_search
+      # GMAIL_APP_PASSWORD must be a Google App Password, not a regular account password.
+      - GMAIL_USERNAME=${GMAIL_USERNAME:-}
+      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD:-}
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # Persist agent workspaces (incl. browser_exec screenshots in .browser/)
+      # to the host so artifacts survive container recreation. The pipeline's
+      # cleanup_workspace still deletes per-task subdirs on completion; set
+      # WORKER_KEEP_WORKSPACES=1 in .env to skip that teardown if you want
+      # to inspect .browser/ contents after a run.
+      - ../../../data/agent-workspaces:/tmp/agent-workspaces
+      # LLM trace JSONLs (one file per task_id). Host /tmp is OS-cleaned on
+      # reboot — traces are intentionally ephemeral. See src/genesis/llm_logs.py
+      # for the tail CLI and src/execution/worker/llm_trace.py for the writer.
+      - /tmp/orchestrator-llm-traces:/tmp/llm-traces
     networks:
       - ai-network
     restart: always
