@@ -50,6 +50,29 @@ services:
       - ai-network
     restart: unless-stopped
 
+  # ── Obsidian Vault Watcher (real-time sync → Qdrant) ──────────────────────
+  # Uses the shared mcp-servers image. The image source lives at
+  # ~/.claude/mcp-servers/ (user-level, project-agnostic). Build it with:
+  #   docker build -t mcp-servers:latest -f ~/.claude/mcp-servers/Dockerfile ~/.claude/mcp-servers
+  # before bringing this service up.
+  obsidian-watcher:
+    image: mcp-servers:latest
+    container_name: obsidian-watcher
+    command: ["python", "-m", "obsidian_vault_mcp", "watch"]
+    environment:
+      - OBSIDIAN_VAULT_PATH=/vault
+      - OBSIDIAN_COLLECTION=${OBSIDIAN_COLLECTION:-obsidian_vault_v1}
+      - QDRANT_URL=${QDRANT_URL:-http://qdrant:6333}
+      - EMBEDDING_URL=${EMBEDDING_URL:-http://host.docker.internal:1234/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-nomic-embed-code}
+      - EMBEDDING_DIM=${EMBEDDING_DIM:-3584}
+      - OBSIDIAN_DEBOUNCE_MS=${OBSIDIAN_DEBOUNCE_MS:-500}
+    volumes:
+      - ${OBSIDIAN_VAULT_HOST_PATH:-${HOME}/Projects/obsidian-notes/obsidian-notes}:/vault
+    networks:
+      - ai-network
+    restart: unless-stopped
+
   # ── Model Selector (Constraint-based Scaling) ──────────────────────────────
   selector:
     build:
