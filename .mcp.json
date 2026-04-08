@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "obsidian-vault": {
+      "type": "stdio",
+      "command": "/Users/rinehardramos/Projects/ai-orchestrator-project/.venv/bin/python",
+      "args": [
+        "-m",
+        "src.ingestion.obsidian.mcp_server"
+      ],
+      "env": {}
+    }
+  }
+}

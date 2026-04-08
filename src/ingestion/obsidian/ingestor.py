@@ -103,9 +103,62 @@ class ObsidianVaultIngestor:
             self._kb = None
             self.embedder = embedder
 
+        # Fallback: construct a QdrantClient directly if the embedder's
+        # HybridMemoryStore came back with qdrant=None. This happens when
+        # the project uses QDRANT_HOST/PORT instead of QDRANT_URL.
+        if qdrant is None:
+            qdrant = self._build_qdrant_fallback()
+
         self.qdrant = qdrant
         self.embed_dim = embed_dim or getattr(embedder, "_embed_dim", None) or 3584
         self._collection_ready = False
+
+    @staticmethod
+    def _build_qdrant_fallback():
+        """Build a QdrantClient from env vars or project settings.yaml.
+
+        Needed because HybridMemoryStore only honors ``QDRANT_URL``, but the
+        project commonly sets ``QDRANT_HOST``/``QDRANT_PORT`` (or nests the
+        qdrant block under ``environments.<env>.qdrant`` in settings.yaml).
+        """
+        url = os.environ.get("QDRANT_URL")
+        if not url:
+            host = os.environ.get("QDRANT_HOST")
+            port = os.environ.get("QDRANT_PORT", "6333")
+            if host:
+                url = f"http://{host}:{port}"
+        if not url:
+            try:
+                import yaml
+
+                settings_path = (
+                    Path(__file__).resolve().parents[3] / "config" / "settings.yaml"
+                )
+                if settings_path.exists():
+                    with settings_path.open("r") as f:
+                        data = yaml.safe_load(f) or {}
+                    # Top-level qdrant block (legacy).
+                    q = data.get("qdrant")
+                    if not q:
+                        env_name = data.get("active_environment", "primary")
+                        q = (
+                            data.get("environments", {})
+                            .get(env_name, {})
+                            .get("qdrant")
+                        )
+                    if q:
+                        url = f"http://{q.get('host', 'localhost')}:{q.get('port', 6333)}"
+            except Exception as exc:
+                logger.debug("settings.yaml qdrant fallback failed: %s", exc)
+        if not url:
+            url = "http://localhost:6333"
+        try:
+            from qdrant_client import QdrantClient
+
+            return QdrantClient(url=url)
+        except Exception as exc:
+            logger.warning("Failed to build fallback QdrantClient: %s", exc)
+            return None
 
     # ------------------------------------------------------------------
     # Collection management
