@@ -91,7 +91,7 @@ _tools_loaded = False
 _last_config_check = 0
 
 async def _ensure_tools_loaded():
-    global _tools_loaded, _last_config_check
+    global _tools_loaded
     if not _tools_loaded and PLUGINS_AVAILABLE:
         try:
             await load_tools("config/bootstrap.yaml", node="worker")
