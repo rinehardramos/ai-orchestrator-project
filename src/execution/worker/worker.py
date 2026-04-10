@@ -7,7 +7,7 @@ import json
 import yaml
 import logging
 from typing import TypedDict, Annotated, Any
-from datetime import timedelta
+from datetime import timedelta, date as _date_today
 
 # Temporal
 from temporalio import activity, workflow
@@ -149,6 +149,119 @@ AGENT_DEFAULTS = load_agent_defaults()
 
 # --- Model Router (config-driven, OpenRouter primary / LiteLLM for local in Phase 3) ---
 router = ModelRouter()
+
+# ── Assistant Subject Recall ──────────────────────────────────────────────────
+
+class LowConfidenceError(RuntimeError):
+    def __init__(self, hint: str, score: float, best_match: str):
+        super().__init__(
+            f"Low confidence recall for {hint!r}: best match {best_match!r} scored {score:.2f} (< 0.80)"
+        )
+        self.hint = hint
+        self.score = score
+        self.best_match = best_match
+
+
+class ToolUnavailableError(RuntimeError):
+    def __init__(self, missing: list[str]):
+        super().__init__(f"Required tools not registered: {missing}")
+        self.missing = missing
+
+
+def _get_assistant_task_store():
+    """Lazy-init a thin Qdrant store for assistant_tasks using the worker's Qdrant URL."""
+    from qdrant_client import QdrantClient
+
+    class _Store:
+        def __init__(self, url):
+            self._client = QdrantClient(url=url)
+            self._collection = "assistant_tasks"
+
+        def _embed(self, text: str) -> list[float]:
+            emb = get_embedder()
+            return emb.embed_text(text)
+
+        def recall(self, hint: str, threshold: float = 0.80):
+            results = self._client.search(
+                collection_name=self._collection,
+                query_vector=self._embed(hint),
+                limit=1,
+                with_payload=True,
+            )
+            if not results or results[0].score < threshold:
+                return None
+            top = results[0]
+            payload = dict(top.payload)
+            payload["score"] = top.score
+            payload["qdrant_key"] = str(top.id)
+            return payload
+
+        def write_back(self, qdrant_key: str, task_id: str, outcome: str, step_outcomes: dict) -> None:
+            points = self._client.retrieve(
+                collection_name=self._collection, ids=[qdrant_key], with_payload=True
+            )
+            version = (points[0].payload.get("version", 1) + 1) if points else 2
+            self._client.set_payload(
+                collection_name=self._collection,
+                payload={
+                    "last_run_id": task_id,
+                    "last_outcome": outcome,
+                    "step_outcomes": step_outcomes,
+                    "version": version,
+                },
+                points=[qdrant_key],
+            )
+
+    return _Store(qdrant_url)
+
+
+async def resolve_subject(hint: str, store=None) -> dict:
+    """
+    Semantic-search assistant_tasks Qdrant collection for hint.
+    Returns dict with task_description, required_tools, qdrant_key, subject.
+    Raises LowConfidenceError if no match above threshold.
+    """
+    if store is None:
+        store = _get_assistant_task_store()
+
+    match = store.recall(hint, threshold=0.80)
+    if match is None:
+        raise LowConfidenceError(hint, score=0.0, best_match="(none)")
+
+    today = str(_date_today.today())
+    lines = [
+        f"Subject: {match['subject']}",
+        f"Today: {today}",
+        "",
+        "Execute the following steps:",
+    ]
+    for step in match.get("steps", []):
+        params = {
+            k: v.replace("{today}", today) if isinstance(v, str) else v
+            for k, v in step.get("params", {}).items()
+        }
+        lines.append(f"{step['n']}. [{step['action']}] {params}")
+
+    return {
+        "task_description": "\n".join(lines),
+        "required_tools": match.get("required_tools", []),
+        "qdrant_key": match.get("qdrant_key"),
+        "subject": match.get("subject"),
+    }
+
+
+def preflight_tools(required_tools: list[str]) -> None:
+    """
+    Verify all required_tools are present in TOOL_REGISTRY.
+    Raises ToolUnavailableError listing any missing tools.
+    """
+    registered_names = {t["name"] for t in TOOL_REGISTRY}
+    missing = [t for t in required_tools if t not in registered_names]
+    if missing:
+        raise ToolUnavailableError(missing)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_content_with_tools(messages: list[dict], task_type: TaskType = TaskType.AGENT_STEP, specialization: str = "general") -> tuple[Any, float]:
     """
