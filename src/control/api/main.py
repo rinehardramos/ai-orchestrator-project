@@ -35,6 +35,27 @@ _OFFLINE_DB = Path(
 )
 
 
+def _ensure_task_subjects_table() -> None:
+    """Create task_subjects table in the offline queue SQLite DB if absent."""
+    _OFFLINE_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_OFFLINE_DB))
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_subjects (
+                subject      TEXT PRIMARY KEY,
+                qdrant_key   TEXT NOT NULL,
+                last_task_id TEXT,
+                last_run_at  TEXT,
+                created_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+_ensure_task_subjects_table()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Auth
 # ─────────────────────────────────────────────────────────────────────────────
@@ -90,6 +111,24 @@ class TaskStatus(BaseModel):
     history: Optional[dict[str, Any]] = None
     offline_queue: Optional[dict[str, Any]] = None
     reason: Optional[str] = None
+
+
+class SubjectRecord(BaseModel):
+    subject: str
+    qdrant_key: str
+    last_task_id: Optional[str] = None
+    last_run_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class SubjectUpsert(BaseModel):
+    subject: str = Field(..., min_length=1)
+    qdrant_key: str = Field(..., min_length=1)
+    last_task_id: Optional[str] = None
+
+
+class SubjectSearchResponse(BaseModel):
+    matches: list[SubjectRecord]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -214,6 +253,74 @@ async def dispatch_task(
     return DispatchResponse(
         task_id=task_id, specialization=req.specialization, status="submitted"
     )
+
+
+@app.post("/tasks/subjects", response_model=SubjectRecord, status_code=201)
+def upsert_subject(
+    body: SubjectUpsert, _: str = Depends(require_api_key)
+) -> SubjectRecord:
+    """Register or update a task subject → Qdrant key mapping."""
+    conn = sqlite3.connect(str(_OFFLINE_DB))
+    try:
+        conn.execute(
+            """INSERT INTO task_subjects (subject, qdrant_key, last_task_id)
+               VALUES (?, ?, ?)
+               ON CONFLICT(subject) DO UPDATE SET
+                 qdrant_key   = excluded.qdrant_key,
+                 last_task_id = excluded.last_task_id,
+                 last_run_at  = datetime('now')""",
+            (body.subject, body.qdrant_key, body.last_task_id),
+        )
+        conn.commit()
+        cur = conn.execute(
+            "SELECT subject, qdrant_key, last_task_id, last_run_at, created_at "
+            "FROM task_subjects WHERE subject = ?",
+            (body.subject,),
+        )
+        row = cur.fetchone()
+    finally:
+        conn.close()
+    return SubjectRecord(
+        subject=row[0], qdrant_key=row[1],
+        last_task_id=row[2], last_run_at=row[3], created_at=row[4],
+    )
+
+
+@app.get("/tasks/subjects", response_model=SubjectSearchResponse)
+def search_subjects(
+    q: str, _: str = Depends(require_api_key)
+) -> SubjectSearchResponse:
+    """Fuzzy-search task subjects using term matching. Returns ranked matches."""
+    if not _OFFLINE_DB.exists():
+        return SubjectSearchResponse(matches=[])
+    terms = q.lower().split()
+    conn = sqlite3.connect(str(_OFFLINE_DB))
+    conn.row_factory = sqlite3.Row
+    try:
+        cur = conn.execute(
+            "SELECT subject, qdrant_key, last_task_id, last_run_at, created_at "
+            "FROM task_subjects"
+        )
+        rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    scored = []
+    for row in rows:
+        subj_lower = row["subject"].lower()
+        score = sum(1 for t in terms if t in subj_lower)
+        if score > 0:
+            scored.append((score, row))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return SubjectSearchResponse(matches=[
+        SubjectRecord(
+            subject=r["subject"], qdrant_key=r["qdrant_key"],
+            last_task_id=r["last_task_id"], last_run_at=r["last_run_at"],
+            created_at=r["created_at"],
+        )
+        for _, r in scored
+    ])
 
 
 @app.get("/tasks/{task_id}", response_model=TaskStatus)

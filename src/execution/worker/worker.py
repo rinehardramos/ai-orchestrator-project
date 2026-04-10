@@ -7,7 +7,7 @@ import json
 import yaml
 import logging
 from typing import TypedDict, Annotated, Any
-from datetime import timedelta
+from datetime import timedelta, date as _date_today
 
 # Temporal
 from temporalio import activity, workflow
@@ -149,6 +149,120 @@ AGENT_DEFAULTS = load_agent_defaults()
 
 # --- Model Router (config-driven, OpenRouter primary / LiteLLM for local in Phase 3) ---
 router = ModelRouter()
+
+# ── Assistant Subject Recall ──────────────────────────────────────────────────
+
+class LowConfidenceError(RuntimeError):
+    def __init__(self, hint: str, score: float, best_match: str):
+        super().__init__(
+            f"Low confidence recall for {hint!r}: best match {best_match!r} scored {score:.2f} (< 0.80)"
+        )
+        self.hint = hint
+        self.score = score
+        self.best_match = best_match
+
+
+class ToolUnavailableError(RuntimeError):
+    def __init__(self, missing: list[str]):
+        super().__init__(f"Required tools not registered: {missing}")
+        self.missing = missing
+
+
+def _get_assistant_task_store():
+    """Lazy-init a thin Qdrant store for assistant_tasks using the worker's Qdrant URL."""
+    from qdrant_client import QdrantClient
+
+    class _Store:
+        def __init__(self, url):
+            self._client = QdrantClient(url=url)
+            self._collection = "assistant_tasks"
+
+        def _embed(self, text: str) -> list[float]:
+            emb = get_embedder()
+            return emb.embed_text(text)
+
+        def recall(self, hint: str, threshold: float = 0.80):
+            resp = self._client.query_points(
+                collection_name=self._collection,
+                query=self._embed(hint),
+                limit=1,
+                with_payload=True,
+            )
+            results = resp.points
+            if not results or results[0].score < threshold:
+                return None
+            top = results[0]
+            payload = dict(top.payload)
+            payload["score"] = top.score
+            payload["qdrant_key"] = str(top.id)
+            return payload
+
+        def write_back(self, qdrant_key: str, task_id: str, outcome: str, step_outcomes: dict) -> None:
+            points = self._client.retrieve(
+                collection_name=self._collection, ids=[qdrant_key], with_payload=True
+            )
+            version = (points[0].payload.get("version", 1) + 1) if points else 2
+            self._client.set_payload(
+                collection_name=self._collection,
+                payload={
+                    "last_run_id": task_id,
+                    "last_outcome": outcome,
+                    "step_outcomes": step_outcomes,
+                    "version": version,
+                },
+                points=[qdrant_key],
+            )
+
+    return _Store(qdrant_url)
+
+
+async def resolve_subject(hint: str, store=None) -> dict:
+    """
+    Semantic-search assistant_tasks Qdrant collection for hint.
+    Returns dict with task_description, required_tools, qdrant_key, subject.
+    Raises LowConfidenceError if no match above threshold.
+    """
+    if store is None:
+        store = _get_assistant_task_store()
+
+    match = store.recall(hint, threshold=0.50)
+    if match is None:
+        raise LowConfidenceError(hint, score=0.0, best_match="(none)")
+
+    today = str(_date_today.today())
+    lines = [
+        f"Subject: {match['subject']}",
+        f"Today: {today}",
+        "",
+        "Execute the following steps:",
+    ]
+    for step in match.get("steps", []):
+        params = {
+            k: v.replace("{today}", today) if isinstance(v, str) else v
+            for k, v in step.get("params", {}).items()
+        }
+        lines.append(f"{step['n']}. [{step['action']}] {params}")
+
+    return {
+        "task_description": "\n".join(lines),
+        "required_tools": match.get("required_tools", []),
+        "qdrant_key": match.get("qdrant_key"),
+        "subject": match.get("subject"),
+    }
+
+
+def preflight_tools(required_tools: list[str]) -> None:
+    """
+    Verify all required_tools are present in TOOL_REGISTRY.
+    Raises ToolUnavailableError listing any missing tools.
+    """
+    registered_names = {t["name"] for t in TOOL_REGISTRY}
+    missing = [t for t in required_tools if t not in registered_names]
+    if missing:
+        raise ToolUnavailableError(missing)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def generate_content_with_tools(messages: list[dict], task_type: TaskType = TaskType.AGENT_STEP, specialization: str = "general") -> tuple[Any, float]:
     """
@@ -556,9 +670,9 @@ agent_builder.add_edge("summarize", END)
 agent_graph = agent_builder.compile()
 
 
-@track(name="run_agent_pipeline")
-async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
-    """Run the agentic ReAct loop pipeline."""
+@track(name="run_react_loop")
+async def _run_react_loop(task_payload: dict, model_id: str) -> dict:
+    """Core ReAct loop — extracted from run_agent_pipeline for testability."""
     task_description = task_payload.get("description", "")
     repo_url = task_payload.get("repo_url", "")
     max_tool_calls = task_payload.get("max_tool_calls", AGENT_DEFAULTS["max_tool_calls"])
@@ -682,6 +796,64 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         }
     finally:
         cleanup_workspace(workspace_dir)
+
+
+async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
+    """Entry point: apply Subject recall pre-processing, then delegate to _run_react_loop."""
+    # ── Subject recall path ───────────────────────────────────────────────────
+    description = task_payload.get("description", "")
+    _subject_meta: dict = {}
+    if description.startswith("Subject: "):
+        subject_hint = description.removeprefix("Subject: ").strip()
+        store = _get_assistant_task_store()
+        try:
+            resolved = await resolve_subject(subject_hint, store)
+            task_payload = {**task_payload, "description": resolved["task_description"]}
+            _subject_meta = {
+                "qdrant_key": resolved["qdrant_key"],
+                "subject": resolved["subject"],
+                "required_tools": resolved["required_tools"],
+                "store": store,
+            }
+            preflight_tools(resolved["required_tools"])
+            logger.info(f"[SUBJECT RECALL] {resolved['subject']!r} resolved, tools verified")
+        except LowConfidenceError as exc:
+            logger.error(f"[SUBJECT RECALL] {exc}")
+            return {
+                "status": "error",
+                "summary": str(exc),
+                "total_cost_usd": 0.0,
+                "tool_call_count": 0,
+                "artifact_files": [],
+            }
+        except ToolUnavailableError as exc:
+            logger.error(f"[SUBJECT RECALL] {exc}")
+            return {
+                "status": "error",
+                "summary": str(exc),
+                "total_cost_usd": 0.0,
+                "tool_call_count": 0,
+                "artifact_files": [],
+            }
+    # ── end Subject recall path ───────────────────────────────────────────────
+
+    result = await _run_react_loop(task_payload, model_id)
+
+    # ── Post-run write-back for Subject tasks ─────────────────────────────────
+    if _subject_meta.get("qdrant_key"):
+        try:
+            _subject_meta["store"].write_back(
+                qdrant_key=_subject_meta["qdrant_key"],
+                task_id=result.get("task_id", ""),
+                outcome=result.get("summary", ""),
+                step_outcomes={},
+            )
+            logger.info(f"[SUBJECT RECALL] Write-back complete for {_subject_meta.get('subject')!r}")
+        except Exception as exc:
+            logger.warning(f"[SUBJECT RECALL] Write-back failed (non-fatal): {exc}")
+    # ── end write-back ────────────────────────────────────────────────────────
+
+    return result
 
 
 def _collect_artifacts(workspace_dir: str, max_size_bytes: int = 50 * 1024 * 1024) -> list[dict]:
