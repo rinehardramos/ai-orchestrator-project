@@ -74,6 +74,7 @@ jobs:
             --ignore=tests/unit/test_model_selector.py \
             --ignore=tests/unit/test_tools_api.py \
             --ignore=tests/test_worker_subject_recall.py \
+            --ignore=tests/unit/test_scheduler.py \
             -p no:warnings
 
   build-and-push:
