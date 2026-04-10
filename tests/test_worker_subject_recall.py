@@ -206,3 +206,44 @@ def test_run_agent_pipeline_routes_subject_task():
         assert result["status"] == "completed"
 
     _asyncio.run(_run())
+
+
+def test_writeback_called_after_subject_task():
+    from src.execution.worker.worker import run_agent_pipeline
+
+    payload = {
+        "description": "Subject: EOS Report Gmail Draft",
+        "specialization": "assistant",
+        "max_tool_calls": 5,
+        "max_cost_usd": 0.10,
+    }
+    mock_store = MagicMock()
+    mock_store.recall.return_value = {
+        "subject": "EOS Report Gmail Draft",
+        "qdrant_key": "aaa",
+        "score": 0.92,
+        "steps": [{"n": 1, "action": "shell_exec", "params": {"command": "echo hi"}}],
+        "required_tools": ["shell_exec"],
+    }
+
+    async def _run():
+        with patch("src.execution.worker.worker._get_assistant_task_store", return_value=mock_store), \
+             patch("src.execution.worker.worker._run_react_loop", new_callable=AsyncMock) as mock_loop:
+            mock_loop.return_value = {
+                "status": "completed",
+                "summary": "Draft created OK.",
+                "total_cost_usd": 0.01,
+                "tool_call_count": 2,
+                "artifact_files": [],
+            }
+            result = await run_agent_pipeline(payload, "gemma-4b")
+
+        mock_store.write_back.assert_called_once()
+        call_kwargs = mock_store.write_back.call_args
+        # write_back called with outcome="Draft created OK."
+        args = call_kwargs.args if call_kwargs.args else ()
+        kwargs = call_kwargs.kwargs if call_kwargs.kwargs else {}
+        outcome = kwargs.get("outcome") or (args[2] if len(args) > 2 else None)
+        assert outcome == "Draft created OK."
+
+    _asyncio.run(_run())

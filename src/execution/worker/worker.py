@@ -837,6 +837,21 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
     # ── end Subject recall path ───────────────────────────────────────────────
 
     result = await _run_react_loop(task_payload, model_id)
+
+    # ── Post-run write-back for Subject tasks ─────────────────────────────────
+    if _subject_meta.get("qdrant_key"):
+        try:
+            _subject_meta["store"].write_back(
+                qdrant_key=_subject_meta["qdrant_key"],
+                task_id=result.get("task_id", ""),
+                outcome=result.get("summary", ""),
+                step_outcomes={},
+            )
+            logger.info(f"[SUBJECT RECALL] Write-back complete for {_subject_meta.get('subject')!r}")
+        except Exception as exc:
+            logger.warning(f"[SUBJECT RECALL] Write-back failed (non-fatal): {exc}")
+    # ── end write-back ────────────────────────────────────────────────────────
+
     return result
 
 
