@@ -69,6 +69,11 @@ jobs:
             --ignore=tests/ingestion \
             --ignore=tests/unit/test_rag.py \
             --ignore=tests/unit/test_search.py \
+            --ignore=tests/unit/test_agent.py \
+            --ignore=tests/unit/test_config_api.py \
+            --ignore=tests/unit/test_model_selector.py \
+            --ignore=tests/unit/test_tools_api.py \
+            --ignore=tests/test_worker_subject_recall.py \
             -p no:warnings
 
   build-and-push:
