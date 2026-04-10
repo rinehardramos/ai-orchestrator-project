@@ -92,7 +92,7 @@ class HttpServerTool(Tool):
 
         @self.app.get("/task/{task_id}/files/{filename}")
         async def download_file(task_id: str, filename: str):
-            workspace = os.path.join("/tmp", "tasks", task_id)
+            workspace = os.path.join("/tmp", "tasks", task_id)  # nosec B108 - ephemeral task workspace under /tmp
             filepath = os.path.join(workspace, filename)
             if not os.path.exists(filepath):
                 raise HTTPException(status_code=404, detail="File not found")

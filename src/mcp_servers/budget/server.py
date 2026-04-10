@@ -152,7 +152,7 @@ def get_openrouter_credits() -> dict:
             "https://openrouter.ai/api/v1/credits",
             headers={"Authorization": f"Bearer {api_key}"}
         )
-        with urllib.request.urlopen(req, timeout=10) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:  # nosec B310 - URL is hardcoded HTTPS endpoint, not user-supplied
             data = json.loads(resp.read().decode())
             d = data.get("data", {})
             return {

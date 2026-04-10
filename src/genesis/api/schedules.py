@@ -388,13 +388,13 @@ async def get_daemon_status():
     if is_running:
         try:
             import os
-            stat = os.popen(f"ps -p {pids[0]} -o etime=").read().strip()
+            stat = os.popen(f"ps -p {pids[0]} -o etime=").read().strip()  # nosec B605 - pid is an integer from psutil, not user input
             status["uptime"] = stat
         except:
             pass
     
     try:
-        with open("/tmp/scheduler.log", "r") as f:
+        with open("/tmp/scheduler.log", "r") as f:  # nosec B108 - read-only log file, known fixed path
             lines = f.readlines()[-20:]
             status["last_log"] = "".join(lines)
     except:
