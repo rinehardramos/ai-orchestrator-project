@@ -35,6 +35,27 @@ _OFFLINE_DB = Path(
 )
 
 
+def _ensure_task_subjects_table() -> None:
+    """Create task_subjects table in the offline queue SQLite DB if absent."""
+    _OFFLINE_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(_OFFLINE_DB))
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_subjects (
+                subject      TEXT PRIMARY KEY,
+                qdrant_key   TEXT NOT NULL,
+                last_task_id TEXT,
+                last_run_at  TEXT,
+                created_at   TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+_ensure_task_subjects_table()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Auth
 # ─────────────────────────────────────────────────────────────────────────────
