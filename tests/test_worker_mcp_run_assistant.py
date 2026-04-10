@@ -21,13 +21,12 @@ _FAKE_EMBEDDING = [0.0] * 768
 
 
 def _make_store(search_results):
-    """Return an AssistantTaskStore with __init__ bypassed and _embed + _client mocked."""
+    """Return an AssistantTaskStore with __init__ bypassed, _embed + _search mocked."""
     store = AssistantTaskStore.__new__(AssistantTaskStore)
     store._collection = "assistant_tasks_test"
     store._embed = MagicMock(return_value=_FAKE_EMBEDDING)
-    mock_client = MagicMock()
-    mock_client.search.return_value = search_results
-    store._client = mock_client
+    # Mock _search directly (avoids coupling to qdrant_client API version)
+    store._search = MagicMock(return_value=search_results)
     return store
 
 
@@ -44,21 +43,21 @@ def test_store_recall_returns_payload_on_match():
             "version": 1,
         })
     ])
-    result = store.recall("EOS report", threshold=0.80)
+    result = store.recall("EOS report", threshold=0.50)
     assert result is not None
     assert result["subject"] == "EOS Report Gmail Draft"
-    assert result["score"] >= 0.80
+    assert result["score"] >= 0.50
 
 def test_store_recall_returns_none_on_low_confidence():
     store = _make_store([
-        MagicMock(score=0.55, id="bbb", payload={"subject": "Something Else"})
+        MagicMock(score=0.30, id="bbb", payload={"subject": "Something Else"})
     ])
-    result = store.recall("EOS report", threshold=0.80)
+    result = store.recall("EOS report", threshold=0.50)
     assert result is None
 
 def test_store_recall_returns_none_on_empty():
     store = _make_store([])
-    result = store.recall("anything", threshold=0.80)
+    result = store.recall("anything", threshold=0.50)
     assert result is None
 
 

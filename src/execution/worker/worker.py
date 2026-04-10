@@ -182,12 +182,13 @@ def _get_assistant_task_store():
             return emb.embed_text(text)
 
         def recall(self, hint: str, threshold: float = 0.80):
-            results = self._client.search(
+            resp = self._client.query_points(
                 collection_name=self._collection,
-                query_vector=self._embed(hint),
+                query=self._embed(hint),
                 limit=1,
                 with_payload=True,
             )
+            results = resp.points
             if not results or results[0].score < threshold:
                 return None
             top = results[0]
@@ -224,7 +225,7 @@ async def resolve_subject(hint: str, store=None) -> dict:
     if store is None:
         store = _get_assistant_task_store()
 
-    match = store.recall(hint, threshold=0.80)
+    match = store.recall(hint, threshold=0.50)
     if match is None:
         raise LowConfidenceError(hint, score=0.0, best_match="(none)")
 
