@@ -5,10 +5,13 @@ from unittest.mock import MagicMock, patch
 import sys, os
 sys.path.insert(0, os.path.expanduser("~/.claude/mcp-servers"))
 
-from packages.worker_mcp.server import (
-    AssistantTaskStore,
-    _normalize_subject,
-)
+try:
+    from packages.worker_mcp.server import (
+        AssistantTaskStore,
+        _normalize_subject,
+    )
+except ModuleNotFoundError:
+    pytest.skip("worker_mcp package not installed (local-only)", allow_module_level=True)
 
 def test_normalize_subject_strips_dates():
     assert _normalize_subject("EOS Report Gmail Draft - 2026-04-10") == "eos report gmail draft"
