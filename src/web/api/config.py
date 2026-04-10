@@ -701,10 +701,8 @@ async def update_provider(provider_name: str, payload: ProviderUpdate):
     values.append(provider_name)
     
     try:
-        cur.execute(f"""  # nosec B608 - column names are from allowlisted keys, values are parameterized
-            UPDATE providers SET {', '.join(updates)}, updated_at = NOW()
-            WHERE name = %s
-        """, values)
+        sql = f"UPDATE providers SET {', '.join(updates)}, updated_at = NOW() WHERE name = %s"  # nosec B608 - column names are from allowlisted keys, values are parameterized
+        cur.execute(sql, values)
         conn.commit()
         
         if cur.rowcount == 0:
