@@ -669,9 +669,9 @@ agent_builder.add_edge("summarize", END)
 agent_graph = agent_builder.compile()
 
 
-@track(name="run_agent_pipeline")
-async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
-    """Run the agentic ReAct loop pipeline."""
+@track(name="run_react_loop")
+async def _run_react_loop(task_payload: dict, model_id: str) -> dict:
+    """Core ReAct loop — extracted from run_agent_pipeline for testability."""
     task_description = task_payload.get("description", "")
     repo_url = task_payload.get("repo_url", "")
     max_tool_calls = task_payload.get("max_tool_calls", AGENT_DEFAULTS["max_tool_calls"])
@@ -795,6 +795,49 @@ async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
         }
     finally:
         cleanup_workspace(workspace_dir)
+
+
+async def run_agent_pipeline(task_payload: dict, model_id: str) -> dict:
+    """Entry point: apply Subject recall pre-processing, then delegate to _run_react_loop."""
+    # ── Subject recall path ───────────────────────────────────────────────────
+    description = task_payload.get("description", "")
+    _subject_meta: dict = {}
+    if description.startswith("Subject: "):
+        subject_hint = description.removeprefix("Subject: ").strip()
+        store = _get_assistant_task_store()
+        try:
+            resolved = await resolve_subject(subject_hint, store)
+            task_payload = {**task_payload, "description": resolved["task_description"]}
+            _subject_meta = {
+                "qdrant_key": resolved["qdrant_key"],
+                "subject": resolved["subject"],
+                "required_tools": resolved["required_tools"],
+                "store": store,
+            }
+            preflight_tools(resolved["required_tools"])
+            logger.info(f"[SUBJECT RECALL] {resolved['subject']!r} resolved, tools verified")
+        except LowConfidenceError as exc:
+            logger.error(f"[SUBJECT RECALL] {exc}")
+            return {
+                "status": "error",
+                "summary": str(exc),
+                "total_cost_usd": 0.0,
+                "tool_call_count": 0,
+                "artifact_files": [],
+            }
+        except ToolUnavailableError as exc:
+            logger.error(f"[SUBJECT RECALL] {exc}")
+            return {
+                "status": "error",
+                "summary": str(exc),
+                "total_cost_usd": 0.0,
+                "tool_call_count": 0,
+                "artifact_files": [],
+            }
+    # ── end Subject recall path ───────────────────────────────────────────────
+
+    result = await _run_react_loop(task_payload, model_id)
+    return result
 
 
 def _collect_artifacts(workspace_dir: str, max_size_bytes: int = 50 * 1024 * 1024) -> list[dict]:

@@ -171,3 +171,38 @@ def test_preflight_passes_for_known_tools():
     from src.execution.worker.worker import preflight_tools
     # shell_exec should always be registered
     preflight_tools(["shell_exec"])  # should not raise
+
+
+import asyncio as _asyncio
+from unittest.mock import AsyncMock, patch
+
+
+def test_run_agent_pipeline_routes_subject_task():
+    """When task_description starts with 'Subject: ', resolve_subject is called."""
+    from src.execution.worker.worker import run_agent_pipeline
+
+    subject_payload = {
+        "description": "Subject: EOS Report Gmail Draft",
+        "specialization": "assistant",
+        "max_tool_calls": 5,
+        "max_cost_usd": 0.10,
+    }
+
+    mock_store = MagicMock()
+    mock_store.recall.return_value = {
+        "subject": "EOS Report Gmail Draft",
+        "qdrant_key": "aaa",
+        "score": 0.92,
+        "steps": [{"n": 1, "action": "shell_exec", "params": {"command": "echo hello"}}],
+        "required_tools": ["shell_exec"],
+    }
+
+    async def _run():
+        with patch("src.execution.worker.worker._get_assistant_task_store", return_value=mock_store), \
+             patch("src.execution.worker.worker._run_react_loop", new_callable=AsyncMock) as mock_loop:
+            mock_loop.return_value = {"status": "completed", "summary": "done", "total_cost_usd": 0.0, "tool_call_count": 1, "artifact_files": []}
+            result = await run_agent_pipeline(subject_payload, "gemma-4b")
+        mock_store.recall.assert_called_once()
+        assert result["status"] == "completed"
+
+    _asyncio.run(_run())
